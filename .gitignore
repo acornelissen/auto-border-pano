@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Images (optional - uncomment if you don't want to track test images)
+# *.jpg
+# *.jpeg
+# *.JPG
+# *.JPEG
+# *.png
+# *.PNG
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test outputs (if you have a specific test output directory)
+test_output/
+temp/
