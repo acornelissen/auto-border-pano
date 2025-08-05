@@ -18,21 +18,109 @@ A Python tool for automatically processing panoramic images into social media-re
 
 ## Requirements
 
-- Python 3
-- Pillow (PIL)
+- Python 3.7 or higher
+- Pillow (PIL) for image processing
+- tkinter (GUI support) - included with Python on Windows/macOS, requires separate installation on Linux
+- macOS: Homebrew package manager (recommended)
 
-## Installation
+## Quick Installation
 
-1. Clone or download this repository
-2. Install the required dependency:
+### Option 1: Automated Installation (Recommended)
 
+**macOS:**
 ```bash
-pip install Pillow
+chmod +x install.sh
+./install.sh
+```
+This will:
+- Install Python 3 via Homebrew (if needed)
+- Install image processing libraries via Homebrew
+- Create a virtual environment
+- Install Pillow with proper Homebrew linking
+- tkinter is included with Homebrew Python
+
+**Linux:**
+```bash
+chmod +x install.sh
+./install.sh
+```
+This will:
+- Check and install tkinter if needed (python3-tk package)
+- Auto-detect your package manager (apt, dnf, yum, zypper, pacman)
+- Create a virtual environment
+- Install all dependencies
+
+**Windows:**
+```batch
+install.bat
+```
+
+The installer will:
+- Set up all dependencies
+- Create a virtual environment
+- Provide instructions for running the app
+
+### Option 2: Manual Installation
+
+**macOS (using Homebrew):**
+```bash
+# Install dependencies via Homebrew
+brew install python@3 libjpeg libtiff little-cms2 openjpeg webp
+
+# Create virtual environment
+python3 -m venv venv
+
+# Activate virtual environment
+source venv/bin/activate
+
+# Install Pillow with Homebrew libraries
+export CPPFLAGS="-I$(brew --prefix)/include"
+export LDFLAGS="-L$(brew --prefix)/lib"
+pip install -r requirements.txt
+```
+
+**Linux/Windows:**
+```bash
+# Create virtual environment
+python3 -m venv venv
+
+# Activate virtual environment
+source venv/bin/activate  # Linux
+# or
+venv\Scripts\activate     # Windows
+
+# Install dependencies
+pip install -r requirements.txt
 ```
 
 ## Usage
 
-### Single File Processing
+### GUI Mode (Recommended)
+
+**Quick Launch (auto-activates virtual environment):**
+- **macOS/Linux:** `./run_gui.sh`
+- **Windows:** `run_gui.bat`
+
+**Or manually:**
+```bash
+# Activate virtual environment first
+source venv/bin/activate  # macOS/Linux
+# or
+venv\Scripts\activate     # Windows
+
+# Then run the GUI
+python panorama_splitter_gui.py
+```
+
+Features:
+- Visual file/folder selection
+- Real-time progress tracking
+- Preview of processed images
+- Automatic output path suggestions
+
+### Command Line Mode
+
+#### Single File Processing
 
 Process a single panoramic image:
 
@@ -46,7 +134,7 @@ Process with custom output prefix:
 python panorama_splitter.py input_panorama.jpg my_custom_prefix
 ```
 
-### Folder Processing
+#### Folder Processing
 
 Process all JPG files in a folder:
 
@@ -56,19 +144,28 @@ python panorama_splitter.py ./input_folder ./output_folder
 
 ### Examples
 
-1. **Basic single file:**
+1. **GUI mode:**
+   ```bash
+   python panorama_splitter_gui.py
+   ```
+   - Click "Browse File" to select a single panorama
+   - Click "Browse Folder" to process multiple images
+   - Click "Process Images" to start
+   - View previews of the generated images
+
+2. **Command line - single file:**
    ```bash
    python panorama_splitter.py vacation_pano.jpg
    ```
    Creates: `output_1_padded_square.jpg`, `output_2_section1.jpg`, `output_3_section2.jpg`, `output_4_section3.jpg`
 
-2. **Single file with custom prefix:**
+3. **Command line - custom prefix:**
    ```bash
    python panorama_splitter.py sunset.jpg hawaii_sunset
    ```
    Creates: `hawaii_sunset_1_padded_square.jpg`, `hawaii_sunset_2_section1.jpg`, etc.
 
-3. **Process entire photo folder:**
+4. **Command line - batch processing:**
    ```bash
    python panorama_splitter.py ~/Pictures/Panoramas ~/Pictures/Panoramas_Processed
    ```
