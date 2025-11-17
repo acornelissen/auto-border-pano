@@ -1,5 +1,7 @@
 # Auto Border Pano
 
+![auto-border-pano GUI](gui.png)
+
 A Python tool for automatically processing panoramic images into social media-ready formats. This tool takes panoramic JPG images and creates four outputs:
 
 1. **Padded Square**: The full panorama in a square frame with 100px side padding and 10px top/bottom padding
