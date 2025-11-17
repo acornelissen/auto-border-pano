@@ -4,7 +4,7 @@
 
 A Python tool for automatically processing panoramic images into social media-ready formats. This tool takes panoramic JPG images and creates four outputs:
 
-1. **Padded Square**: The full panorama in a square frame with 100px side padding and 10px top/bottom padding
+1. **Padded Square**: The full panorama in a square frame with 10px side padding and 100px top/bottom padding
 2. **Left Section**: A 1080x1080 square crop of the left third of the panorama
 3. **Middle Section**: A 1080x1080 square crop of the middle third of the panorama
 4. **Right Section**: A 1080x1080 square crop of the right third of the panorama
