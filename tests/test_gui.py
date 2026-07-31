@@ -6,7 +6,9 @@ stub root with an `.after` that runs the callback immediately is enough to
 exercise them headlessly.
 """
 
+import threading
 from pathlib import Path
+from tkinter import messagebox
 from typing import Any
 
 import pytest
@@ -139,8 +141,140 @@ def test_finish_reenables_button_even_if_update_preview_raises() -> None:
 class _StubVar:
     """Stand-in for a tk.DoubleVar/StringVar that just records the last value."""
 
-    def __init__(self) -> None:
-        self.value: Any = None
+    def __init__(self, value: Any = None) -> None:
+        self.value: Any = value
 
     def set(self, value: Any) -> None:
         self.value = value
+
+    def get(self) -> Any:
+        return self.value
+
+
+class _StubButton:
+    def __init__(self) -> None:
+        self.last_state: str | None = None
+
+    def config(self, state: str) -> None:
+        self.last_state = state
+
+
+def test_process_images_threads_the_selected_ratio_not_the_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """process_images is the only code that reads self.ratio.get() and hands it
+    to the worker thread. If the combobox were bound to the wrong StringVar, or
+    process_images passed the default instead of the selection, every other
+    test would still pass while the GUI silently ignored the user's choice.
+    """
+    source = tmp_path / "pano.jpg"
+    synthetic_panorama(600, 200).save(source, "JPEG", quality=95)
+    non_default_ratio = "1.91:1"
+    assert non_default_ratio != pipeline.DEFAULT_RATIO.name
+
+    captured: dict[str, Any] = {}
+
+    class _StubThread:
+        def __init__(self, target: Any, args: tuple[Any, ...], daemon: bool) -> None:
+            captured["target"] = target
+            captured["args"] = args
+            captured["daemon"] = daemon
+
+        def start(self) -> None:
+            captured["started"] = True
+
+    monkeypatch.setattr(threading, "Thread", _StubThread)
+
+    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
+    app.input_path = _StubVar(str(source))  # type: ignore[assignment]
+    app.output_path = _StubVar(str(tmp_path / "out"))  # type: ignore[assignment]
+    app.is_folder_mode = _StubVar(False)  # type: ignore[assignment]
+    app.progress = _StubVar()  # type: ignore[assignment]
+    app.status = _StubVar()  # type: ignore[assignment]
+    app.ratio = _StubVar(non_default_ratio)  # type: ignore[assignment]
+    app.process_btn = _StubButton()  # type: ignore[assignment]
+
+    app.process_images()
+
+    assert captured.get("started") is True
+    assert captured["args"] == (str(source), str(tmp_path / "out"), non_default_ratio)
+    assert captured["target"] == app._run_single
+
+
+def test_process_images_rejects_empty_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "pano.jpg"
+    synthetic_panorama(600, 200).save(source, "JPEG", quality=95)
+
+    errors: list[tuple[str, str]] = []
+    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
+    app.input_path = _StubVar(str(source))  # type: ignore[assignment]
+    app.output_path = _StubVar("")  # type: ignore[assignment]
+
+    monkeypatch.setattr(messagebox, "showerror", lambda title, msg: errors.append((title, msg)))
+    app.process_images()
+
+    assert errors, "empty output path should have raised an error dialog"
+
+
+def test_finish_message_reports_count_and_ratio(monkeypatch: pytest.MonkeyPatch) -> None:
+    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
+    stub_root = _StubRoot()
+    app.root = stub_root  # type: ignore[assignment]
+
+    written = [Path("/tmp/out_1_padded.jpg"), Path("/tmp/out_2_section1.jpg")]
+    monkeypatch.setattr(pipeline, "process_image", lambda *a, **k: written)
+    finished: list[tuple[str, str | None, int | None, str | None]] = []
+    app._finish = lambda message, prefix, count, error: finished.append(  # type: ignore[method-assign]
+        (message, prefix, count, error)
+    )
+
+    app._run_single("src.jpg", "out", "1.91:1")
+
+    assert finished == [("Wrote 1 detail frames at 1.91:1", "out", 1, None)]
+
+
+def test_finish_batch_reports_count_and_ratio(monkeypatch: pytest.MonkeyPatch) -> None:
+    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
+    app.progress = _StubVar()  # type: ignore[assignment]
+    app.status = _StubVar()  # type: ignore[assignment]
+    app.process_btn = _StubButton()  # type: ignore[assignment]
+    app.update_preview = lambda *a, **k: None  # type: ignore[method-assign]
+
+    result = pipeline.BatchResult(
+        written=[Path("/tmp/a_1_padded.jpg")],
+        last_prefix=Path("/tmp/a"),
+        last_count=1,
+        succeeded_count=1,
+    )
+
+    messages: list[tuple[str, str]] = []
+    monkeypatch.setattr(messagebox, "showinfo", lambda title, msg: messages.append((title, msg)))
+    app._finish_batch(result, "1.91:1")
+
+    assert app.status.value == "Wrote 1 of 1 images at 1.91:1"  # type: ignore[attr-defined]
+    assert messages == [("Success", "Wrote 1 of 1 images at 1.91:1")]
+
+
+def test_finish_batch_reports_no_panoramas_found_instead_of_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A JPEG-free folder gives succeeded_count=0, failed=[], total_count=0.
+    Showing a green "Success" dialog for that would tell the user files were
+    written when nothing was processed at all.
+    """
+    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
+    app.progress = _StubVar()  # type: ignore[assignment]
+    app.status = _StubVar()  # type: ignore[assignment]
+    app.process_btn = _StubButton()  # type: ignore[assignment]
+
+    result = pipeline.BatchResult()
+    assert result.total_count == 0
+
+    messages: list[tuple[str, str]] = []
+    monkeypatch.setattr(messagebox, "showinfo", lambda title, msg: messages.append((title, msg)))
+    app._finish_batch(result, pipeline.DEFAULT_RATIO.name)
+
+    assert messages == [("No panoramas found", "No JPG files found in the input folder")]
+    assert app.process_btn.last_state == "normal"  # type: ignore[attr-defined]
