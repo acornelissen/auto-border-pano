@@ -60,6 +60,31 @@ def test_render_requires_one_box_per_image() -> None:
         compose.render(images, solved, geometry.SQUARE)
 
 
+def test_rendered_dark_pixel_count_matches_the_solved_box_areas() -> None:
+    # Probing one centre pixel per panel (as above) would still pass if the
+    # renderer pasted at the wrong offset or resized a panel to the wrong
+    # size, so long as the centre happened to land on the panel's own
+    # colour. Render every panel a known dark colour on the white canvas and
+    # count dark pixels instead: that total can only match the solver's own
+    # box areas if every panel was actually placed and sized correctly.
+    dark = (10, 10, 10)
+    images = [_image(900, 300, dark), _image(300, 900, dark), _image(600, 600, dark)]
+    aspects = [im.width / im.height for im in images]
+    for ratio in geometry.RATIOS.values():
+        solved = layout.solve(aspects, ratio, PADDING)
+        result = compose.render(images, solved, ratio)
+
+        expected_area = sum(box.width * box.height for box in solved.boxes)
+        dark_pixels = sum(
+            1
+            for y in range(result.height)
+            for x in range(result.width)
+            if result.getpixel((x, y)) == dark
+        )
+
+        assert dark_pixels == expected_area, ratio.name
+
+
 def test_extreme_aspect_ratio_with_small_height() -> None:
     # Regression: extreme aspect ratios with small heights should not cause false rejections.
     # layout._place rounds each dimension independently, so there can be accumulated

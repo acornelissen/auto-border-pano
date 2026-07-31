@@ -123,6 +123,12 @@ def _place(
     if isinstance(node, Leaf):
         w = math.floor(width + 0.5)
         h = math.floor(height + 0.5)
+        # This floor is ">= 1px", not ">= 1px and aspect-faithful". With an
+        # extreme mix of aspects (a >6:1 panel beside a <1:5 one) a panel can
+        # clear this check while still rendering only a few pixels on its
+        # short axis, well off its own aspect ratio -- rounding at that
+        # scale can dominate the true shape. Unreachable with real
+        # photographs, but do not read this guard as a quality guarantee.
         if w < 1 or h < 1:
             return False
         out[node.index] = Box(math.floor(x + 0.5), math.floor(y + 0.5), w, h)
