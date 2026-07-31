@@ -42,7 +42,7 @@ install.bat
 
 **GUI:** `mise run gui` (or `run_gui.bat` on Windows). The window is a
 two-tab notebook: **Split** for the single-panorama/batch workflow below,
-and **Diptych / Triptych** for composing two or three photos into one frame
+and **Compose** for composing two or three photos into one frame
 (see [Diptychs and triptychs](#diptychs-and-triptychs)).
 
 **CLI:**
@@ -62,13 +62,13 @@ Run `uv run pano-split --help` for all options. Folder mode writes to
    mise run gui
    ```
    On the **Split** tab:
-   - Click "Browse File" to select a single panorama
-   - Click "Browse Folder" to process multiple images
+   - Click "Choose file" to select a single panorama
+   - Click "Choose folder" to process multiple images
    - Pick a target ratio
-   - Click "Process Images" to start
+   - Click "Cut frames" to start
    - View previews of the generated images
 
-   Switch to the **Diptych / Triptych** tab to compose two or three photos
+   Switch to the **Compose** tab to compose two or three photos
    into one frame instead — see
    [Diptychs and triptychs](#diptychs-and-triptychs).
 

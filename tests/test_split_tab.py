@@ -39,7 +39,7 @@ def test_run_single_survives_non_oserror_failure(
     app._run_single(str(tmp_path / "pano.jpg"), str(tmp_path / "out"), pipeline.DEFAULT_RATIO.name)
 
     assert stub_root.calls, "root.after was never scheduled -- worker died silently"
-    assert finished == [("Failed", None, None, "synthetic bomb")]
+    assert finished == [("Could not cut pano.jpg — synthetic bomb", None, None, "synthetic bomb")]
 
 
 def test_run_batch_survives_non_oserror_failure(
@@ -70,7 +70,7 @@ def test_run_batch_survives_non_oserror_failure(
     app._run_batch(str(source_dir), str(tmp_path / "out"), pipeline.DEFAULT_RATIO.name)
 
     assert stub_root.calls, "root.after was never scheduled -- worker died silently"
-    assert finished == [("Failed", None, None, "synthetic bomb")]
+    assert finished == [("Could not cut in — synthetic bomb", None, None, "synthetic bomb")]
 
 
 def test_finish_reenables_button_even_if_update_preview_raises() -> None:
@@ -92,6 +92,7 @@ def test_finish_reenables_button_even_if_update_preview_raises() -> None:
     app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
     app.progress = StubVar()  # type: ignore[assignment]
     app.status = StubVar()  # type: ignore[assignment]
+    app.error = StubVar("")  # type: ignore[assignment]
     app.process_btn = _StubButton()  # type: ignore[assignment]
 
     def boom(*_args: Any, **_kwargs: Any) -> None:
@@ -138,6 +139,7 @@ def test_process_images_threads_the_selected_ratio_not_the_default(
     app.is_folder_mode = StubVar(False)  # type: ignore[assignment]
     app.progress = StubVar()  # type: ignore[assignment]
     app.status = StubVar()  # type: ignore[assignment]
+    app.error = StubVar("")  # type: ignore[assignment]
     app.ratio = StubVar(non_default_label)  # type: ignore[assignment]
     app.process_btn = StubButton()  # type: ignore[assignment]
 
@@ -179,6 +181,7 @@ def test_process_images_falls_back_to_default_ratio_for_an_unrecognised_label(
     app.is_folder_mode = StubVar(False)  # type: ignore[assignment]
     app.progress = StubVar()  # type: ignore[assignment]
     app.status = StubVar()  # type: ignore[assignment]
+    app.error = StubVar("")  # type: ignore[assignment]
     app.ratio = StubVar("Not A Real Label (9:9)")  # type: ignore[assignment]
     app.process_btn = StubButton()  # type: ignore[assignment]
 
@@ -193,24 +196,63 @@ def test_process_images_falls_back_to_default_ratio_for_an_unrecognised_label(
     assert captured["target"] == app._run_single
 
 
-def test_process_images_rejects_empty_output(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_process_images_rejects_empty_output(tmp_path: Path) -> None:
+    """The old empty-output error was a modal titled "Error". It is now an
+    inline label, so assert on the label's variable, not on messagebox.
+    """
     source = tmp_path / "pano.jpg"
     synthetic_panorama(600, 200).save(source, "JPEG", quality=95)
 
-    errors: list[tuple[str, str]] = []
     app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
     app.input_path = StubVar(str(source))  # type: ignore[assignment]
     app.output_path = StubVar("")  # type: ignore[assignment]
+    app.error = StubVar("")  # type: ignore[assignment]
 
-    monkeypatch.setattr(messagebox, "showerror", lambda title, msg: errors.append((title, msg)))
     app.process_images()
 
-    assert errors, "empty output path should have raised an error dialog"
+    assert app.error.value == "Choose where the frames should go."  # type: ignore[attr-defined]
 
 
-def test_finish_message_reports_count_and_ratio(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_process_images_reports_a_missing_input_in_the_inline_error_label(
+    tmp_path: Path,
+) -> None:
+    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
+    app.input_path = StubVar(str(tmp_path / "gone.jpg"))  # type: ignore[assignment]
+    app.output_path = StubVar(str(tmp_path / "out"))  # type: ignore[assignment]
+    app.error = StubVar("stale message from the last run")  # type: ignore[assignment]
+
+    app.process_images()
+
+    expected = "That file is not there any more. Choose another negative."
+    assert app.error.value == expected  # type: ignore[attr-defined]
+
+
+def test_process_images_uses_no_error_modal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Input validation must never open a dialog: the message belongs next to
+    the control the user has to fix.
+    """
+    dialogs: list[tuple[str, str]] = []
+    monkeypatch.setattr(messagebox, "showerror", lambda title, msg: dialogs.append((title, msg)))
+
+    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
+    app.input_path = StubVar(str(tmp_path / "gone.jpg"))  # type: ignore[assignment]
+    app.output_path = StubVar("")  # type: ignore[assignment]
+    app.error = StubVar("")  # type: ignore[assignment]
+
+    app.process_images()
+
+    assert dialogs == []
+
+
+def test_finish_message_counts_every_frame_and_names_the_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The sentence counts all frames written, including the whole-panorama
+    frame, so it agrees with the "Cut frames" button. `update_preview` still
+    gets the detail count.
+    """
     app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
     stub_root = StubRoot()
     app.root = stub_root  # type: ignore[assignment]
@@ -224,52 +266,141 @@ def test_finish_message_reports_count_and_ratio(monkeypatch: pytest.MonkeyPatch)
 
     app._run_single("src.jpg", "out", "1.91:1")
 
-    assert finished == [("Wrote 1 detail frames at Landscape (1.91:1)", "out", 1, None)]
+    assert finished == [("Cut 2 frames at 1.91:1 into out", "out", 1, None)]
 
 
-def test_finish_batch_reports_count_and_ratio(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_finish_shows_no_success_modal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The success modal covered the previews it was announcing. It is gone,
+    and this test exists so it cannot come back unnoticed.
+    """
+    modals: list[tuple[str, str]] = []
+    monkeypatch.setattr(messagebox, "showinfo", lambda title, msg: modals.append((title, msg)))
+
     app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
     app.progress = StubVar()  # type: ignore[assignment]
     app.status = StubVar()  # type: ignore[assignment]
+    app.error = StubVar("")  # type: ignore[assignment]
+    app.process_btn = StubButton()  # type: ignore[assignment]
+    app.update_preview = lambda *a, **k: None  # type: ignore[method-assign]
+
+    app._finish("Cut 2 frames at 4:5 into out", "out", 1, None)
+
+    assert modals == []
+    assert app.status.value == "Cut 2 frames at 4:5 into out"  # type: ignore[attr-defined]
+
+
+def test_finish_reports_a_processing_failure_inline_and_never_in_a_dialog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failure the user did not cause must not be silent -- but it must not
+    be a modal either. The status line already carries the sentence, so a
+    dialog on top of it is the same message twice with a click attached."""
+    dialogs: list[tuple[str, str]] = []
+    monkeypatch.setattr(messagebox, "showerror", lambda title, msg: dialogs.append((title, msg)))
+
+    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
+    app.progress = StubVar()  # type: ignore[assignment]
+    app.status = StubVar()  # type: ignore[assignment]
+    app.error = StubVar("")  # type: ignore[assignment]
+    app.process_btn = StubButton()  # type: ignore[assignment]
+
+    app._finish("Could not cut pano.jpg — broken", None, None, "broken")
+
+    assert dialogs == []
+    assert app.status.value == "Could not cut pano.jpg — broken"  # type: ignore[attr-defined]
+    assert app.error.value == "broken"  # type: ignore[attr-defined]
+
+
+def test_finish_batch_reports_negatives_and_frames(monkeypatch: pytest.MonkeyPatch) -> None:
+    modals: list[tuple[str, str]] = []
+    monkeypatch.setattr(messagebox, "showinfo", lambda title, msg: modals.append((title, msg)))
+
+    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
+    app.progress = StubVar()  # type: ignore[assignment]
+    app.status = StubVar()  # type: ignore[assignment]
+    app.error = StubVar("")  # type: ignore[assignment]
     app.process_btn = StubButton()  # type: ignore[assignment]
     app.update_preview = lambda *a, **k: None  # type: ignore[method-assign]
 
     result = pipeline.BatchResult(
-        written=[Path("/tmp/a_1_padded.jpg")],
+        written=[Path("/tmp/a_1_padded.jpg"), Path("/tmp/a_2_section1.jpg")],
         last_prefix=Path("/tmp/a"),
         last_count=1,
         succeeded_count=1,
     )
 
-    messages: list[tuple[str, str]] = []
-    monkeypatch.setattr(messagebox, "showinfo", lambda title, msg: messages.append((title, msg)))
     app._finish_batch(result, "1.91:1")
 
-    assert app.status.value == "Wrote 1 of 1 images at Landscape (1.91:1)"  # type: ignore[attr-defined]
-    assert messages == [("Success", "Wrote 1 of 1 images at Landscape (1.91:1)")]
+    assert app.status.value == "Cut 1 negatives at 1.91:1. 2 frames written."  # type: ignore[attr-defined]
+    assert modals == []
 
 
-def test_finish_batch_reports_no_panoramas_found_instead_of_success(
+def test_finish_batch_names_every_failed_file_and_keeps_the_reason(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A JPEG-free folder gives succeeded_count=0, failed=[], total_count=0.
-    Showing a green "Success" dialog for that would tell the user files were
-    written when nothing was processed at all.
+    """The old partial-failure warning modal is gone; the status names the
+    files and the inline error label keeps the reasons.
     """
+    warnings: list[tuple[str, str]] = []
+    monkeypatch.setattr(messagebox, "showwarning", lambda title, msg: warnings.append((title, msg)))
+
     app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
     app.progress = StubVar()  # type: ignore[assignment]
     app.status = StubVar()  # type: ignore[assignment]
+    app.error = StubVar("")  # type: ignore[assignment]
+    app.process_btn = StubButton()  # type: ignore[assignment]
+    app.update_preview = lambda *a, **k: None  # type: ignore[method-assign]
+
+    result = pipeline.BatchResult(
+        written=[Path("/tmp/a_1_padded.jpg")],
+        failed=[(Path("/tmp/b.jpg"), "portrait input")],
+        last_prefix=Path("/tmp/a"),
+        last_count=1,
+        succeeded_count=1,
+    )
+
+    app._finish_batch(result, "1.91:1")
+
+    assert app.status.value == "Cut 1 of 2 negatives. b.jpg could not be read."  # type: ignore[attr-defined]
+    assert app.error.value == "b.jpg: portrait input"  # type: ignore[attr-defined]
+    assert warnings == []
+
+
+def test_finish_batch_reports_an_empty_folder_in_the_status_line(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A JPEG-free folder gives succeeded_count=0, failed=[], total_count=0.
+    That used to be an informational modal; the status line carries it now,
+    and it must still not read as success.
+    """
+    modals: list[tuple[str, str]] = []
+    monkeypatch.setattr(messagebox, "showinfo", lambda title, msg: modals.append((title, msg)))
+
+    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
+    app.progress = StubVar()  # type: ignore[assignment]
+    app.status = StubVar()  # type: ignore[assignment]
+    app.error = StubVar("")  # type: ignore[assignment]
     app.process_btn = StubButton()  # type: ignore[assignment]
 
     result = pipeline.BatchResult()
     assert result.total_count == 0
 
-    messages: list[tuple[str, str]] = []
-    monkeypatch.setattr(messagebox, "showinfo", lambda title, msg: messages.append((title, msg)))
     app._finish_batch(result, pipeline.DEFAULT_RATIO.name)
 
-    assert messages == [("No panoramas found", "No JPG files found in the input folder")]
+    expected = "No JPGs in that folder. Auto Border Pano reads .jpg and .jpeg."
+    assert app.status.value == expected  # type: ignore[attr-defined]
+    assert modals == []
     assert app.process_btn.last_state == "normal"  # type: ignore[attr-defined]
+
+
+def test_set_progress_names_the_negative(monkeypatch: pytest.MonkeyPatch) -> None:
+    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
+    app.progress = StubVar()  # type: ignore[assignment]
+    app.status = StubVar()  # type: ignore[assignment]
+
+    app._set_progress(0, 3, "horizons3-hp5-4.jpg")
+
+    assert app.status.value == "Negative 1 of 3 · horizons3-hp5-4.jpg"  # type: ignore[attr-defined]
 
 
 def test_split_tab_builds_under_a_notebook_page_with_working_previews(tmp_path: Path) -> None:

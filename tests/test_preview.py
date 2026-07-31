@@ -1,16 +1,25 @@
 """Tests for the preview widget and titles shared by both GUI tabs."""
 
+from pathlib import Path
+
 from auto_border_pano import gui, pipeline
 
 
 def test_preview_titles_track_the_frame_count() -> None:
-    assert gui.preview_titles(2) == ["Whole", "Detail 1", "Detail 2"]
+    """Frame numbers run 1..N+1 across the whole strip, and only the first
+    frame holds the whole panorama.
+    """
+    assert gui.preview_titles(2) == [
+        "FRAME 1 · WHOLE PANORAMA",
+        "FRAME 2 · DETAIL",
+        "FRAME 3 · DETAIL",
+    ]
     assert gui.preview_titles(4) == [
-        "Whole",
-        "Detail 1",
-        "Detail 2",
-        "Detail 3",
-        "Detail 4",
+        "FRAME 1 · WHOLE PANORAMA",
+        "FRAME 2 · DETAIL",
+        "FRAME 3 · DETAIL",
+        "FRAME 4 · DETAIL",
+        "FRAME 5 · DETAIL",
     ]
 
 
@@ -38,5 +47,33 @@ def test_preview_panes_show_images_displays_a_pil_image_directly() -> None:
         image = Image.new("RGB", (10, 10), color="red")
 
         panes.show_images([image])
+    finally:
+        root.destroy()
+
+
+def test_preview_panes_empty_and_unreadable_states(tmp_path: Path) -> None:
+    """A pane with no file says the strip is empty; a pane whose file cannot
+    be decoded says UNREADABLE and keeps the reason for the caller.
+    """
+    import tkinter
+
+    from auto_border_pano.gui.preview import PreviewPanes
+
+    broken = tmp_path / "broken.jpg"
+    broken.write_bytes(b"not a jpeg")
+
+    root = tkinter.Tk()
+    root.withdraw()
+    try:
+        panes = PreviewPanes(root, "Strip")
+        panes.rebuild(["one", "two"])
+
+        assert panes.labels[0].cget("text") == "NOTHING ON THE STRIP YET"
+
+        panes.show_paths([tmp_path / "missing.jpg", broken])
+
+        assert panes.labels[0].cget("text") == "NOTHING ON THE STRIP YET"
+        assert panes.labels[1].cget("text") == "UNREADABLE"
+        assert panes.errors and panes.errors[0].startswith("broken.jpg: ")
     finally:
         root.destroy()

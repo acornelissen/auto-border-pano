@@ -154,7 +154,7 @@ def test_both_tabs_build_on_a_themed_root(root: tkinter.Tk) -> None:
     PanoramaSplitterGUI(page)
     notebook.add(page, text="Split")
     compose = ComposeTab(notebook)
-    notebook.add(compose.frame, text="Diptych / Triptych")
+    notebook.add(compose.frame, text="Compose")
 
     assert ttk.Style(root).theme_use() == "clam"
 

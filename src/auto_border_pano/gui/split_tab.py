@@ -7,7 +7,7 @@ friendly message lives in cli.gui_main.
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, ttk
 
 from auto_border_pano import pipeline
 from auto_border_pano.gui import theme
@@ -19,8 +19,13 @@ _RATIO_BY_DISPLAY: dict[str, str] = {r.display: r.name for r in pipeline.RATIOS.
 
 
 def preview_titles(count: int) -> list[str]:
-    """Labels for the preview panes: the whole panorama plus each detail frame."""
-    return ["Whole"] + [f"Detail {n}" for n in range(1, count + 1)]
+    """Labels for the preview panes: the whole panorama plus each detail frame.
+
+    Frame numbers run 1..count+1 across the whole strip; only the first
+    frame holds the whole panorama. The caps are in the string because ttk
+    has no text-transform.
+    """
+    return ["FRAME 1 · WHOLE PANORAMA"] + [f"FRAME {n + 1} · DETAIL" for n in range(1, count + 1)]
 
 
 class PanoramaSplitterGUI:
@@ -32,6 +37,9 @@ class PanoramaSplitterGUI:
         self.is_folder_mode = tk.BooleanVar(value=False)
         self.progress = tk.DoubleVar()
         self.status = tk.StringVar(value="Ready")
+        # Inline replacement for the old error modals: a chinagraph label
+        # under the primary button, cleared at the start of every run.
+        self.error = tk.StringVar()
         self.ratio = tk.StringVar(value=pipeline.DEFAULT_RATIO.display)
 
         self._build_ui()
@@ -47,10 +55,10 @@ class PanoramaSplitterGUI:
         ttk.Entry(main, textvariable=self.input_path, width=50, style="TEntry").grid(
             row=0, column=1, sticky=(tk.W, tk.E), padx=theme.SPACE_S
         )
-        ttk.Button(main, text="Browse File", command=self.browse_file).grid(
+        ttk.Button(main, text="Choose file", command=self.browse_file).grid(
             row=0, column=2, padx=theme.SPACE_S
         )
-        ttk.Button(main, text="Browse Folder", command=self.browse_folder).grid(
+        ttk.Button(main, text="Choose folder", command=self.browse_folder).grid(
             row=0, column=3, padx=theme.SPACE_S
         )
 
@@ -58,7 +66,7 @@ class PanoramaSplitterGUI:
         ttk.Entry(main, textvariable=self.output_path, width=50, style="TEntry").grid(
             row=1, column=1, sticky=(tk.W, tk.E), padx=theme.SPACE_S
         )
-        ttk.Button(main, text="Browse", command=self.browse_output).grid(
+        ttk.Button(main, text="Choose folder", command=self.browse_output).grid(
             row=1, column=2, padx=theme.SPACE_S
         )
 
@@ -77,12 +85,12 @@ class PanoramaSplitterGUI:
         ).pack(side="left", padx=theme.SPACE_S)
         ttk.Label(
             ratio_row,
-            text="detail frames are derived from this",
+            text="Load a negative to see the frame count",
             style="Help.TLabel",
         ).pack(side="left")
 
         self.process_btn = ttk.Button(
-            main, text="Process Images", command=self.process_images, style="Primary.TButton"
+            main, text="Cut frames", command=self.process_images, style="Primary.TButton"
         )
         self.process_btn.grid(row=4, column=0, columnspan=4, pady=theme.SPACE_L)
 
@@ -95,6 +103,8 @@ class PanoramaSplitterGUI:
         ttk.Label(progress_frame, textvariable=self.status, style="Help.TLabel").grid(
             row=1, column=0, sticky=tk.W
         )
+        self.error_label = ttk.Label(progress_frame, textvariable=self.error, style="Error.TLabel")
+        self.error_label.grid(row=2, column=0, sticky=tk.W)
 
         self.previews = PreviewPanes(main, "Preview (Last Processed)")
         self.previews.frame.grid(
@@ -150,10 +160,13 @@ class PanoramaSplitterGUI:
                 self.update_preview(prefix, count)
         finally:
             self.process_btn.config(state="normal")
+        # Success is reported by the status line and the previews filling
+        # in; a modal would only cover the previews the user came to see.
+        # Failures are reported the same way, inline and in chinagraph --
+        # the status line already carries the sentence, so a dialog on top
+        # of it would be the same message twice with a click attached.
         if error is not None:
-            messagebox.showerror("Error", error)
-        else:
-            messagebox.showinfo("Success", message)
+            self.error.set(error)
 
     def _finish_batch(self, result: pipeline.BatchResult, ratio_name: str) -> None:
         """Runs on the main thread. All widget mutation happens here."""
@@ -161,42 +174,41 @@ class PanoramaSplitterGUI:
         succeeded = result.succeeded_count
         total = result.total_count
         failed = result.failed
-        ratio_display = pipeline.RATIOS[ratio_name].display
+        ratio = pipeline.RATIOS[ratio_name].name
 
         if total == 0:
-            message = "No panoramas found"
-            self.status.set(message)
+            self.status.set("No JPGs in that folder. Auto Border Pano reads .jpg and .jpeg.")
             self.process_btn.config(state="normal")
-            messagebox.showinfo("No panoramas found", "No JPG files found in the input folder")
             return
 
         if failed:
             names = ", ".join(path.name for path, _ in failed)
-            message = (
-                f"Wrote {succeeded} of {total} images at {ratio_display}, "
-                f"{len(failed)} failed: {names}"
-            )
+            message = f"Cut {succeeded} of {total} negatives. {names} could not be read."
+            # The status names the files; the reasons go to the error label
+            # so nothing the user needs to act on is lost.
+            self.error.set("; ".join(f"{path.name}: {reason}" for path, reason in failed))
         else:
-            message = f"Wrote {succeeded} of {total} images at {ratio_display}"
+            message = f"Cut {total} negatives at {ratio}. {len(result.written)} frames written."
         self.status.set(message)
         try:
             if result.last_prefix is not None and result.last_count is not None:
                 self.update_preview(str(result.last_prefix), result.last_count)
         finally:
             self.process_btn.config(state="normal")
-        if failed:
-            messagebox.showwarning("Completed with errors", message)
-        else:
-            messagebox.showinfo("Success", message)
 
     def _run_single(self, source: str, prefix: str, ratio_name: str) -> None:
         try:
             written = pipeline.process_image(source, prefix, pipeline.RATIOS[ratio_name])
         except Exception as error:
-            self.root.after(0, self._finish, "Failed", None, None, str(error))
+            message = f"Could not cut {Path(source).name} — {error}"
+            self.root.after(0, self._finish, message, None, None, str(error))
             return
+        # `count` is the detail-frame count update_preview expects; the
+        # sentence counts every frame written, so the button's verb and the
+        # number in the result agree.
         count = len(written) - 1
-        message = f"Wrote {count} detail frames at {pipeline.RATIOS[ratio_name].display}"
+        ratio = pipeline.RATIOS[ratio_name].name
+        message = f"Cut {len(written)} frames at {ratio} into {Path(prefix).name}"
         self.root.after(0, self._finish, message, prefix, count, None)
 
     def _run_batch(self, source: str, destination: str, ratio_name: str) -> None:
@@ -208,26 +220,28 @@ class PanoramaSplitterGUI:
                 source, destination, pipeline.RATIOS[ratio_name], on_progress=report
             )
         except Exception as error:
-            self.root.after(0, self._finish, "Failed", None, None, str(error))
+            message = f"Could not cut {Path(source).name} — {error}"
+            self.root.after(0, self._finish, message, None, None, str(error))
             return
         self.root.after(0, self._finish_batch, result, ratio_name)
 
     def _set_progress(self, done: int, total: int, name: str) -> None:
         self.progress.set((done + 1) / total * 100 if total else 0)
-        self.status.set(f"Processing {done + 1}/{total}: {name}")
+        self.status.set(f"Negative {done + 1} of {total} · {name}")
 
     def process_images(self) -> None:
+        self.error.set("")
         source = self.input_path.get()
         if not source or not Path(source).exists():
-            messagebox.showerror("Error", "Please select a valid input")
+            self.error.set("That file is not there any more. Choose another negative.")
             return
         destination = self.output_path.get()
         if not destination:
-            messagebox.showerror("Error", "Please select a valid output")
+            self.error.set("Choose where the frames should go.")
             return
         self.process_btn.config(state="disabled")
         self.progress.set(0)
-        self.status.set("Working...")
+        self.status.set("Cutting frames")
         # Map the displayed label back to the bare ratio name here, on the
         # main thread -- the worker thread must never touch a tkinter
         # object, only the plain string handed to it below. The lookup is

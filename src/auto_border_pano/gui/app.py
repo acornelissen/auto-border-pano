@@ -18,7 +18,8 @@ def run() -> None:
     # theme change only reliably restyles widgets created after it.
     theme.apply(root)
     root.configure(background=theme.LIGHTBOX)
-    root.title("Panorama Splitter")
+    # Not "Panorama Splitter": the second tab splits nothing.
+    root.title("Auto Border Pano")
     root.geometry("900x700")
     root.columnconfigure(0, weight=1)
     root.rowconfigure(0, weight=1)
@@ -33,6 +34,8 @@ def run() -> None:
     notebook.add(split_page, text="Split")
 
     compose = ComposeTab(notebook)
-    notebook.add(compose.frame, text="Diptych / Triptych")
+    # "Compose", not "Diptych / Triptych": the tab handles both and names
+    # the result for you, so the slash was doing a single verb's work.
+    notebook.add(compose.frame, text="Compose")
 
     root.mainloop()

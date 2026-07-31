@@ -2,13 +2,22 @@
 
 import threading
 from pathlib import Path
-from tkinter import messagebox
 from typing import Any
 
 import pytest
 
 from auto_border_pano import pipeline
 from tests.conftest import StubButton, StubVar
+
+
+class _StubLabel:
+    """Records the style a ttk.Label would have been given."""
+
+    def __init__(self) -> None:
+        self.style: str | None = None
+
+    def configure(self, style: str) -> None:
+        self.style = style
 
 
 def test_compose_tab_requires_two_or_three_images() -> None:
@@ -57,10 +66,11 @@ def test_compose_worker_reports_the_layout_name(tmp_path: Path) -> None:
     tab._run_compose(sources, str(tmp_path / "out"), "4:5")
 
     assert calls, "worker never reported back through root.after"
-    message, path, error = calls[-1]
+    message, path, error, layout_name = calls[-1]
     assert error is None
     assert path is not None
-    assert "layout" in message, f"expected the layout name in the message, got: {message!r}"
+    assert layout_name, "worker reported no layout name"
+    assert message == f"Saved out_diptych.jpg — {layout_name}, 4:5"
     assert (tmp_path / "out_diptych.jpg").exists()
 
 
@@ -81,7 +91,8 @@ def test_compose_worker_reports_failure_without_dying(tmp_path: Path) -> None:
     tab._run_compose(["/does/not/exist.jpg", "/nor/this.jpg"], str(tmp_path / "out"), "4:5")
 
     assert calls, "worker died silently instead of reporting the error"
-    _message, path, error = calls[-1]
+    message, path, error = calls[-1]
+    assert message.startswith("Could not compose — ")
     assert error is not None, "worker reported success for images that do not exist"
     assert path is None
 
@@ -109,10 +120,13 @@ def test_compose_worker_preview_does_not_write_a_file(tmp_path: Path) -> None:
     tab._run_preview(sources, "4:5")
 
     assert calls, "preview worker never reported back through root.after"
-    message, image, error = calls[-1]
+    message, image, error, layout_name = calls[-1]
     assert error is None
     assert image is not None
-    assert "layout" in message, f"expected the layout name in the message, got: {message!r}"
+    # The status line rests on what the user has configured; the solved
+    # arrangement travels separately, for the stencil under the frame.
+    assert message == "Diptych, 4:5"
+    assert layout_name, "expected the solved layout name alongside the image"
     assert set(tmp_path.iterdir()) == before, "preview must not write any file"
 
 
@@ -133,7 +147,8 @@ def test_compose_worker_preview_reports_failure_without_dying(tmp_path: Path) ->
     tab._run_preview(["/does/not/exist.jpg", "/nor/this.jpg"], "4:5")
 
     assert calls, "preview worker died silently instead of reporting the error"
-    _message, image, error = calls[-1]
+    message, image, error = calls[-1]
+    assert message.startswith("Could not compose — ")
     assert error is not None
     assert image is None
 
@@ -160,6 +175,8 @@ def test_preview_button_does_not_require_an_output_prefix(monkeypatch: pytest.Mo
     tab.status = StubVar()  # type: ignore[assignment]
     tab.preview_btn = StubButton()  # type: ignore[assignment]
     tab.save_btn = StubButton()  # type: ignore[assignment]
+    tab.hint = StubVar("")  # type: ignore[assignment]
+    tab.hint_label = _StubLabel()  # type: ignore[assignment]
 
     tab.preview()
 
@@ -168,19 +185,33 @@ def test_preview_button_does_not_require_an_output_prefix(monkeypatch: pytest.Mo
     assert captured["args"] == (["a.jpg", "b.jpg"], pipeline.DEFAULT_RATIO.name)
 
 
-def test_save_button_still_requires_an_output_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_save_without_an_output_prefix_says_so_inline(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No modal any more -- the reason and the fix go in the inline hint."""
     from auto_border_pano.gui import compose_tab
+
+    started: list[bool] = []
+
+    class _StubThread:
+        def __init__(self, target: Any, args: tuple[Any, ...], daemon: bool) -> None:
+            pass
+
+        def start(self) -> None:
+            started.append(True)
+
+    monkeypatch.setattr(threading, "Thread", _StubThread)
 
     tab = compose_tab.ComposeTab.__new__(compose_tab.ComposeTab)
     tab.images = ["a.jpg", "b.jpg"]
     tab.output_path = StubVar("")  # type: ignore[assignment]
-
-    errors: list[tuple[str, str]] = []
-    monkeypatch.setattr(messagebox, "showerror", lambda title, msg: errors.append((title, msg)))
+    hint_label = _StubLabel()
+    tab.hint = StubVar("")  # type: ignore[assignment]
+    tab.hint_label = hint_label  # type: ignore[assignment]
 
     tab.save()
 
-    assert errors, "Save without an output prefix should have raised an error dialog"
+    assert not started, "Save ran the worker without an output prefix"
+    assert tab.hint.get() == "Choose where the composite should go."
+    assert hint_label.style == "Error.TLabel"
 
 
 def test_compose_tab_builds_a_working_ratio_combobox_under_real_tk() -> None:
@@ -203,6 +234,165 @@ def test_compose_tab_builds_a_working_ratio_combobox_under_real_tk() -> None:
         assert list(tab.ratio_combo["values"]) == [r.display for r in pipeline.RATIOS.values()]
         assert tab.can_compose() is False
         assert tab.preview_btn.cget("text") == "Preview"
-        assert tab.save_btn.cget("text") == "Save"
+        assert tab.save_btn.cget("text") == "Save composite"
+        assert tab.status.get() == compose_tab.EMPTY_STATE
+        assert tab.hint.get() == compose_tab.EMPTY_STATE
+    finally:
+        root.destroy()
+
+
+def _state(button: Any) -> str:
+    return str(button.cget("state"))
+
+
+def _tk_tab() -> Any:
+    import tkinter
+
+    from auto_border_pano.gui import compose_tab
+
+    root = tkinter.Tk()
+    root.withdraw()
+    return root, compose_tab.ComposeTab(root)
+
+
+def test_add_is_disabled_once_three_images_are_listed() -> None:
+    root, tab = _tk_tab()
+    try:
+        assert _state(tab.add_btn) == "normal"
+        tab.images = ["a.jpg", "b.jpg", "c.jpg"]
+        tab._refresh_list()
+        assert _state(tab.add_btn) == "disabled"
+        tab.images = ["a.jpg", "b.jpg"]
+        tab._refresh_list()
+        assert _state(tab.add_btn) == "normal"
+    finally:
+        root.destroy()
+
+
+def test_save_and_preview_are_disabled_below_two_images_with_a_reason() -> None:
+    from auto_border_pano.gui import compose_tab
+
+    root, tab = _tk_tab()
+    try:
+        assert _state(tab.save_btn) == "disabled"
+        assert _state(tab.preview_btn) == "disabled"
+        assert tab.hint.get() == compose_tab.EMPTY_STATE
+
+        tab.images = ["a.jpg"]
+        tab._refresh_list()
+        assert _state(tab.save_btn) == "disabled"
+        assert _state(tab.preview_btn) == "disabled"
+        assert tab.hint.get() == compose_tab.ONE_MORE
+
+        tab.images = ["a.jpg", "b.jpg"]
+        tab._refresh_list()
+        assert _state(tab.save_btn) == "normal"
+        assert _state(tab.preview_btn) == "normal"
+        assert tab.hint.get() == ""
+    finally:
+        root.destroy()
+
+
+def test_save_button_names_what_it_will_write() -> None:
+    root, tab = _tk_tab()
+    try:
+        assert tab.save_btn.cget("text") == "Save composite"
+        tab.images = ["a.jpg", "b.jpg"]
+        tab._refresh_list()
+        assert tab.save_btn.cget("text") == "Save diptych"
+        tab.images = ["a.jpg", "b.jpg", "c.jpg"]
+        tab._refresh_list()
+        assert tab.save_btn.cget("text") == "Save triptych"
+    finally:
+        root.destroy()
+
+
+def test_status_names_the_composite_and_the_bare_ratio() -> None:
+    from auto_border_pano.gui import compose_tab
+
+    root, tab = _tk_tab()
+    try:
+        assert tab.status.get() == compose_tab.EMPTY_STATE
+        tab.images = ["a.jpg", "b.jpg"]
+        tab._refresh_list()
+        assert tab.status.get() == "Diptych, 4:5"
+        tab.images = ["a.jpg", "b.jpg", "c.jpg"]
+        tab._refresh_list()
+        assert tab.status.get() == "Triptych, 4:5"
+    finally:
+        root.destroy()
+
+
+def test_reorder_buttons_are_disabled_without_a_selection() -> None:
+    root, tab = _tk_tab()
+    try:
+        tab.images = ["a.jpg", "b.jpg", "c.jpg"]
+        tab._refresh_list()
+        assert _state(tab.up_btn) == "disabled"
+        assert _state(tab.down_btn) == "disabled"
+        assert _state(tab.remove_btn) == "disabled"
+    finally:
+        root.destroy()
+
+
+def test_up_is_disabled_at_the_top_and_down_at_the_bottom() -> None:
+    root, tab = _tk_tab()
+    try:
+        tab.images = ["a.jpg", "b.jpg", "c.jpg"]
+
+        tab._selection = 0
+        tab._refresh_list()
+        assert _state(tab.up_btn) == "disabled"
+        assert _state(tab.down_btn) == "normal"
+        assert _state(tab.remove_btn) == "normal"
+
+        tab._selection = 1
+        tab._refresh_list()
+        assert _state(tab.up_btn) == "normal"
+        assert _state(tab.down_btn) == "normal"
+
+        tab._selection = 2
+        tab._refresh_list()
+        assert _state(tab.up_btn) == "normal"
+        assert _state(tab.down_btn) == "disabled"
+    finally:
+        root.destroy()
+
+
+def test_finishing_a_save_opens_no_dialog(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The success modal is gone: the status line already said it."""
+    from tkinter import messagebox
+
+    def _explode(*_args: Any, **_kwargs: Any) -> None:
+        raise AssertionError("compose tab opened a dialog")
+
+    monkeypatch.setattr(messagebox, "showinfo", _explode)
+    monkeypatch.setattr(messagebox, "showerror", _explode)
+
+    root, tab = _tk_tab()
+    try:
+        tab.images = ["a.jpg", "b.jpg"]
+        tab._refresh_list()
+        tab._finish("Saved out_diptych.jpg — two up, 4:5", None, None, "two up")
+        assert tab.status.get() == "Saved out_diptych.jpg — two up, 4:5"
+    finally:
+        root.destroy()
+
+
+def test_a_compose_failure_is_reported_inline(monkeypatch: pytest.MonkeyPatch) -> None:
+    from tkinter import messagebox
+
+    def _explode(*_args: Any, **_kwargs: Any) -> None:
+        raise AssertionError("compose tab opened a dialog")
+
+    monkeypatch.setattr(messagebox, "showerror", _explode)
+
+    root, tab = _tk_tab()
+    try:
+        tab.images = ["a.jpg", "b.jpg"]
+        tab._refresh_list()
+        tab._finish("Could not compose — no such file", None, "no such file")
+        assert tab.hint.get() == "no such file"
+        assert str(tab.hint_label.cget("style")) == "Error.TLabel"
     finally:
         root.destroy()

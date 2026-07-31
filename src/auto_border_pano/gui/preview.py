@@ -25,6 +25,8 @@ class PreviewPanes:
         self.labels: list[ttk.Label] = []
         self._images: list[ImageTk.PhotoImage] = []
         self._max_columns = 0
+        # Reasons for any UNREADABLE frame in the last show_paths call.
+        self.errors: list[str] = []
 
     def rebuild(self, titles: Sequence[str]) -> None:
         """Recreate the cells. Main thread only."""
@@ -45,7 +47,7 @@ class PreviewPanes:
             ttk.Label(cell, text=title, style="Stencil.TLabel").pack()
             label = ttk.Label(
                 cell,
-                text="No preview",
+                text="NOTHING ON THE STRIP YET",
                 style="Help.TLabel",
                 background=theme.SLEEVE,
                 relief="flat",
@@ -63,16 +65,20 @@ class PreviewPanes:
     def show_paths(self, paths: Sequence[Path]) -> None:
         """Load thumbnails from files, one per existing pane."""
         images: list[ImageTk.PhotoImage] = []
+        self.errors = []
         for label, path in zip(self.labels, paths, strict=True):
             if not path.exists():
-                label.config(image="", text="No preview")
+                label.config(image="", text="NOTHING ON THE STRIP YET")
                 continue
             try:
                 with Image.open(path) as img:
                     img.thumbnail((PREVIEW_MAX_PX, PREVIEW_MAX_PX), Image.Resampling.LANCZOS)
                     photo = ImageTk.PhotoImage(img)
             except Exception as error:
-                label.config(image="", text=f"Error: {error}")
+                # The frame says UNREADABLE; the reason is kept here so a
+                # caller can put it in the status line.
+                label.config(image="", text="UNREADABLE")
+                self.errors.append(f"{path.name}: {error}")
                 continue
             images.append(photo)
             label.config(image=photo, text="")
