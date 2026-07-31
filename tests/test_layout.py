@@ -90,7 +90,17 @@ def test_extreme_aspects_still_produce_valid_boxes() -> None:
     # rounding bound; a candidate that cannot place every leaf at >=1px
     # should be rejected, and if every candidate is rejected `solve` must
     # raise rather than return a distorted layout.
-    for aspects in ([20.0, 20.0], [0.05, 0.05], [20.0, 0.05, 1.0]):
+    for aspects in (
+        [20.0, 20.0],
+        [0.05, 0.05],
+        [20.0, 0.05, 1.0],
+        # This one is not tame: at LANDSCAPE with 100px padding, the 100:1
+        # panel's ideal box genuinely rounds under 1px in several
+        # candidates. It is the exact case that demonstrated the original
+        # max(1, ...) clamp bug (a 100:1 image squashed into a 3:1 box) and
+        # is what actually exercises the rejection path in _place/evaluate.
+        [0.01, 100.0, 1.0],
+    ):
         for ratio in geometry.RATIOS.values():
             try:
                 solved = layout.solve(aspects, ratio, PADDING)
