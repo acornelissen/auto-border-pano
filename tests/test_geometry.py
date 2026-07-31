@@ -188,6 +188,23 @@ def test_ratios_are_registered_by_name() -> None:
     assert geometry.DEFAULT_RATIO is geometry.PORTRAIT
 
 
+def test_ratio_labels_and_display() -> None:
+    assert geometry.PORTRAIT.label == "Portrait"
+    assert geometry.SQUARE.label == "Square"
+    assert geometry.LANDSCAPE.label == "Landscape"
+    assert geometry.PORTRAIT.display == "Portrait (4:5)"
+    assert geometry.SQUARE.display == "Square (1:1)"
+    assert geometry.LANDSCAPE.display == "Landscape (1.91:1)"
+
+
+def test_ratios_are_ordered_narrowest_to_widest_not_alphabetical() -> None:
+    # Alphabetically "1.91:1" sorts first; presentation order must instead be
+    # Portrait, Square, Landscape, matching increasing width/height value.
+    assert list(geometry.RATIOS) == ["4:5", "1:1", "1.91:1"]
+    values = [r.value for r in geometry.RATIOS.values()]
+    assert values == sorted(values)
+
+
 def test_typical_panorama_counts_match_real_samples() -> None:
     # 2.40:1 is the most common aspect across the user's real scans.
     width, height = 7205, 2997

@@ -170,6 +170,7 @@ def test_process_images_threads_the_selected_ratio_not_the_default(
     source = tmp_path / "pano.jpg"
     synthetic_panorama(600, 200).save(source, "JPEG", quality=95)
     non_default_ratio = "1.91:1"
+    non_default_label = pipeline.RATIOS[non_default_ratio].display
     assert non_default_ratio != pipeline.DEFAULT_RATIO.name
 
     captured: dict[str, Any] = {}
@@ -191,7 +192,7 @@ def test_process_images_threads_the_selected_ratio_not_the_default(
     app.is_folder_mode = _StubVar(False)  # type: ignore[assignment]
     app.progress = _StubVar()  # type: ignore[assignment]
     app.status = _StubVar()  # type: ignore[assignment]
-    app.ratio = _StubVar(non_default_ratio)  # type: ignore[assignment]
+    app.ratio = _StubVar(non_default_label)  # type: ignore[assignment]
     app.process_btn = _StubButton()  # type: ignore[assignment]
 
     app.process_images()
@@ -232,7 +233,7 @@ def test_finish_message_reports_count_and_ratio(monkeypatch: pytest.MonkeyPatch)
 
     app._run_single("src.jpg", "out", "1.91:1")
 
-    assert finished == [("Wrote 1 detail frames at 1.91:1", "out", 1, None)]
+    assert finished == [("Wrote 1 detail frames at Landscape (1.91:1)", "out", 1, None)]
 
 
 def test_finish_batch_reports_count_and_ratio(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -253,8 +254,8 @@ def test_finish_batch_reports_count_and_ratio(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(messagebox, "showinfo", lambda title, msg: messages.append((title, msg)))
     app._finish_batch(result, "1.91:1")
 
-    assert app.status.value == "Wrote 1 of 1 images at 1.91:1"  # type: ignore[attr-defined]
-    assert messages == [("Success", "Wrote 1 of 1 images at 1.91:1")]
+    assert app.status.value == "Wrote 1 of 1 images at Landscape (1.91:1)"  # type: ignore[attr-defined]
+    assert messages == [("Success", "Wrote 1 of 1 images at Landscape (1.91:1)")]
 
 
 def test_finish_batch_reports_no_panoramas_found_instead_of_success(

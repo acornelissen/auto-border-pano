@@ -24,18 +24,30 @@ class AspectRatio:
     name: str
     width: int
     height: int
+    label: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.label:
+            object.__setattr__(self, "label", self.name)
 
     @property
     def value(self) -> float:
         """Width divided by height, for arithmetic."""
         return self.width / self.height
 
+    @property
+    def display(self) -> str:
+        """Human-friendly presentation string, e.g. 'Portrait (4:5)'."""
+        return f"{self.label} ({self.name})"
 
-SQUARE = AspectRatio("1:1", 1080, 1080)
-PORTRAIT = AspectRatio("4:5", 1080, 1350)
-LANDSCAPE = AspectRatio("1.91:1", 1080, 566)
 
-RATIOS: dict[str, AspectRatio] = {r.name: r for r in (SQUARE, PORTRAIT, LANDSCAPE)}
+PORTRAIT = AspectRatio("4:5", 1080, 1350, label="Portrait")
+SQUARE = AspectRatio("1:1", 1080, 1080, label="Square")
+LANDSCAPE = AspectRatio("1.91:1", 1080, 566, label="Landscape")
+
+# Insertion order is presentation order: narrowest to widest. Do not sort
+# this -- callers rely on iteration/dict order to drive UI ordering.
+RATIOS: dict[str, AspectRatio] = {r.name: r for r in (PORTRAIT, SQUARE, LANDSCAPE)}
 DEFAULT_RATIO = PORTRAIT
 
 MIN_SECTIONS = 2

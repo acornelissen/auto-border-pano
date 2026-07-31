@@ -165,6 +165,55 @@ def test_unknown_ratio_is_rejected(tmp_path: Path) -> None:
         cli.main([str(source), str(tmp_path / "out"), "--ratio", "16:9"])
 
 
+@pytest.mark.parametrize(
+    ("spelling", "expected_size"),
+    [
+        ("4:5", (1080, 1350)),
+        ("portrait", (1080, 1350)),
+        ("PORTRAIT", (1080, 1350)),
+        ("Portrait", (1080, 1350)),
+        ("1:1", (1080, 1080)),
+        ("square", (1080, 1080)),
+        ("SQUARE", (1080, 1080)),
+        ("1.91:1", (1080, 566)),
+        ("landscape", (1080, 566)),
+        ("LANDSCAPE", (1080, 566)),
+    ],
+)
+def test_ratio_flag_accepts_names_and_labels_case_insensitively(
+    tmp_path: Path, spelling: str, expected_size: tuple[int, int]
+) -> None:
+    source = tmp_path / "pano.jpg"
+    synthetic_panorama(3000, 1250).save(source, "JPEG", quality=95)
+
+    assert cli.main([str(source), str(tmp_path / "out"), "--ratio", spelling]) == 0
+
+    with Image.open(tmp_path / "out_2_section1.jpg") as img:
+        assert img.size == expected_size
+
+
+def test_unknown_ratio_message_names_the_accepted_options(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    source = tmp_path / "pano.jpg"
+    synthetic_panorama(3000, 1250).save(source, "JPEG", quality=95)
+
+    with pytest.raises(SystemExit) as excinfo:
+        cli.main([str(source), str(tmp_path / "out"), "--ratio", "16:9"])
+
+    assert excinfo.value.code != 0
+    captured = capsys.readouterr()
+    assert "portrait|4:5" in captured.err
+    assert "square|1:1" in captured.err
+    assert "landscape|1.91:1" in captured.err
+
+
+def test_ratio_choices_are_presented_narrowest_to_widest_not_alphabetical() -> None:
+    help_text = cli.build_parser().format_help()
+    assert help_text.index("portrait|4:5") < help_text.index("square|1:1")
+    assert help_text.index("square|1:1") < help_text.index("landscape|1.91:1")
+
+
 def test_portrait_input_exits_nonzero(tmp_path: Path) -> None:
     source = tmp_path / "tall.jpg"
     synthetic_panorama(800, 3000).save(source, "JPEG", quality=95)

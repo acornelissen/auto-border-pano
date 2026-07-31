@@ -7,6 +7,21 @@ from pathlib import Path
 from auto_border_pano import pipeline
 
 
+def _ratio_type(value: str) -> pipeline.AspectRatio:
+    """Resolve a --ratio argument, accepting a bare name ("4:5") or a label
+    ("portrait"), case-insensitively.
+
+    Raises argparse.ArgumentTypeError on an unknown value so argparse's own
+    error path produces a clean, non-zero-exit message.
+    """
+    lowered = value.strip().lower()
+    for ratio in pipeline.RATIOS.values():
+        if lowered == ratio.name.lower() or lowered == ratio.label.lower():
+            return ratio
+    options = ", ".join(f"{r.label.lower()}|{r.name}" for r in pipeline.RATIOS.values())
+    raise argparse.ArgumentTypeError(f"invalid ratio '{value}' (choose from {options})")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pano-split",
@@ -24,14 +39,16 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path("output"),
         help="output prefix for a single image, or output folder",
     )
+    options = ", ".join(f"{r.label.lower()}|{r.name}" for r in pipeline.RATIOS.values())
     parser.add_argument(
         "--ratio",
-        choices=sorted(pipeline.RATIOS),
-        default=pipeline.DEFAULT_RATIO.name,
+        type=_ratio_type,
+        default=pipeline.DEFAULT_RATIO,
+        metavar="RATIO",
         help=(
-            "target aspect ratio for every frame "
-            f"(default: {pipeline.DEFAULT_RATIO.name}). The number of detail "
-            "frames is derived from this."
+            f"target aspect ratio for every frame: {options} "
+            f"(default: {pipeline.DEFAULT_RATIO.label.lower()}). The number "
+            "of detail frames is derived from this."
         ),
     )
     return parser
@@ -39,7 +56,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    ratio = pipeline.RATIOS[args.ratio]
+    ratio = args.ratio
 
     if not args.input.exists():
         print(f"Error: '{args.input}' not found", file=sys.stderr)
@@ -53,7 +70,7 @@ def main(argv: list[str] | None = None) -> int:
             result = pipeline.process_folder(args.input, args.output, ratio)
             print(
                 f"Wrote {result.succeeded_count} of {result.total_count} "
-                f"images to {args.output} at {ratio.name}"
+                f"images to {args.output} at {ratio.display}"
             )
             for source, message in result.failed:
                 print(f"Error processing {source}: {message}", file=sys.stderr)
@@ -61,7 +78,7 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
         else:
             written = pipeline.process_image(args.input, args.output, ratio)
-            print(f"Wrote {len(written) - 1} detail frames at {ratio.name}")
+            print(f"Wrote {len(written) - 1} detail frames at {ratio.display}")
             for path in written:
                 print(f"  {path}")
     except Exception as error:

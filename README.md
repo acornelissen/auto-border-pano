@@ -89,13 +89,18 @@ Run `uv run pano-split --help` for all options. Folder mode writes to
 ## Aspect ratio
 
 Instagram supports three feed shapes, and every image in a carousel must
-share one. Pick the target with `--ratio`:
+share one. Pick the target with `--ratio`, using either the bare ratio or
+its name (case-insensitive) — `--ratio 4:5` and `--ratio portrait` are
+equivalent:
 
-| Ratio | Output size | Use |
-| ----- | ----------- | --- |
-| `4:5` | 1080x1350 | Default. Largest feed footprint. |
-| `1:1` | 1080x1080 | Classic square. |
-| `1.91:1` | 1080x566 | Landscape. |
+| Name | Ratio | Output size | Use |
+| ---- | ----- | ----------- | --- |
+| `portrait` | `4:5` | 1080x1350 | Default. Largest feed footprint. |
+| `square` | `1:1` | 1080x1080 | Classic square. |
+| `landscape` | `1.91:1` | 1080x566 | Landscape — Instagram's widest feed shape. |
+
+The GUI combobox lists these as "Portrait (4:5)", "Square (1:1)", and
+"Landscape (1.91:1)", in that order.
 
 The first frame is the whole panorama on a white canvas. The frames after it
 are a zoom, so viewers can see detail that is illegible in the first — and

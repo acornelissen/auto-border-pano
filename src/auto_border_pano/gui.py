@@ -32,7 +32,7 @@ class PanoramaSplitterGUI:
         self.is_folder_mode = tk.BooleanVar(value=False)
         self.progress = tk.DoubleVar()
         self.status = tk.StringVar(value="Ready")
-        self.ratio = tk.StringVar(value=pipeline.DEFAULT_RATIO.name)
+        self.ratio = tk.StringVar(value=pipeline.DEFAULT_RATIO.display)
         self._preview_images: list[ImageTk.PhotoImage] = []
         self.preview_labels: list[ttk.Label] = []
         self._max_preview_columns = 0
@@ -70,9 +70,9 @@ class PanoramaSplitterGUI:
         ttk.Combobox(
             ratio_row,
             textvariable=self.ratio,
-            values=sorted(pipeline.RATIOS),
+            values=[r.display for r in pipeline.RATIOS.values()],
             state="readonly",
-            width=10,
+            width=18,
         ).pack(side="left", padx=8)
         ttk.Label(
             ratio_row,
@@ -199,6 +199,7 @@ class PanoramaSplitterGUI:
         succeeded = result.succeeded_count
         total = result.total_count
         failed = result.failed
+        ratio_display = pipeline.RATIOS[ratio_name].display
 
         if total == 0:
             message = "No panoramas found"
@@ -210,11 +211,11 @@ class PanoramaSplitterGUI:
         if failed:
             names = ", ".join(path.name for path, _ in failed)
             message = (
-                f"Wrote {succeeded} of {total} images at {ratio_name}, "
+                f"Wrote {succeeded} of {total} images at {ratio_display}, "
                 f"{len(failed)} failed: {names}"
             )
         else:
-            message = f"Wrote {succeeded} of {total} images at {ratio_name}"
+            message = f"Wrote {succeeded} of {total} images at {ratio_display}"
         self.status.set(message)
         try:
             if result.last_prefix is not None and result.last_count is not None:
@@ -233,7 +234,7 @@ class PanoramaSplitterGUI:
             self.root.after(0, self._finish, "Failed", None, None, str(error))
             return
         count = len(written) - 1
-        message = f"Wrote {count} detail frames at {ratio_name}"
+        message = f"Wrote {count} detail frames at {pipeline.RATIOS[ratio_name].display}"
         self.root.after(0, self._finish, message, prefix, count, None)
 
     def _run_batch(self, source: str, destination: str, ratio_name: str) -> None:
@@ -265,10 +266,13 @@ class PanoramaSplitterGUI:
         self.process_btn.config(state="disabled")
         self.progress.set(0)
         self.status.set("Working...")
+        # Map the displayed label back to the bare ratio name here, on the
+        # main thread -- the worker thread must never touch a tkinter
+        # object, only the plain string handed to it below.
+        selected_display = self.ratio.get()
+        ratio_name = next(r.name for r in pipeline.RATIOS.values() if r.display == selected_display)
         target = self._run_batch if self.is_folder_mode.get() else self._run_single
-        threading.Thread(
-            target=target, args=(source, destination, self.ratio.get()), daemon=True
-        ).start()
+        threading.Thread(target=target, args=(source, destination, ratio_name), daemon=True).start()
 
 
 def run() -> None:
