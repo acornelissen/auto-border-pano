@@ -1,6 +1,7 @@
 """Tests for the Split tab: `PanoramaSplitterGUI`, its worker threads and previews."""
 
 import threading
+import tkinter
 from pathlib import Path
 from tkinter import messagebox
 from typing import Any
@@ -9,6 +10,7 @@ import pytest
 from PIL import Image
 
 from auto_border_pano import gui, pipeline
+from auto_border_pano.gui import split_tab
 from tests.conftest import StubButton, StubRoot, StubVar, synthetic_panorama
 
 
@@ -403,7 +405,196 @@ def test_set_progress_names_the_negative(monkeypatch: pytest.MonkeyPatch) -> Non
     assert app.status.value == "Negative 1 of 3 · horizons3-hp5-4.jpg"  # type: ignore[attr-defined]
 
 
-def test_split_tab_builds_under_a_notebook_page_with_working_previews(tmp_path: Path) -> None:
+def test_apply_facts_fills_the_readouts_and_the_button_label() -> None:
+    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
+    app._inspect_token = 7
+    app.facts = StubVar("")  # type: ignore[assignment]
+    app.frame_count = StubVar("")  # type: ignore[assignment]
+    app.action = StubVar("")  # type: ignore[assignment]
+
+    app._apply_facts(7, pipeline.NegativeFacts(19921, 6607, "3.01:1", 4))
+
+    assert app.facts.value == "19921 × 6607 · 3.01:1"  # type: ignore[attr-defined]  # noqa: RUF001
+    assert app.frame_count.value == "4 frames"  # type: ignore[attr-defined]
+    assert app.action.value == "Cut 4 frames"  # type: ignore[attr-defined]
+
+
+def test_apply_facts_ignores_a_stale_inspection() -> None:
+    """The user can pick a second negative before the first header read comes
+    back. The older answer must not overwrite the newer one -- that would leave
+    the rail describing a file that is no longer loaded.
+    """
+    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
+    app._inspect_token = 2
+    app.facts = StubVar("")  # type: ignore[assignment]
+    app.frame_count = StubVar("")  # type: ignore[assignment]
+    app.action = StubVar("")  # type: ignore[assignment]
+
+    # The newer request (token 2) lands first.
+    app._apply_facts(2, pipeline.NegativeFacts(4000, 1000, "4.00:1", 5))
+    # The older one (token 1) arrives late and must be dropped entirely.
+    app._apply_facts(1, pipeline.NegativeFacts(100, 100, "1.00:1", 2))
+
+    assert app.facts.value == "4000 × 1000 · 4.00:1"  # type: ignore[attr-defined]  # noqa: RUF001
+    assert app.frame_count.value == "5 frames"  # type: ignore[attr-defined]
+    assert app.action.value == "Cut 5 frames"  # type: ignore[attr-defined]
+
+
+def test_apply_facts_resets_the_readouts_when_the_file_cannot_be_read() -> None:
+    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
+    app._inspect_token = 1
+    app.facts = StubVar("19921 × 6607 · 3.01:1")  # type: ignore[assignment]  # noqa: RUF001
+    app.frame_count = StubVar("4 frames")  # type: ignore[assignment]
+    app.action = StubVar("Cut 4 frames")  # type: ignore[assignment]
+
+    app._apply_facts(1, None)
+
+    assert app.facts.value == ""  # type: ignore[attr-defined]
+    assert app.frame_count.value == split_tab.NO_COUNT  # type: ignore[attr-defined]
+    assert app.action.value == split_tab.UNCOUNTED_ACTION  # type: ignore[attr-defined]
+
+
+def test_inspect_never_touches_a_tk_object_and_returns_through_after(tmp_path: Path) -> None:
+    """The worker reads the header; every var it feeds is set on the main
+    thread, via root.after, by _apply_facts.
+    """
+    source = tmp_path / "pano.jpg"
+    synthetic_panorama(600, 200).save(source, "JPEG", quality=95)
+
+    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
+    stub_root = StubRoot()
+    app.root = stub_root  # type: ignore[assignment]
+    app._inspect_token = 3
+    app.facts = StubVar("")  # type: ignore[assignment]
+    app.frame_count = StubVar("")  # type: ignore[assignment]
+    app.action = StubVar("")  # type: ignore[assignment]
+
+    app._inspect(3, str(source), pipeline.DEFAULT_RATIO.name)
+
+    assert stub_root.calls, "root.after was never scheduled -- worker died silently"
+    assert app.facts.value == "600 × 200 · 3.00:1"  # type: ignore[attr-defined]  # noqa: RUF001
+
+
+def test_inspect_reports_an_unreadable_negative_as_no_count(tmp_path: Path) -> None:
+    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
+    stub_root = StubRoot()
+    app.root = stub_root  # type: ignore[assignment]
+    app._inspect_token = 1
+    app.facts = StubVar("stale")  # type: ignore[assignment]
+    app.frame_count = StubVar("9 frames")  # type: ignore[assignment]
+    app.action = StubVar("Cut 9 frames")  # type: ignore[assignment]
+
+    app._inspect(1, str(tmp_path / "gone.jpg"), pipeline.DEFAULT_RATIO.name)
+
+    assert app.frame_count.value == split_tab.NO_COUNT  # type: ignore[attr-defined]
+    assert app.action.value == split_tab.UNCOUNTED_ACTION  # type: ignore[attr-defined]
+
+
+@pytest.mark.parametrize("ratio_name", list(pipeline.RATIOS))
+def test_frame_count_readout_matches_what_the_pipeline_actually_writes(
+    tmp_path: Path, ratio_name: str
+) -> None:
+    """The count in the rail is a promise about files on disk. Check it against
+    the real thing, for every ratio, rather than against a stub.
+    """
+    source = tmp_path / "pano.jpg"
+    synthetic_panorama(600, 200).save(source, "JPEG", quality=95)
+    ratio = pipeline.RATIOS[ratio_name]
+    written = pipeline.process_image(source, tmp_path / f"out-{ratio_name}", ratio)
+
+    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
+    stub_root = StubRoot()
+    app.root = stub_root  # type: ignore[assignment]
+    app._inspect_token = 1
+    app.facts = StubVar("")  # type: ignore[assignment]
+    app.frame_count = StubVar("")  # type: ignore[assignment]
+    app.action = StubVar("")  # type: ignore[assignment]
+
+    app._inspect(1, str(source), ratio_name)
+
+    assert app.frame_count.value == f"{len(written)} frames"  # type: ignore[attr-defined]
+    assert app.action.value == f"Cut {len(written)} frames"  # type: ignore[attr-defined]
+
+
+def test_the_readouts_reset_with_no_file_and_in_folder_mode(
+    tk_root: tkinter.Tk, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No file, or a folder, means no frame count -- never a stale or guessed
+    one. Built under real Tk because the traces on the path and the mode are
+    what drive this.
+
+    The inspection thread runs inline here: `root.after` is only legal from a
+    worker while `mainloop` is running, and there is no mainloop in a test.
+    """
+    from tkinter import ttk
+
+    class _InlineThread:
+        def __init__(self, target: Any, args: tuple[Any, ...], daemon: bool) -> None:
+            self._target = target
+            self._args = args
+
+        def start(self) -> None:
+            self._target(*self._args)
+
+    monkeypatch.setattr(threading, "Thread", _InlineThread)
+
+    source = tmp_path / "pano.jpg"
+    synthetic_panorama(600, 200).save(source, "JPEG", quality=95)
+
+    app = gui.PanoramaSplitterGUI(ttk.Frame(tk_root))
+
+    assert app.frame_count.get() == split_tab.NO_COUNT
+    assert app.facts.get() == ""
+
+    app.input_path.set(str(source))
+    tk_root.update()
+    assert app.frame_count.get() == "5 frames"
+    assert app.facts.get() == "600 × 200 · 3.00:1"  # noqa: RUF001
+
+    app.is_folder_mode.set(True)
+    tk_root.update()
+    assert app.frame_count.get() == split_tab.NO_COUNT
+    assert app.facts.get() == ""
+
+    app.is_folder_mode.set(False)
+    tk_root.update()
+    assert app.frame_count.get() == "5 frames"
+
+    app.input_path.set("")
+    tk_root.update()
+    assert app.frame_count.get() == split_tab.NO_COUNT
+    assert app.facts.get() == ""
+
+
+def test_the_mode_radios_actually_switch_mode(tk_root: tkinter.Tk) -> None:
+    """The old `Mode:` label reported a control that did not exist. These are
+    real radios: invoking one must flip the variable, not just describe it.
+    """
+    from tkinter import ttk
+
+    app = gui.PanoramaSplitterGUI(ttk.Frame(tk_root))
+    assert not hasattr(app, "mode_label")
+
+    radios = [widget for widget in _descendants(app.root) if isinstance(widget, ttk.Radiobutton)]
+    assert [radio.cget("text") for radio in radios] == ["One frame", "Whole folder"]
+
+    radios[1].invoke()
+    assert app.is_folder_mode.get() is True
+    radios[0].invoke()
+    assert app.is_folder_mode.get() is False
+
+
+def _descendants(widget: Any) -> list[Any]:
+    found = []
+    for child in widget.winfo_children():
+        found.append(child)
+        found.extend(_descendants(child))
+    return found
+
+
+def test_split_tab_builds_under_a_notebook_page_with_working_previews(
+    tk_root: tkinter.Tk, tmp_path: Path
+) -> None:
     """Every splitter test above builds `PanoramaSplitterGUI` via `__new__`,
     which never runs `_build_ui` -- so a broken constructor, such as one
     that assumes `self.root` is the Tk root rather than a notebook page,
@@ -411,7 +602,6 @@ def test_split_tab_builds_under_a_notebook_page_with_working_previews(tmp_path: 
     (as `gui.app.run` does, nesting it inside a notebook) on a withdrawn
     root, and exercise `update_preview` against real preview panes.
     """
-    import tkinter
     from tkinter import ttk
 
     from auto_border_pano import gui, pipeline
@@ -421,19 +611,14 @@ def test_split_tab_builds_under_a_notebook_page_with_working_previews(tmp_path: 
     written = pipeline.process_image(source, tmp_path / "out", pipeline.DEFAULT_RATIO)
     count = len(written) - 1
 
-    root = tkinter.Tk()
-    root.withdraw()
-    try:
-        page = ttk.Frame(root)
-        app = gui.PanoramaSplitterGUI(page)
+    page = ttk.Frame(tk_root)
+    app = gui.PanoramaSplitterGUI(page)
 
-        assert app.ratio.get() == pipeline.DEFAULT_RATIO.display
-        assert app.previews.labels == []
+    assert app.ratio.get() == pipeline.DEFAULT_RATIO.display
+    assert app.previews.labels == []
 
-        app.update_preview(str(tmp_path / "out"), count)
+    app.update_preview(str(tmp_path / "out"), count)
 
-        assert len(app.previews.labels) == count + 1
-        for label in app.previews.labels:
-            assert label.cget("text") == ""
-    finally:
-        root.destroy()
+    assert len(app.previews.labels) == count + 1
+    for label in app.previews.labels:
+        assert label.cget("text") == ""

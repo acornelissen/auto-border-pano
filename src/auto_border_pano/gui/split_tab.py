@@ -10,12 +10,20 @@ from pathlib import Path
 from tkinter import filedialog, ttk
 
 from auto_border_pano import pipeline
-from auto_border_pano.gui import theme
+from auto_border_pano.gui import shell, theme
 from auto_border_pano.gui.preview import PreviewPanes
 
 # Built once so process_images can do a plain dict lookup rather than
 # scanning pipeline.RATIOS on every run.
 _RATIO_BY_DISPLAY: dict[str, str] = {r.display: r.name for r in pipeline.RATIOS.values()}
+
+NO_COUNT = "Load a negative to see the frame count"
+"""Shown whenever the frame count is not known: no file, folder mode, or an
+unreadable file. Never a stale or guessed number."""
+
+UNCOUNTED_ACTION = "Cut frames"
+"""The button's label while the count is unknown. Once it is known the
+button counts what it will produce."""
 
 
 def preview_titles(count: int) -> list[str]:
@@ -41,77 +49,170 @@ class PanoramaSplitterGUI:
         # under the primary button, cleared at the start of every run.
         self.error = tk.StringVar()
         self.ratio = tk.StringVar(value=pipeline.DEFAULT_RATIO.display)
+        # What the app read off the negative's header: dimensions and native
+        # ratio in mono, the frame count the chosen ratio implies, and the
+        # button's own label, which counts what it will produce.
+        self.facts = tk.StringVar()
+        self.frame_count = tk.StringVar(value=NO_COUNT)
+        self.action = tk.StringVar(value=UNCOUNTED_ACTION)
+        # What the rebate band should stencil while this tab is in front.
+        # The band belongs to the shell, not to either tab, so each tab just
+        # states its subject and the shell decides whose to show.
+        self.subject = tk.StringVar()
+        # Monotonic; only the newest inspection may write to the vars above.
+        # The user can pick a second file before the first header read comes
+        # back, and the older answer must not overwrite the newer one.
+        self._inspect_token = 0
 
         self._build_ui()
+        self.input_path.trace_add("write", self._on_selection_changed)
+        self.is_folder_mode.trace_add("write", self._on_selection_changed)
 
     def _build_ui(self) -> None:
-        main = ttk.Frame(self.root, padding=theme.SPACE_L)
-        main.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        columns = shell.TwoColumn(self.root)
+        columns.frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
-        main.columnconfigure(1, weight=1)
+        rail = columns.rail
 
-        ttk.Label(main, text="Input:").grid(row=0, column=0, sticky=tk.W, pady=theme.SPACE_S)
-        ttk.Entry(main, textvariable=self.input_path, width=50, style="TEntry").grid(
-            row=0, column=1, sticky=(tk.W, tk.E), padx=theme.SPACE_S
-        )
-        ttk.Button(main, text="Choose file", command=self.browse_file).grid(
-            row=0, column=2, padx=theme.SPACE_S
-        )
-        ttk.Button(main, text="Choose folder", command=self.browse_folder).grid(
-            row=0, column=3, padx=theme.SPACE_S
-        )
+        # The rail reads top to bottom as a sentence: this file, at this
+        # ratio, to here, go.
+        shell.section(rail, "Negative", row=0)
 
-        ttk.Label(main, text="Output:").grid(row=1, column=0, sticky=tk.W, pady=theme.SPACE_S)
-        ttk.Entry(main, textvariable=self.output_path, width=50, style="TEntry").grid(
-            row=1, column=1, sticky=(tk.W, tk.E), padx=theme.SPACE_S
+        input_row = ttk.Frame(rail)
+        input_row.grid(row=1, column=0, sticky=(tk.W, tk.E))
+        input_row.columnconfigure(0, weight=1)
+        ttk.Entry(input_row, textvariable=self.input_path, style="TEntry").grid(
+            row=0, column=0, sticky=(tk.W, tk.E)
         )
-        ttk.Button(main, text="Choose folder", command=self.browse_output).grid(
-            row=1, column=2, padx=theme.SPACE_S
+        ttk.Button(input_row, text="Choose…", command=self.browse_input).grid(
+            row=0, column=1, padx=(theme.SPACE_S, 0)
         )
 
-        self.mode_label = ttk.Label(main, text="Mode: Single File")
-        self.mode_label.grid(row=2, column=0, columnspan=2, sticky=tk.W, pady=theme.SPACE_M)
+        ttk.Label(rail, textvariable=self.facts, style="Data.TLabel").grid(
+            row=2, column=0, sticky=tk.W, pady=(theme.SPACE_S, 0)
+        )
 
-        ratio_row = ttk.Frame(main)
-        ratio_row.grid(row=3, column=0, columnspan=4, sticky=tk.W, pady=theme.SPACE_S)
-        ttk.Label(ratio_row, text="Aspect ratio:").pack(side="left")
-        ttk.Combobox(
-            ratio_row,
+        modes = ttk.Frame(rail)
+        modes.grid(row=3, column=0, sticky=tk.W, pady=(theme.SPACE_S, 0))
+        # A real control, not the old read-only "Mode:" label -- that label
+        # reported the state of a control that did not exist, and a user
+        # could not get back to single-file mode without re-browsing.
+        ttk.Radiobutton(modes, text="One frame", value=False, variable=self.is_folder_mode).pack(
+            side="left"
+        )
+        ttk.Radiobutton(modes, text="Whole folder", value=True, variable=self.is_folder_mode).pack(
+            side="left", padx=(theme.SPACE_M, 0)
+        )
+
+        shell.section(rail, "Format", row=4)
+
+        self.ratio_box = ttk.Combobox(
+            rail,
             textvariable=self.ratio,
             values=[r.display for r in pipeline.RATIOS.values()],
             state="readonly",
-            width=18,
-        ).pack(side="left", padx=theme.SPACE_S)
-        ttk.Label(
-            ratio_row,
-            text="Load a negative to see the frame count",
-            style="Help.TLabel",
-        ).pack(side="left")
+        )
+        self.ratio_box.grid(row=5, column=0, sticky=(tk.W, tk.E))
+        self.ratio_box.bind("<<ComboboxSelected>>", self._on_selection_changed)
+
+        ttk.Label(rail, textvariable=self.frame_count, style="Help.TLabel").grid(
+            row=6, column=0, sticky=tk.W, pady=(theme.SPACE_S, 0)
+        )
+
+        shell.section(rail, "Destination", row=7)
+
+        output_row = ttk.Frame(rail)
+        output_row.grid(row=8, column=0, sticky=(tk.W, tk.E))
+        output_row.columnconfigure(0, weight=1)
+        ttk.Entry(output_row, textvariable=self.output_path, style="TEntry").grid(
+            row=0, column=0, sticky=(tk.W, tk.E)
+        )
+        ttk.Button(output_row, text="Choose folder", command=self.browse_output).grid(
+            row=0, column=1, padx=(theme.SPACE_S, 0)
+        )
 
         self.process_btn = ttk.Button(
-            main, text="Cut frames", command=self.process_images, style="Primary.TButton"
+            rail, textvariable=self.action, command=self.process_images, style="Primary.TButton"
         )
-        self.process_btn.grid(row=4, column=0, columnspan=4, pady=theme.SPACE_L)
+        self.process_btn.grid(row=9, column=0, sticky=(tk.W, tk.E), pady=(theme.SPACE_L, 0))
 
-        progress_frame = ttk.LabelFrame(main, text="Progress", padding=theme.SPACE_M)
-        progress_frame.grid(row=5, column=0, columnspan=4, sticky=(tk.W, tk.E), pady=theme.SPACE_M)
-        progress_frame.columnconfigure(0, weight=1)
-        ttk.Progressbar(progress_frame, variable=self.progress, maximum=100).grid(
-            row=0, column=0, sticky=(tk.W, tk.E), pady=theme.SPACE_S
+        ttk.Label(rail, textvariable=self.status, style="Help.TLabel").grid(
+            row=10, column=0, sticky=tk.W, pady=(theme.SPACE_M, 0)
         )
-        ttk.Label(progress_frame, textvariable=self.status, style="Help.TLabel").grid(
-            row=1, column=0, sticky=tk.W
+        # Stage 4 makes the strip itself the progress indicator and this goes
+        # away; until then the bar lives under the status line rather than in
+        # a LabelFrame of its own.
+        ttk.Progressbar(rail, variable=self.progress, maximum=100).grid(
+            row=11, column=0, sticky=(tk.W, tk.E), pady=(theme.SPACE_S, 0)
         )
-        self.error_label = ttk.Label(progress_frame, textvariable=self.error, style="Error.TLabel")
-        self.error_label.grid(row=2, column=0, sticky=tk.W)
+        self.error_label = ttk.Label(rail, textvariable=self.error, style="Error.TLabel")
+        self.error_label.grid(row=12, column=0, sticky=tk.W, pady=(theme.SPACE_S, 0))
+        # Everything above is fixed height; the slack goes below the rail so
+        # the controls stay together at the top.
+        rail.rowconfigure(13, weight=1)
 
-        self.previews = PreviewPanes(main, "Preview (Last Processed)")
-        self.previews.frame.grid(
-            row=6, column=0, columnspan=4, sticky=(tk.W, tk.E, tk.N, tk.S), pady=theme.SPACE_M
-        )
+        self.previews = PreviewPanes(columns.table, "")
+        self.previews.frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
 
-        main.rowconfigure(6, weight=1)
+    # --- The live readouts --------------------------------------------------
+
+    def _on_selection_changed(self, *_args: object) -> None:
+        """Re-read the negative's header. Main thread only.
+
+        Bumping the token first means any inspection already in flight is
+        stale from here on, whichever way this call ends.
+        """
+        self._inspect_token += 1
+        token = self._inspect_token
+        source = self.input_path.get()
+        # The band names whatever is loaded, folder or file -- it is the one
+        # thing on screen that says what you are working on.
+        self.subject.set(Path(source).name if source else "")
+        if not source or self.is_folder_mode.get():
+            self._clear_facts()
+            return
+        # Read both vars here, on the main thread, and hand the worker plain
+        # strings -- it must never touch a tk object, including a tk var.
+        ratio_name = _RATIO_BY_DISPLAY.get(self.ratio.get(), pipeline.DEFAULT_RATIO.name)
+        threading.Thread(
+            target=self._inspect, args=(token, source, ratio_name), daemon=True
+        ).start()
+
+    def _inspect(self, token: int, source: str, ratio_name: str) -> None:
+        """Runs on a worker thread. Touches nothing but plain values."""
+        try:
+            facts: pipeline.NegativeFacts | None = pipeline.inspect_negative(
+                source, pipeline.RATIOS[ratio_name]
+            )
+        except Exception:
+            # An unreadable file is not an error the user has to act on yet;
+            # process_images reports it properly if they press the button.
+            facts = None
+        self.root.after(0, self._apply_facts, token, facts)
+
+    def _apply_facts(self, token: int, facts: pipeline.NegativeFacts | None) -> None:
+        """Runs on the main thread. All widget mutation happens here."""
+        if token != self._inspect_token:
+            return
+        if facts is None:
+            self._clear_facts()
+            return
+        self.facts.set(f"{facts.width} × {facts.height} · {facts.native_ratio}")  # noqa: RUF001
+        self.frame_count.set(f"{facts.frame_count} frames")
+        self.action.set(f"Cut {facts.frame_count} frames")
+
+    def _clear_facts(self) -> None:
+        self.facts.set("")
+        self.frame_count.set(NO_COUNT)
+        self.action.set(UNCOUNTED_ACTION)
+
+    def browse_input(self) -> None:
+        """One button, because the radio pair already says what is wanted."""
+        if self.is_folder_mode.get():
+            self.browse_folder()
+            return
+        self.browse_file()
 
     def browse_file(self) -> None:
         filename = filedialog.askopenfilename(
@@ -122,7 +223,6 @@ class PanoramaSplitterGUI:
             return
         self.input_path.set(filename)
         self.is_folder_mode.set(False)
-        self.mode_label.config(text="Mode: Single File")
         self.output_path.set(str(Path(filename).with_suffix("")) + "_output")
 
     def browse_folder(self) -> None:
@@ -132,7 +232,6 @@ class PanoramaSplitterGUI:
         chosen = Path(folder)
         self.input_path.set(folder)
         self.is_folder_mode.set(True)
-        self.mode_label.config(text="Mode: Folder Processing")
         self.output_path.set(str(chosen.parent / f"{chosen.name}_output"))
 
     def browse_output(self) -> None:

@@ -4,6 +4,7 @@ Pick two or three images, choose a target ratio, and the arrangement is
 solved automatically from the images' own shapes.
 """
 
+import contextlib
 import threading
 import tkinter as tk
 from pathlib import Path
@@ -12,7 +13,7 @@ from tkinter import filedialog, ttk
 from PIL import Image
 
 from auto_border_pano import pipeline
-from auto_border_pano.gui import theme
+from auto_border_pano.gui import shell, theme
 from auto_border_pano.gui.preview import PreviewPanes
 
 MIN_IMAGES = 2
@@ -35,6 +36,38 @@ def _composite_noun(count: int) -> str:
     return ""
 
 
+_NUMBER_WORDS = {2: "two", 3: "three"}
+
+# Two panels in a row or a column are not "a row of two" -- they are side by
+# side, or one above the other. Only these two cases get their own phrasing,
+# and only because a diptych has an everyday name for its arrangement that a
+# triptych does not. Everything else is derived, so a new arrangement in the
+# solver cannot go unnamed here.
+_TWO_UP_PHRASING = {"row": "side by side", "column": "one above the other"}
+
+
+def present_layout(name: str, count: int) -> str:
+    """Turn the solver's own name for an arrangement into human copy.
+
+    Derived mechanically from whatever `layout.candidates` yields -- the
+    names are already words (`row`, `column`, `row-one-then-two`), so the
+    work is un-hyphenating them and, for the bare names, saying how many
+    panels are in the row or column. Deliberately not a lookup table of
+    every arrangement: such a table rots silently the day the solver gains
+    one, whereas this only ever fails to *improve* on a name it has not
+    seen. `test_every_solver_name_is_presentable` walks the solver's own
+    candidate list, so an unnamed arrangement fails the suite.
+    """
+    if not name:
+        return ""
+    words = name.replace("-", " ")
+    if " " not in words:
+        if count == MIN_IMAGES and words in _TWO_UP_PHRASING:
+            return _TWO_UP_PHRASING[words].capitalize()
+        words = f"{words} of {_NUMBER_WORDS.get(count, str(count))}"
+    return words[0].upper() + words[1:]
+
+
 def _save_label(count: int) -> str:
     """Name what Save will actually write, live as the list changes."""
     if count == MIN_IMAGES:
@@ -47,7 +80,8 @@ def _save_label(count: int) -> str:
 class ComposeTab:
     def __init__(self, parent: tk.Misc) -> None:
         self.root = parent
-        self.frame = ttk.Frame(parent, padding=theme.SPACE_L)
+        self.columns = shell.TwoColumn(parent)
+        self.frame = self.columns.frame
         self.images: list[str] = []
         self._selection: int | None = None
         # Tracks the last prefix this class itself derived from the first
@@ -60,6 +94,18 @@ class ComposeTab:
         self.ratio = tk.StringVar(value=pipeline.DEFAULT_RATIO.display)
         self.status = tk.StringVar(value=EMPTY_STATE)
         self.hint = tk.StringVar(value=EMPTY_STATE)
+        self.layout_name = tk.StringVar(value="")
+        # What the rebate band should stencil while this tab is in front.
+        # The band belongs to the shell, not to either tab, so each tab just
+        # states its subject and the shell decides whose to show.
+        self.subject = tk.StringVar()
+
+        # The arrangement the solver last returned for the current list and
+        # ratio, and the token of the request that produced it. Every solve
+        # is stamped with a token so a slow two-image solve landing after a
+        # third image was added cannot overwrite the newer answer.
+        self._solved: str = ""
+        self._solve_token = 0
 
         self._build_ui()
 
@@ -67,14 +113,15 @@ class ComposeTab:
         return MIN_IMAGES <= len(self.images) <= MAX_IMAGES
 
     def _build_ui(self) -> None:
-        self.frame.columnconfigure(0, weight=1)
+        # The rail reads top to bottom as a sentence -- these negatives, at
+        # this format, to here, go -- and in the same order as the Split
+        # tab's rail, so switching tabs no longer re-lays-out the window.
+        rail = self.columns.rail
 
-        ttk.Label(self.frame, text="NEGATIVES", style="Section.TLabel").grid(
-            row=0, column=0, sticky=tk.W
-        )
+        shell.section(rail, "Negatives", row=0)
 
-        listbox_row = ttk.Frame(self.frame)
-        listbox_row.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=theme.SPACE_M)
+        listbox_row = ttk.Frame(rail)
+        listbox_row.grid(row=1, column=0, sticky=(tk.W, tk.E))
         listbox_row.columnconfigure(0, weight=1)
 
         # A raw Tk widget: ttk.Style cannot reach it, so the theme tokens are
@@ -96,66 +143,74 @@ class ComposeTab:
         self.listbox.grid(row=0, column=0, sticky=(tk.W, tk.E))
         self.listbox.bind("<<ListboxSelect>>", self._on_select)
 
-        buttons = ttk.Frame(listbox_row)
-        buttons.grid(row=0, column=1, padx=theme.SPACE_S)
+        # A row under the list rather than a column beside it: the list is
+        # the subject, the four controls act on it.
+        buttons = ttk.Frame(rail)
+        buttons.grid(row=2, column=0, sticky=tk.W, pady=(theme.SPACE_S, 0))
         self.add_btn = ttk.Button(buttons, text="+ Add", command=self.add_image)
-        self.add_btn.pack(fill="x")
-        self.up_btn = ttk.Button(buttons, text="↑", command=self.move_up)
-        self.up_btn.pack(fill="x")
-        self.down_btn = ttk.Button(buttons, text="↓", command=self.move_down)
-        self.down_btn.pack(fill="x")
-        self.remove_btn = ttk.Button(buttons, text="×", command=self.remove)  # noqa: RUF001
-        self.remove_btn.pack(fill="x")
+        self.add_btn.pack(side="left")
+        self.up_btn = ttk.Button(buttons, text="↑", width=3, command=self.move_up)
+        self.up_btn.pack(side="left", padx=(theme.SPACE_S, 0))
+        self.down_btn = ttk.Button(buttons, text="↓", width=3, command=self.move_down)
+        self.down_btn.pack(side="left", padx=(theme.SPACE_S, 0))
+        self.remove_btn = ttk.Button(buttons, text="×", width=3, command=self.remove)  # noqa: RUF001
+        self.remove_btn.pack(side="left", padx=(theme.SPACE_S, 0))
 
-        ttk.Label(self.frame, text=ORDER_HINT, style="Help.TLabel").grid(
-            row=2, column=0, sticky=tk.W
+        ttk.Label(rail, text=ORDER_HINT, style="Help.TLabel", wraplength=shell.RAIL_WIDTH).grid(
+            row=3, column=0, sticky=tk.W, pady=(theme.SPACE_S, 0)
         )
 
-        ratio_row = ttk.Frame(self.frame)
-        ratio_row.grid(row=3, column=0, sticky=tk.W, pady=theme.SPACE_M)
-        ttk.Label(ratio_row, text="Aspect ratio:").pack(side="left")
+        shell.section(rail, "Format", row=4)
         self.ratio_combo = ttk.Combobox(
-            ratio_row,
+            rail,
             textvariable=self.ratio,
             values=[r.display for r in pipeline.RATIOS.values()],
             state="readonly",
-            width=18,
         )
-        self.ratio_combo.pack(side="left", padx=theme.SPACE_S)
+        self.ratio_combo.grid(row=5, column=0, sticky=(tk.W, tk.E))
+        self.ratio_combo.bind("<<ComboboxSelected>>", self._on_ratio_change)
 
-        output_row = ttk.Frame(self.frame)
-        output_row.grid(row=4, column=0, sticky=(tk.W, tk.E), pady=theme.SPACE_M)
-        output_row.columnconfigure(1, weight=1)
-        ttk.Label(output_row, text="Output:").grid(row=0, column=0)
+        # The consequence of the ratio, stated before the user commits to it.
+        ttk.Label(rail, textvariable=self.layout_name, style="Help.TLabel").grid(
+            row=6, column=0, sticky=tk.W, pady=(theme.SPACE_S, 0)
+        )
+
+        shell.section(rail, "Destination", row=7)
+        output_row = ttk.Frame(rail)
+        output_row.grid(row=8, column=0, sticky=(tk.W, tk.E))
+        output_row.columnconfigure(0, weight=1)
         ttk.Entry(output_row, textvariable=self.output_path, style="TEntry").grid(
-            row=0, column=1, sticky=(tk.W, tk.E), padx=theme.SPACE_S
+            row=0, column=0, sticky=(tk.W, tk.E)
         )
-        ttk.Button(output_row, text="Browse", command=self.browse_output).grid(row=0, column=2)
+        ttk.Button(output_row, text="Choose folder", command=self.browse_output).grid(
+            row=1, column=0, sticky=tk.W, pady=(theme.SPACE_S, 0)
+        )
 
-        action_row = ttk.Frame(self.frame)
-        action_row.grid(row=5, column=0, pady=theme.SPACE_L)
-        self.preview_btn = ttk.Button(
-            action_row, text="Preview", command=self.preview, style="Link.TButton"
-        )
-        self.preview_btn.pack(side="left", padx=theme.SPACE_S)
         self.save_btn = ttk.Button(
-            action_row, text="Save composite", command=self.save, style="Primary.TButton"
+            rail, text="Save composite", command=self.save, style="Primary.TButton"
         )
-        self.save_btn.pack(side="left", padx=theme.SPACE_S)
+        self.save_btn.grid(row=9, column=0, sticky=(tk.W, tk.E), pady=(theme.SPACE_L, 0))
+
+        # Preview is free and reversible, so it sits below the action that
+        # writes to disk at text weight rather than beside it as a peer.
+        self.preview_btn = ttk.Button(
+            rail, text="Preview", command=self.preview, style="Link.TButton"
+        )
+        self.preview_btn.grid(row=10, column=0, sticky=tk.W)
 
         # Why the disabled buttons are disabled, and what to do about it.
-        self.hint_label = ttk.Label(self.frame, textvariable=self.hint, style="Help.TLabel")
-        self.hint_label.grid(row=6, column=0, sticky=tk.W)
-
-        ttk.Label(self.frame, textvariable=self.status, style="Help.TLabel").grid(
-            row=7, column=0, sticky=tk.W
+        self.hint_label = ttk.Label(
+            rail, textvariable=self.hint, style="Help.TLabel", wraplength=shell.RAIL_WIDTH
         )
+        self.hint_label.grid(row=11, column=0, sticky=tk.W, pady=(theme.SPACE_M, 0))
 
-        self.previews = PreviewPanes(self.frame, "Composite")
-        self.previews.frame.grid(
-            row=8, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=theme.SPACE_M
-        )
-        self.frame.rowconfigure(8, weight=1)
+        ttk.Label(
+            rail, textvariable=self.status, style="Help.TLabel", wraplength=shell.RAIL_WIDTH
+        ).grid(row=12, column=0, sticky=tk.W, pady=(theme.SPACE_S, 0))
+        rail.rowconfigure(13, weight=1)
+
+        self.previews = PreviewPanes(self.columns.table, "Composite")
+        self.previews.frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
 
         self._refresh_list()
 
@@ -192,13 +247,80 @@ class ComposeTab:
         else:
             self._set_hint(ONE_MORE if count == MIN_IMAGES - 1 else EMPTY_STATE)
 
+    def _update_status(self) -> None:
+        """State the consequence: what this makes, how it is arranged, at
+        what ratio. The arrangement only appears once the solver has
+        actually returned one -- never a guess."""
+        count = len(self.images)
+        noun = _composite_noun(count)
+        if not noun:
+            self.status.set(EMPTY_STATE)
+            return
+        arrangement = present_layout(self._solved, count).lower()
+        parts = (
+            [noun, arrangement, self._bare_ratio()] if arrangement else [noun, self._bare_ratio()]
+        )
+        self.status.set(", ".join(parts))
+
+    def _request_layout_name(self) -> None:
+        """Ask, off the main thread, how these negatives will be arranged.
+
+        Reads every piece of tk state here on the main thread and hands the
+        worker plain strings; `name_layout` opens files, so it must not run
+        here. The token makes the answer discardable: add a third image
+        while a two-image solve is in flight and the older reply is dropped
+        instead of overwriting the newer one.
+        """
+        self._solve_token += 1
+        self._solved = ""
+        self.layout_name.set("")
+        self._update_status()
+
+        sources = list(self.images)
+        if not self.can_compose():
+            return
+        threading.Thread(
+            target=self._run_name_layout,
+            args=(self._solve_token, sources, self._bare_ratio()),
+            daemon=True,
+        ).start()
+
+    def _run_name_layout(self, token: int, sources: list[str], ratio_name: str) -> None:
+        """Worker. Touches no tk object; reports back through root.after."""
+        try:
+            name = pipeline.name_layout(sources, pipeline.RATIOS[ratio_name])
+        except (ValueError, OSError):
+            # A count the solver cannot arrange, or a file it cannot read.
+            # Either way there is no name to show, and showing a stale or
+            # guessed one would be worse than showing nothing.
+            name = ""
+        # Scheduling is the only crossing back; if the window closed while
+        # the solve was in flight there is nothing left to tell.
+        # RuntimeError as well as TclError: Tk raises the former when the
+        # interpreter has no main loop left to schedule onto.
+        with contextlib.suppress(tk.TclError, RuntimeError):
+            self.root.after(0, self._apply_layout_name, token, name, len(sources))
+
+    def _apply_layout_name(self, token: int, name: str, count: int) -> None:
+        """Runs on the main thread. Late answers are dropped, not shown."""
+        if token != self._solve_token:
+            return
+        self._solved = name
+        self.layout_name.set(present_layout(name, count))
+        self._update_status()
+
+    def _on_ratio_change(self, _event: object = None) -> None:
+        self._request_layout_name()
+
     def _refresh_list(self) -> None:
         self.listbox.delete(0, tk.END)
         for path in self.images:
             self.listbox.insert(tk.END, Path(path).name)
+        # The band counts what is loaded here, since no single filename
+        # describes a composite.
         count = len(self.images)
-        noun = _composite_noun(count)
-        self.status.set(f"{noun}, {self._bare_ratio()}" if noun else EMPTY_STATE)
+        self.subject.set(f"{count} negatives" if count else "")
+        self._request_layout_name()
         self._apply_button_states()
         # The output prefix is derived from the first image. If the field
         # still holds that derived value -- i.e. the user hasn't typed their
@@ -347,7 +469,8 @@ class ComposeTab:
         # The status line goes back to the resting sentence -- the preview
         # is on screen, so a past-tense narration of it would be noise. The
         # arrangement is named in the stencil under the frame instead.
-        resting = f"{_composite_noun(len(sources))}, {ratio.name}"
+        arrangement = present_layout(layout_name, len(sources)).lower()
+        resting = f"{_composite_noun(len(sources))}, {arrangement}, {ratio.name}"
         self.root.after(0, self._finish_preview, resting, image, None, layout_name)
 
     def save(self) -> None:

@@ -6,8 +6,8 @@ every iteration, before `mise run check` and the commit.
 | Stage | What | State |
 |---|---|---|
 | 1 | Theme, palette, type (`gui/theme.py`, clam, 6/12/24 spacing) | done |
-| 2 | Copy rewrite and modal removal | in progress |
-| 3 | Two-column layout, radio pair, live readouts, file facts | not started |
+| 2 | Copy rewrite and modal removal | done |
+| 3 | Two-column layout, radio pair, live readouts, file facts | in progress |
 | 4 | Contact strip Canvas replacing `PreviewPanes` | not started |
 | 5 | Numbered negatives list replacing `tk.Listbox` | not started |
 

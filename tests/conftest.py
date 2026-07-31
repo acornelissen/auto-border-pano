@@ -7,9 +7,47 @@ with an `.after` that runs the callback immediately is enough to exercise
 them.
 """
 
+import gc
+import threading
+import tkinter
+from collections.abc import Iterator
 from typing import Any
 
+import pytest
 from PIL import Image
+
+from auto_border_pano.gui import theme
+
+
+@pytest.fixture
+def tk_root() -> Iterator[tkinter.Tk]:
+    """A withdrawn, themed Tk root for the tests that build real widgets.
+
+    The `gc.collect()` before `destroy()` is not tidiness. A `tk.Variable`
+    finalises by calling back into its interpreter, so any variable still
+    garbage at teardown raises "main thread is not in main loop" out of
+    `__del__` once the root is gone -- surfacing later as a
+    PytestUnraisableExceptionWarning against whichever unrelated test
+    happened to trigger the collection. Collecting while the interpreter is
+    still alive makes those finalisers legal.
+
+    A tab's worker threads hold its bound methods for as long as they run,
+    and the widget tree keeps its owner alive through the bound methods Tk holds
+    for its callbacks, so a tab object -- and the variables hanging off it --
+    is still reachable while the root stands. Destroying the children first
+    breaks those links, so the collection below can actually reach them.
+    """
+    window = tkinter.Tk()
+    window.withdraw()
+    theme.apply(window)
+    yield window
+    for thread in threading.enumerate():
+        if thread is not threading.current_thread():
+            thread.join(timeout=5)
+    for child in window.winfo_children():
+        child.destroy()
+    gc.collect()
+    window.destroy()
 
 
 class StubRoot:

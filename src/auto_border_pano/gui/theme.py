@@ -276,6 +276,10 @@ def apply(root: tk.Misc) -> None:
         "TNotebook.Tab",
         background=[("selected", LIGHTBOX)],
         foreground=[("selected", REBATE)],
+        # clam grows the selected tab by default, so the two tabs render at
+        # different sizes and the active one sits lower than its neighbour.
+        # Pin the expansion to nothing; colour alone says which is selected.
+        expand=[("selected", [0, 0, 0, 0])],
     )
 
     style.configure(

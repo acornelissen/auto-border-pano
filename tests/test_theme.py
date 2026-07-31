@@ -5,6 +5,7 @@ the root stays withdrawn, so they run the same way the other real-Tk GUI
 tests in this suite do.
 """
 
+import gc
 import tkinter
 from collections.abc import Iterator
 from tkinter import font as tkfont
@@ -17,10 +18,19 @@ from auto_border_pano.gui import theme
 
 
 @pytest.fixture
-def root() -> Iterator[tkinter.Tk]:
+def bare_root() -> Iterator[tkinter.Tk]:
+    """A root that `theme.apply` has *not* touched.
+
+    The shared `tk_root` fixture applies the theme before handing the root
+    over, which would make the two tests below -- the ones that assert what
+    `apply` itself does -- pass vacuously. The `gc.collect()` before
+    `destroy()` is there for the same reason as in the shared fixture: a
+    `tk.Variable` finaliser must not run after the interpreter is gone.
+    """
     window = tkinter.Tk()
     window.withdraw()
     yield window
+    gc.collect()
     window.destroy()
 
 
@@ -51,56 +61,56 @@ def test_spacing_is_a_scale_with_no_stray_values() -> None:
     assert (theme.SPACE_S, theme.SPACE_M, theme.SPACE_L) == (6, 12, 24)
 
 
-def test_apply_switches_to_clam(root: tkinter.Tk) -> None:
-    theme.apply(root)
+def test_apply_switches_to_clam(bare_root: tkinter.Tk) -> None:
+    theme.apply(bare_root)
 
-    assert ttk.Style(root).theme_use() == "clam"
-
-
-def test_apply_is_idempotent(root: tkinter.Tk) -> None:
-    theme.apply(root)
-    theme.apply(root)
-
-    assert ttk.Style(root).theme_use() == "clam"
+    assert ttk.Style(bare_root).theme_use() == "clam"
 
 
-def test_every_font_role_resolves_to_an_installed_family(root: tkinter.Tk) -> None:
+def test_apply_is_idempotent(bare_root: tkinter.Tk) -> None:
+    theme.apply(bare_root)
+    theme.apply(bare_root)
+
+    assert ttk.Style(bare_root).theme_use() == "clam"
+
+
+def test_every_font_role_resolves_to_an_installed_family(tk_root: tkinter.Tk) -> None:
     """The fallback chains must bottom out in something Tk actually has, or
     a role silently renders in Tk's default and the type system is a lie."""
-    installed = {name.lower() for name in tkfont.families(root)}
+    installed = {name.lower() for name in tkfont.families(tk_root)}
 
     for stack in (theme.EMULSION_STACK, theme.BODY_STACK, theme.DATA_STACK):
-        resolved = theme.resolve_family(root, stack)
+        resolved = theme.resolve_family(tk_root, stack)
         assert resolved.lower() in installed, f"{resolved} not installed for {stack}"
 
 
-def test_resolve_family_prefers_the_first_installed_candidate(root: tkinter.Tk) -> None:
-    installed = next(iter(tkfont.families(root)))
+def test_resolve_family_prefers_the_first_installed_candidate(tk_root: tkinter.Tk) -> None:
+    installed = next(iter(tkfont.families(tk_root)))
 
-    assert theme.resolve_family(root, ("No Such Family At All", installed)) == installed
+    assert theme.resolve_family(tk_root, ("No Such Family At All", installed)) == installed
 
 
-def test_resolve_family_falls_back_to_tk_default_when_nothing_matches(root: tkinter.Tk) -> None:
+def test_resolve_family_falls_back_to_tk_default_when_nothing_matches(tk_root: tkinter.Tk) -> None:
     """Tk's own default may be a private family (`.AppleSystemUIFont` on
     macOS) that `families()` does not list, so assert it is usable rather
     than that it is listed."""
-    fallback = theme.resolve_family(root, ("No Such Family At All",))
+    fallback = theme.resolve_family(tk_root, ("No Such Family At All",))
 
     assert fallback
-    assert tkfont.Font(root=root, family=fallback, size=13).measure("x") > 0
+    assert tkfont.Font(root=tk_root, family=fallback, size=13).measure("x") > 0
 
 
-def test_apply_registers_every_named_style_the_tabs_use(root: tkinter.Tk) -> None:
-    theme.apply(root)
-    style = ttk.Style(root)
+def test_apply_registers_every_named_style_the_tabs_use(tk_root: tkinter.Tk) -> None:
+    theme.apply(tk_root)
+    style = ttk.Style(tk_root)
 
     for name in theme.STYLE_NAMES:
         assert options(style, name) is not None
 
 
-def test_primary_button_is_the_only_chinagraph_background(root: tkinter.Tk) -> None:
-    theme.apply(root)
-    style = ttk.Style(root)
+def test_primary_button_is_the_only_chinagraph_background(tk_root: tkinter.Tk) -> None:
+    theme.apply(tk_root)
+    style = ttk.Style(tk_root)
 
     chinagraph_backed = [
         name
@@ -111,55 +121,55 @@ def test_primary_button_is_the_only_chinagraph_background(root: tkinter.Tk) -> N
     assert chinagraph_backed == ["Primary.TButton"]
 
 
-def test_body_surfaces_sit_on_the_lightbox(root: tkinter.Tk) -> None:
-    theme.apply(root)
-    style = ttk.Style(root)
+def test_body_surfaces_sit_on_the_lightbox(tk_root: tkinter.Tk) -> None:
+    theme.apply(tk_root)
+    style = ttk.Style(tk_root)
 
     assert options(style, "TFrame")["background"] == theme.LIGHTBOX
     assert options(style, "TLabel")["background"] == theme.LIGHTBOX
 
 
-def test_entries_are_set_in_the_data_font_over_the_sleeve(root: tkinter.Tk) -> None:
-    theme.apply(root)
-    style = ttk.Style(root)
+def test_entries_are_set_in_the_data_font_over_the_sleeve(tk_root: tkinter.Tk) -> None:
+    theme.apply(tk_root)
+    style = ttk.Style(tk_root)
 
     assert options(style, "TEntry")["fieldbackground"] == theme.SLEEVE
     # ttk hands back the Tk font *name*, not the Font object.
-    assert options(style, "TEntry")["font"] == str(theme.font(root, "data"))
+    assert options(style, "TEntry")["font"] == str(theme.font(tk_root, "data"))
 
 
-def test_font_returns_the_same_object_for_a_repeated_role(root: tkinter.Tk) -> None:
+def test_font_returns_the_same_object_for_a_repeated_role(tk_root: tkinter.Tk) -> None:
     """Tk leaks a named font per call otherwise, and rebuilt previews call
     into this on every run."""
-    assert theme.font(root, "body") is theme.font(root, "body")
+    assert theme.font(tk_root, "body") is theme.font(tk_root, "body")
 
 
-def test_font_rejects_an_unknown_role(root: tkinter.Tk) -> None:
+def test_font_rejects_an_unknown_role(tk_root: tkinter.Tk) -> None:
     with pytest.raises(KeyError):
-        theme.font(root, "no-such-role")
+        theme.font(tk_root, "no-such-role")
 
 
-def test_both_tabs_build_on_a_themed_root(root: tkinter.Tk) -> None:
+def test_both_tabs_build_on_a_themed_root(tk_root: tkinter.Tk) -> None:
     """`theme.apply` runs before any widget exists in `app.run`; prove the
     real tab constructors survive it, since a bad style name only fails at
     widget-construction time, never at `apply` time."""
     from auto_border_pano.gui.compose_tab import ComposeTab
     from auto_border_pano.gui.split_tab import PanoramaSplitterGUI
 
-    theme.apply(root)
-    root.configure(background=theme.LIGHTBOX)
+    theme.apply(tk_root)
+    tk_root.configure(background=theme.LIGHTBOX)
 
-    notebook = ttk.Notebook(root)
+    notebook = ttk.Notebook(tk_root)
     page = ttk.Frame(notebook)
     PanoramaSplitterGUI(page)
     notebook.add(page, text="Split")
     compose = ComposeTab(notebook)
     notebook.add(compose.frame, text="Compose")
 
-    assert ttk.Style(root).theme_use() == "clam"
+    assert ttk.Style(tk_root).theme_use() == "clam"
 
 
-def test_focus_ring_is_chinagraph(root: tkinter.Tk) -> None:
-    theme.apply(root)
+def test_focus_ring_is_chinagraph(tk_root: tkinter.Tk) -> None:
+    theme.apply(tk_root)
 
-    assert options(ttk.Style(root), ".")["focuscolor"] == theme.CHINAGRAPH
+    assert options(ttk.Style(tk_root), ".")["focuscolor"] == theme.CHINAGRAPH
