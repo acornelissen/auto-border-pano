@@ -202,6 +202,51 @@ def test_process_images_threads_the_selected_ratio_not_the_default(
     assert captured["target"] == app._run_single
 
 
+def test_process_images_falls_back_to_default_ratio_for_an_unrecognised_label(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The label-to-ratio lookup in process_images must be total. The readonly
+    combobox can never produce a value outside pipeline.RATIOS today, but a
+    future caller setting self.ratio programmatically (a saved preference, a
+    test, a CLI-to-GUI handoff) must degrade to the documented default
+    instead of raising StopIteration/KeyError.
+    """
+    source = tmp_path / "pano.jpg"
+    synthetic_panorama(600, 200).save(source, "JPEG", quality=95)
+
+    captured: dict[str, Any] = {}
+
+    class _StubThread:
+        def __init__(self, target: Any, args: tuple[Any, ...], daemon: bool) -> None:
+            captured["target"] = target
+            captured["args"] = args
+            captured["daemon"] = daemon
+
+        def start(self) -> None:
+            captured["started"] = True
+
+    monkeypatch.setattr(threading, "Thread", _StubThread)
+
+    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
+    app.input_path = _StubVar(str(source))  # type: ignore[assignment]
+    app.output_path = _StubVar(str(tmp_path / "out"))  # type: ignore[assignment]
+    app.is_folder_mode = _StubVar(False)  # type: ignore[assignment]
+    app.progress = _StubVar()  # type: ignore[assignment]
+    app.status = _StubVar()  # type: ignore[assignment]
+    app.ratio = _StubVar("Not A Real Label (9:9)")  # type: ignore[assignment]
+    app.process_btn = _StubButton()  # type: ignore[assignment]
+
+    app.process_images()
+
+    assert captured.get("started") is True
+    assert captured["args"] == (
+        str(source),
+        str(tmp_path / "out"),
+        pipeline.DEFAULT_RATIO.name,
+    )
+    assert captured["target"] == app._run_single
+
+
 def test_process_images_rejects_empty_output(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

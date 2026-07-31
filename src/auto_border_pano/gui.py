@@ -15,6 +15,10 @@ from auto_border_pano import pipeline
 
 PREVIEW_MAX_PX = 150
 
+# Built once so process_images can do a plain dict lookup rather than
+# scanning pipeline.RATIOS on every run.
+_RATIO_BY_DISPLAY: dict[str, str] = {r.display: r.name for r in pipeline.RATIOS.values()}
+
 
 def preview_titles(count: int) -> list[str]:
     """Labels for the preview panes: the whole panorama plus each detail frame."""
@@ -268,9 +272,13 @@ class PanoramaSplitterGUI:
         self.status.set("Working...")
         # Map the displayed label back to the bare ratio name here, on the
         # main thread -- the worker thread must never touch a tkinter
-        # object, only the plain string handed to it below.
+        # object, only the plain string handed to it below. The lookup is
+        # total: an unrecognised value (only reachable by future code
+        # setting self.ratio programmatically, since the combobox is
+        # readonly and populated from the same mapping) falls back to the
+        # documented default instead of raising.
         selected_display = self.ratio.get()
-        ratio_name = next(r.name for r in pipeline.RATIOS.values() if r.display == selected_display)
+        ratio_name = _RATIO_BY_DISPLAY.get(selected_display, pipeline.DEFAULT_RATIO.name)
         target = self._run_batch if self.is_folder_mode.get() else self._run_single
         threading.Thread(target=target, args=(source, destination, ratio_name), daemon=True).start()
 
