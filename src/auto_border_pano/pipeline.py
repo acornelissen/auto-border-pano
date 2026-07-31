@@ -97,6 +97,61 @@ COMPOSITE_SUFFIXES = {2: "_diptych.jpg", 3: "_triptych.jpg"}
 
 
 @dataclass(frozen=True)
+class NegativeFacts:
+    """What a negative is, and what the current ratio will do to it.
+
+    Everything the interface needs to state a consequence before the user
+    commits to it, rather than reporting it afterwards in the past tense.
+    """
+
+    width: int
+    height: int
+    native_ratio: str
+    frame_count: int
+
+
+def inspect_negative(path: Path | str, ratio: AspectRatio = DEFAULT_RATIO) -> NegativeFacts:
+    """Read a negative's shape without decoding it.
+
+    This runs on every file selection, and the user's own scans reach
+    132MP, so it must stay a header read -- `Image.open` is lazy and
+    `.size` never triggers `load()`. Decoding here would stall the GUI on
+    exactly the files it most needs to stay responsive for.
+
+    `frame_count` counts every file that will appear on disk, the whole
+    panorama included, so the button's number and the user's folder agree.
+    """
+    with Image.open(path) as opened:
+        width, height = opened.size
+    return NegativeFacts(
+        width=width,
+        height=height,
+        native_ratio=f"{width / height:.2f}:1",
+        frame_count=geometry.section_count(width, height, ratio) + 1,
+    )
+
+
+def name_layout(input_paths: Sequence[Path | str], ratio: AspectRatio = DEFAULT_RATIO) -> str:
+    """Name the arrangement these negatives will get, without rendering it.
+
+    The solver only needs each source's aspect ratio, so this reads headers
+    and stops. `compose_preview` renders through the same `layout.solve`
+    call, which is what keeps the name shown in the rail and the name shown
+    under the finished composite from ever disagreeing.
+    """
+    paths = [Path(p) for p in input_paths]
+    if len(paths) not in COMPOSITE_SUFFIXES:
+        raise ValueError(f"expected 2 or 3 images, got {len(paths)}")
+
+    aspects = []
+    for path in paths:
+        with Image.open(path) as opened:
+            width, height = opened.size
+        aspects.append(width / height)
+    return layout.solve(aspects, ratio, geometry.SIDE_PADDING, layout.GUTTER).name
+
+
+@dataclass(frozen=True)
 class CompositeResult:
     """Where a composite was written, and which arrangement won.
 
