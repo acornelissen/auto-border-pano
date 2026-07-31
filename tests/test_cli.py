@@ -33,6 +33,22 @@ def test_missing_input_is_an_error(tmp_path: Path) -> None:
     assert cli.main([str(tmp_path / "nope.jpg")]) == 1
 
 
+def test_folder_mode_with_one_bad_file_exits_nonzero(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    source_dir = tmp_path / "in"
+    source_dir.mkdir()
+    synthetic_panorama(600, 200).save(source_dir / "good.jpg", "JPEG", quality=95)
+    (source_dir / "broken.jpg").write_text("not an image")
+
+    exit_code = cli.main([str(source_dir), str(tmp_path / "out")])
+
+    assert exit_code == 1
+    assert (tmp_path / "out" / "good_1_padded_square.jpg").exists()
+    captured = capsys.readouterr()
+    assert "broken.jpg" in captured.err
+
+
 def test_default_prefix_is_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     source = tmp_path / "pano.jpg"

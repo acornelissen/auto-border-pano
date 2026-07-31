@@ -64,7 +64,7 @@ def test_process_folder_creates_output_dir_and_reports_progress(
     out_dir = tmp_path / "out"
 
     seen: list[tuple[int, int, str]] = []
-    written = pipeline.process_folder(
+    result = pipeline.process_folder(
         source_dir,
         out_dir,
         on_progress=lambda done, total, path: seen.append(
@@ -73,7 +73,9 @@ def test_process_folder_creates_output_dir_and_reports_progress(
     )
 
     assert out_dir.is_dir()
-    assert len(written) == 8
+    assert len(result.written) == 8
+    assert result.failed == []
+    assert result.succeeded_count == 2
     assert [s[:2] for s in seen] == [(0, 2), (1, 2)]
 
 
@@ -83,5 +85,28 @@ def test_process_folder_continues_after_a_bad_file(tmp_path: Path) -> None:
     _write_panorama(source_dir / "good.jpg", 600, 200)
     (source_dir / "broken.jpg").write_text("not an image")
 
-    written = pipeline.process_folder(source_dir, tmp_path / "out")
-    assert len(written) == 4
+    result = pipeline.process_folder(source_dir, tmp_path / "out")
+
+    assert len(result.written) == 4
+    assert result.succeeded_count == 1
+    assert len(result.failed) == 1
+    failed_path, message = result.failed[0]
+    assert failed_path.name == "broken.jpg"
+    assert message
+    assert result.last_prefix == tmp_path / "out" / "good"
+
+
+def test_process_folder_fully_failing_batch_is_distinguishable(
+    tmp_path: Path,
+) -> None:
+    source_dir = tmp_path / "in"
+    source_dir.mkdir()
+    (source_dir / "broken1.jpg").write_text("not an image")
+    (source_dir / "broken2.jpg").write_text("also not an image")
+
+    result = pipeline.process_folder(source_dir, tmp_path / "out")
+
+    assert result.written == []
+    assert result.succeeded_count == 0
+    assert len(result.failed) == 2
+    assert result.last_prefix is None

@@ -35,8 +35,15 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.input.is_dir():
-            written = pipeline.process_folder(args.input, args.output)
-            print(f"Wrote {len(written)} files to {args.output}")
+            result = pipeline.process_folder(args.input, args.output)
+            print(
+                f"Wrote {result.succeeded_count} of {result.total_count} "
+                f"files to {args.output}"
+            )
+            for source, message in result.failed:
+                print(f"Error processing {source}: {message}", file=sys.stderr)
+            if result.failed:
+                return 1
         else:
             for path in pipeline.process_image(args.input, args.output):
                 print(f"Wrote {path}")

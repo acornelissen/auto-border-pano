@@ -127,7 +127,7 @@ class PanoramaSplitterGUI:
         self.output_path.set(str(Path(folder) / Path(source).stem) if source else folder)
 
     def update_preview(self, output_prefix: str) -> None:
-        self._preview_images.clear()
+        images: list[ImageTk.PhotoImage] = []
         for label, path in zip(
             self.preview_labels, pipeline.output_paths(output_prefix), strict=True
         ):
@@ -141,8 +141,9 @@ class PanoramaSplitterGUI:
             except OSError as error:
                 label.config(image="", text=f"Error: {error}")
                 continue
-            self._preview_images.append(photo)
+            images.append(photo)
             label.config(image=photo, text="")
+        self._preview_images = images
 
     def _finish(self, message: str, prefix: str | None, error: str | None) -> None:
         """Runs on the main thread. All widget mutation happens here."""
@@ -156,9 +157,27 @@ class PanoramaSplitterGUI:
         else:
             messagebox.showinfo("Success", message)
 
-    def _run_single(self) -> None:
-        source = self.input_path.get()
-        prefix = self.output_path.get()
+    def _finish_batch(self, result: pipeline.BatchResult) -> None:
+        """Runs on the main thread. All widget mutation happens here."""
+        self.progress.set(100)
+        succeeded = result.succeeded_count
+        total = result.total_count
+        failed = result.failed
+        if failed:
+            names = ", ".join(path.name for path, _ in failed)
+            message = f"Processed {succeeded} of {total}, {len(failed)} failed: {names}"
+        else:
+            message = f"Processed {succeeded} of {total}"
+        self.status.set(message)
+        if result.last_prefix is not None:
+            self.update_preview(str(result.last_prefix))
+        self.process_btn.config(state="normal")
+        if failed:
+            messagebox.showwarning("Completed with errors", message)
+        else:
+            messagebox.showinfo("Success", message)
+
+    def _run_single(self, source: str, prefix: str) -> None:
         try:
             pipeline.process_image(source, prefix)
         except (OSError, ValueError) as error:
@@ -166,27 +185,19 @@ class PanoramaSplitterGUI:
             return
         self.root.after(0, self._finish, "Complete", prefix, None)
 
-    def _run_batch(self) -> None:
-        source = self.input_path.get()
-        destination = self.output_path.get()
-        last: list[str] = []
-
+    def _run_batch(self, source: str, destination: str) -> None:
         def report(done: int, total: int, path: Path) -> None:
-            last.append(str(Path(destination) / path.stem))
             self.root.after(0, self._set_progress, done, total, path.name)
 
         try:
-            pipeline.process_folder(source, destination, on_progress=report)
+            result = pipeline.process_folder(source, destination, on_progress=report)
         except (OSError, ValueError) as error:
             self.root.after(0, self._finish, "Failed", None, str(error))
             return
-        self.root.after(
-            0, self._finish, f"Complete, processed {len(last)} files",
-            last[-1] if last else None, None,
-        )
+        self.root.after(0, self._finish_batch, result)
 
     def _set_progress(self, done: int, total: int, name: str) -> None:
-        self.progress.set(done / total * 100 if total else 0)
+        self.progress.set((done + 1) / total * 100 if total else 0)
         self.status.set(f"Processing {done + 1}/{total}: {name}")
 
     def process_images(self) -> None:
@@ -194,11 +205,12 @@ class PanoramaSplitterGUI:
         if not source or not Path(source).exists():
             messagebox.showerror("Error", "Please select a valid input")
             return
+        destination = self.output_path.get()
         self.process_btn.config(state="disabled")
         self.progress.set(0)
         self.status.set("Working...")
         target = self._run_batch if self.is_folder_mode.get() else self._run_single
-        threading.Thread(target=target, daemon=True).start()
+        threading.Thread(target=target, args=(source, destination), daemon=True).start()
 
 
 def run() -> None:

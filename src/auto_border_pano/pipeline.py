@@ -5,6 +5,7 @@ output-filename contract, which the GUI depends on for previews.
 """
 
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from PIL import Image
@@ -22,6 +23,32 @@ OUTPUT_SUFFIXES = (
 )
 
 ProgressCallback = Callable[[int, int, Path], None]
+
+
+@dataclass
+class BatchResult:
+    """Outcome of processing every panorama in a folder.
+
+    `written` holds every output file from every successfully processed
+    source, in source order. `failed` holds one (source_path, error_message)
+    entry per source that could not be processed. `last_prefix` is the
+    output prefix (as passed to `output_paths`) of the last successfully
+    processed source, or `None` if nothing succeeded; callers that want a
+    preview of the batch's result should use this rather than re-deriving
+    the naming convention themselves.
+    """
+
+    written: list[Path] = field(default_factory=list)
+    failed: list[tuple[Path, str]] = field(default_factory=list)
+    last_prefix: Path | None = None
+
+    @property
+    def succeeded_count(self) -> int:
+        return len(self.written) // len(OUTPUT_SUFFIXES)
+
+    @property
+    def total_count(self) -> int:
+        return self.succeeded_count + len(self.failed)
 
 
 def output_paths(prefix: Path | str) -> list[Path]:
@@ -59,24 +86,29 @@ def process_folder(
     input_folder: Path | str,
     output_folder: Path | str,
     on_progress: ProgressCallback | None = None,
-) -> list[Path]:
+) -> BatchResult:
     """Split every panorama in a folder.
 
     Individual failures are skipped so one unreadable file cannot abort a
     long batch. `on_progress` is called before each file with
-    (completed_count, total_count, path).
+    (completed_count, total_count, path). Failures are reported to the
+    caller via the returned `BatchResult.failed` rather than printed here;
+    the caller (CLI, GUI, ...) owns how failures are surfaced.
     """
     output_folder = Path(output_folder)
     output_folder.mkdir(parents=True, exist_ok=True)
 
     sources = find_panoramas(input_folder)
-    written: list[Path] = []
+    result = BatchResult()
 
     for done, source in enumerate(sources):
         if on_progress is not None:
             on_progress(done, len(sources), source)
+        prefix = output_folder / source.stem
         try:
-            written.extend(process_image(source, output_folder / source.stem))
+            result.written.extend(process_image(source, prefix))
         except (OSError, ValueError) as error:
-            print(f"Error processing {source}: {error}")
-    return written
+            result.failed.append((source, str(error)))
+        else:
+            result.last_prefix = prefix
+    return result
