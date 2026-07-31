@@ -11,8 +11,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pano-split",
         description=(
-            "Split a panorama into a padded square plus three 1080x1080 "
-            "sections. Accepts a single image or a folder of images."
+            "Split a panorama into a whole-panorama frame plus zoomed detail "
+            "frames, sized for an Instagram carousel. Accepts a single image "
+            "or a folder of images."
         ),
     )
     parser.add_argument("input", type=Path, help="input image or folder")
@@ -23,11 +24,22 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path("output"),
         help="output prefix for a single image, or output folder",
     )
+    parser.add_argument(
+        "--ratio",
+        choices=sorted(pipeline.RATIOS),
+        default=pipeline.DEFAULT_RATIO.name,
+        help=(
+            "target aspect ratio for every frame "
+            f"(default: {pipeline.DEFAULT_RATIO.name}). The number of detail "
+            "frames is derived from this."
+        ),
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    ratio = pipeline.RATIOS[args.ratio]
 
     if not args.input.exists():
         print(f"Error: '{args.input}' not found", file=sys.stderr)
@@ -38,18 +50,20 @@ def main(argv: list[str] | None = None) -> int:
             if not pipeline.find_panoramas(args.input):
                 print(f"No JPG files found in '{args.input}'")
                 return 0
-            result = pipeline.process_folder(args.input, args.output)
+            result = pipeline.process_folder(args.input, args.output, ratio)
             print(
                 f"Wrote {result.succeeded_count} of {result.total_count} "
-                f"images to {args.output}"
+                f"images to {args.output} at {ratio.name}"
             )
             for source, message in result.failed:
                 print(f"Error processing {source}: {message}", file=sys.stderr)
             if result.failed:
                 return 1
         else:
-            for path in pipeline.process_image(args.input, args.output):
-                print(f"Wrote {path}")
+            written = pipeline.process_image(args.input, args.output, ratio)
+            print(f"Wrote {len(written) - 1} detail frames at {ratio.name}")
+            for path in written:
+                print(f"  {path}")
     except Exception as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1

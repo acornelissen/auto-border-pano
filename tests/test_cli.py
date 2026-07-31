@@ -17,7 +17,7 @@ def test_single_file_mode_writes_outputs(tmp_path: Path) -> None:
     exit_code = cli.main([str(source), str(tmp_path / "out")])
 
     assert exit_code == 0
-    assert (tmp_path / "out_1_padded_square.jpg").exists()
+    assert (tmp_path / "out_1_padded.jpg").exists()
 
 
 def test_folder_mode_writes_outputs(tmp_path: Path) -> None:
@@ -28,7 +28,7 @@ def test_folder_mode_writes_outputs(tmp_path: Path) -> None:
     exit_code = cli.main([str(source_dir), str(tmp_path / "out")])
 
     assert exit_code == 0
-    assert (tmp_path / "out" / "a_1_padded_square.jpg").exists()
+    assert (tmp_path / "out" / "a_1_padded.jpg").exists()
 
 
 def test_missing_input_is_an_error(tmp_path: Path) -> None:
@@ -46,7 +46,7 @@ def test_folder_mode_with_one_bad_file_exits_nonzero(
     exit_code = cli.main([str(source_dir), str(tmp_path / "out")])
 
     assert exit_code == 1
-    assert (tmp_path / "out" / "good_1_padded_square.jpg").exists()
+    assert (tmp_path / "out" / "good_1_padded.jpg").exists()
     captured = capsys.readouterr()
     assert "broken.jpg" in captured.err
 
@@ -91,7 +91,7 @@ def test_default_prefix_is_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     synthetic_panorama(600, 200).save(source, "JPEG", quality=95)
 
     assert cli.main([str(source)]) == 0
-    assert (tmp_path / "output_1_padded_square.jpg").exists()
+    assert (tmp_path / "output_1_padded.jpg").exists()
 
 
 def test_folder_mode_default_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -103,7 +103,7 @@ def test_folder_mode_default_output(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     exit_code = cli.main([str(source_dir)])
 
     assert exit_code == 0
-    assert (tmp_path / "output" / "a_1_padded_square.jpg").exists()
+    assert (tmp_path / "output" / "a_1_padded.jpg").exists()
 
 
 def test_gui_main_without_tkinter(
@@ -135,3 +135,38 @@ def test_gui_main_without_tkinter(
     captured = capsys.readouterr()
     assert "tkinter is not available" in captured.err
     assert "brew install python-tk" in captured.err
+
+
+def test_ratio_flag_changes_the_output_shape(tmp_path: Path) -> None:
+    source = tmp_path / "pano.jpg"
+    synthetic_panorama(3000, 1250).save(source, "JPEG", quality=95)
+
+    assert cli.main([str(source), str(tmp_path / "wide"), "--ratio", "1.91:1"]) == 0
+
+    with Image.open(tmp_path / "wide_2_section1.jpg") as img:
+        assert img.size == (1080, 566)
+
+
+def test_default_ratio_is_four_five(tmp_path: Path) -> None:
+    source = tmp_path / "pano.jpg"
+    synthetic_panorama(3000, 1250).save(source, "JPEG", quality=95)
+
+    assert cli.main([str(source), str(tmp_path / "out")]) == 0
+
+    with Image.open(tmp_path / "out_2_section1.jpg") as img:
+        assert img.size == (1080, 1350)
+
+
+def test_unknown_ratio_is_rejected(tmp_path: Path) -> None:
+    source = tmp_path / "pano.jpg"
+    synthetic_panorama(3000, 1250).save(source, "JPEG", quality=95)
+
+    with pytest.raises(SystemExit):
+        cli.main([str(source), str(tmp_path / "out"), "--ratio", "16:9"])
+
+
+def test_portrait_input_exits_nonzero(tmp_path: Path) -> None:
+    source = tmp_path / "tall.jpg"
+    synthetic_panorama(800, 3000).save(source, "JPEG", quality=95)
+
+    assert cli.main([str(source), str(tmp_path / "out")]) == 1
