@@ -58,3 +58,16 @@ def test_render_requires_one_box_per_image() -> None:
     solved = layout.Layout("bad", (layout.Box(0, 0, 10, 10), layout.Box(20, 0, 10, 10)), 0.5)
     with pytest.raises(ValueError):
         compose.render(images, solved, geometry.SQUARE)
+
+
+def test_extreme_aspect_ratio_with_small_height() -> None:
+    # Regression: extreme aspect ratios with small heights should not cause false rejections.
+    # layout._place rounds each dimension independently, so there can be accumulated
+    # rounding error; the tolerance must account for this.
+    # Example: aspect ~8.21, height ~45 used to fail with 2px tolerance but is valid.
+    images = [_image(821, 100, (255, 0, 0)), _image(900, 300, (0, 255, 0))]  # aspect ~8.21
+    aspects = [im.width / im.height for im in images]
+    solved = layout.solve(aspects, geometry.SQUARE, PADDING)
+    # Should not raise ValueError due to aspect mismatch
+    result = compose.render(images, solved, geometry.SQUARE)
+    assert result.size == (geometry.SQUARE.width, geometry.SQUARE.height)

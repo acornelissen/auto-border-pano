@@ -13,11 +13,6 @@ from PIL import Image
 from auto_border_pano.geometry import BACKGROUND, AspectRatio
 from auto_border_pano.layout import Layout
 
-# A box comes from the image's own aspect ratio, so the two should agree to
-# within integer rounding. More than this means the solver is wrong, and
-# rendering anyway would silently stretch the photograph.
-ASPECT_TOLERANCE_PX = 2
-
 
 def render(images: Sequence[Image.Image], solved: Layout, ratio: AspectRatio) -> Image.Image:
     """Scale each image into its box and paste onto a white canvas."""
@@ -26,8 +21,14 @@ def render(images: Sequence[Image.Image], solved: Layout, ratio: AspectRatio) ->
 
     canvas = Image.new("RGB", (ratio.width, ratio.height), BACKGROUND)
     for image, box in zip(images, solved.boxes, strict=True):
-        expected = math.floor(box.height * (image.width / image.height) + 0.5)
-        if abs(box.width - expected) > ASPECT_TOLERANCE_PX:
+        # layout._place rounds width and height independently. For a given box.height,
+        # the pre-rounded height could have been anywhere in [height-0.5, height+0.5).
+        # This means box.width could legitimately be anywhere in the range of widths
+        # that result from those heights, plus ±1px slack for rounding on width itself.
+        aspect = image.width / image.height
+        min_width = math.floor((box.height - 0.5) * aspect + 0.5) - 1
+        max_width = math.floor((box.height + 0.5) * aspect + 0.5) + 1
+        if not (min_width <= box.width <= max_width):
             raise ValueError(
                 f"box aspect {box.width}x{box.height} does not match image "
                 f"{image.width}x{image.height}; refusing to distort it"
