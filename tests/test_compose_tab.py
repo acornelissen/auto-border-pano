@@ -232,7 +232,7 @@ def test_compose_tab_builds_a_working_ratio_combobox_under_real_tk(tk_root: tkin
     assert tab.preview_btn.cget("text") == "Preview"
     assert tab.save_btn.cget("text") == "Save composite"
     assert tab.status.get() == compose_tab.EMPTY_STATE
-    assert tab.hint.get() == compose_tab.EMPTY_STATE
+    assert tab.hint.get() == ""
 
 
 def _state(button: Any) -> str:
@@ -262,7 +262,10 @@ def test_save_and_preview_are_disabled_below_two_images_with_a_reason(tk_root: t
     tab = _tk_tab(tk_root)
     assert _state(tab.save_btn) == "disabled"
     assert _state(tab.preview_btn) == "disabled"
-    assert tab.hint.get() == compose_tab.EMPTY_STATE
+    # With nothing added the status line already carries the invitation, so
+    # the hint stays quiet rather than printing the same sentence twice.
+    assert tab.status.get() == compose_tab.EMPTY_STATE
+    assert tab.hint.get() == ""
 
     tab.images = ["a.jpg"]
     tab._refresh_list()

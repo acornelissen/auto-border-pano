@@ -241,10 +241,13 @@ class ComposeTab:
         ready = self.can_compose()
         self._set_buttons_state("normal" if ready else "disabled")
         self.save_btn.config(text=_save_label(count))
-        if ready:
+        # The hint says why Save is disabled. With nothing added yet the
+        # status line is already saying exactly that, and printing the same
+        # sentence twice under one button reads as a rendering fault.
+        if ready or count == 0:
             self._set_hint("")
         else:
-            self._set_hint(ONE_MORE if count == MIN_IMAGES - 1 else EMPTY_STATE)
+            self._set_hint(ONE_MORE)
 
     def _update_status(self) -> None:
         """State the consequence: what this makes, how it is arranged, at
