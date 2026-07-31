@@ -1,8 +1,9 @@
-"""Characterisation tests for the pure geometry transforms.
+"""Behavioural tests for the pure geometry transforms.
 
-These lock in current behaviour exactly, including the padding quirk where
-the vertical padding constant only influences canvas size and the panorama
-ends up vertically centered.
+Covers padded-frame sizing at any target ratio (including the fallback that
+grows the canvas from height when width-derived sizing would clip the
+panorama), and section cropping/scaling (bounds, cover-scale, center-crop
+offsets on both axes, and exact output size) across all registered ratios.
 """
 
 import pytest
@@ -56,6 +57,8 @@ def test_section_bounds_split_on_integer_division() -> None:
 def test_section_bounds_validates_index() -> None:
     with pytest.raises(ValueError):
         geometry.section_bounds(3000, 3, 3)
+    with pytest.raises(ValueError):
+        geometry.section_bounds(3000, -1, 3)
 
 
 def test_sections_are_exactly_the_target_size() -> None:
@@ -83,6 +86,16 @@ def test_section_center_crop_uses_the_computed_offset_not_zero() -> None:
     top_left = section.getpixel((0, 0))
     assert isinstance(top_left, tuple)
     assert top_left[1] != 0, "green channel 0 means source row 0 -- offset was not applied"
+
+
+def test_section_center_crop_uses_the_computed_x_offset_not_zero() -> None:
+    # Wide crop: cover-scaling binds on height and overflows horizontally,
+    # so the x-offset must be nonzero. Red channel encodes the source column.
+    panorama = synthetic_panorama(3000, 800)
+    section = geometry.make_section(panorama, 0, 3, geometry.SQUARE)
+    top_left = section.getpixel((0, 0))
+    assert isinstance(top_left, tuple)
+    assert top_left[0] != 0, "red channel 0 means source column 0 -- x offset was not applied"
 
 
 def test_adjacent_sections_show_different_parts_of_the_panorama() -> None:

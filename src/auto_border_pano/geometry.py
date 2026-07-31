@@ -69,7 +69,8 @@ def padded_frame_size(
     Sized from the width so the panorama keeps SIDE_PADDING left and right.
     If the ratio would then make the canvas too short to hold the panorama
     with its minimum vertical padding, size from the height instead. Either
-    way the ratio is exact.
+    way the ratio is exact to within a pixel of rounding (e.g. a 1x1
+    panorama at 1.91:1 gives 201x105, not a perfectly exact ratio).
     """
     width = pano_width + 2 * SIDE_PADDING
     height = math.floor(width / ratio.value + 0.5)
@@ -121,6 +122,10 @@ def make_section(
     crop_width, crop_height = crop.size
 
     scale = max(ratio.width / crop_width, ratio.height / crop_height)
+    # Half-up rounding of crop_dim * scale is what actually guarantees the
+    # resized image covers the target on both axes. The max(ratio.*, ...)
+    # here is belt-and-braces, not load-bearing: it's a floor against any
+    # future rounding change, not something exercised by current inputs.
     resized = crop.resize(
         (
             max(ratio.width, math.floor(crop_width * scale + 0.5)),
