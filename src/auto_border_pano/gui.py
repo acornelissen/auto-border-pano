@@ -170,7 +170,7 @@ class PanoramaSplitterGUI:
     def _run_single(self, source: str, prefix: str) -> None:
         try:
             pipeline.process_image(source, prefix)
-        except (OSError, ValueError) as error:
+        except Exception as error:
             self.root.after(0, self._finish, "Failed", None, str(error))
             return
         self.root.after(0, self._finish, "Complete", prefix, None)
@@ -181,7 +181,7 @@ class PanoramaSplitterGUI:
 
         try:
             result = pipeline.process_folder(source, destination, on_progress=report)
-        except (OSError, ValueError) as error:
+        except Exception as error:
             self.root.after(0, self._finish, "Failed", None, str(error))
             return
         self.root.after(0, self._finish_batch, result)

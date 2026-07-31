@@ -1,11 +1,44 @@
 """Tests for the file-I/O layer."""
 
+import hashlib
 from pathlib import Path
 
+import pytest
 from PIL import Image
 
 from auto_border_pano import pipeline
 from tests.conftest import synthetic_panorama
+
+FIXTURES_DIR = Path(__file__).parent / "fixtures"
+
+# SHA-256 of each output produced from tests/fixtures/golden_panorama.jpg by
+# the *current* code, which was manually verified byte-identical to the
+# pre-refactor reference outputs during the src-layout migration. This test
+# is the standing guard for that "no output image may change" constraint;
+# without it, nothing catches a future regression, since `reference/` (the
+# original one-time comparison target) is gitignored.
+#
+# These hashes are tied to the installed Pillow version's JPEG encoder. If a
+# deliberate Pillow upgrade changes encoding, regenerate them with:
+#   uv run python -c "
+#   import hashlib, pathlib
+#   from auto_border_pano import pipeline
+#   out = pipeline.process_image(
+#       'tests/fixtures/golden_panorama.jpg', '/tmp/golden_regen/golden'
+#   )
+#   for p in out:
+#       print(p.name, hashlib.sha256(p.read_bytes()).hexdigest())
+#   "
+# and confirm the change is expected (e.g. by diffing the images visually)
+# before updating the values below.
+GOLDEN_OUTPUT_HASHES = {
+    "golden_1_padded_square.jpg": (
+        "767abc12bc4a5146f3db687411cbd2293f1335b5e44e666637e8cdf45de98672"
+    ),
+    "golden_2_section1.jpg": "6311ba82c3a97f6d387f8dcff38908806e4816cbbb0ace68fb803a5d0ef297de",
+    "golden_3_section2.jpg": "ce564811141462bafa31cfdd353eaa00ef65a81082670cd620221003044189bd",
+    "golden_4_section3.jpg": "215a7d9cd5c6bb8cc01e3ae9cf2f66c4f152e01b9fb964935013d337c0963a0c",
+}
 
 
 def _write_panorama(path: Path, width: int = 3000, height: int = 800) -> Path:
@@ -108,3 +141,38 @@ def test_process_folder_fully_failing_batch_is_distinguishable(
     assert result.succeeded_count == 0
     assert len(result.failed) == 2
     assert result.last_prefix is None
+
+
+def test_process_folder_continues_past_a_non_oserror_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # PIL.Image.DecompressionBombError subclasses Exception directly, not
+    # OSError or ValueError -- exactly what a huge panorama triggers. A
+    # narrow except tuple here would abort the whole batch, which is the
+    # one thing process_folder's docstring promises it prevents.
+    source_dir = tmp_path / "in"
+    source_dir.mkdir()
+    _write_panorama(source_dir / "good.jpg", 600, 200)
+    _write_panorama(source_dir / "huge.jpg", 600, 200)
+
+    real_process_image = pipeline.process_image
+
+    def fake_process_image(input_path: Path, output_prefix: Path) -> list[Path]:
+        if Path(input_path).name == "huge.jpg":
+            raise Image.DecompressionBombError("synthetic bomb")
+        return real_process_image(input_path, output_prefix)
+
+    monkeypatch.setattr(pipeline, "process_image", fake_process_image)
+
+    result = pipeline.process_folder(source_dir, tmp_path / "out")
+
+    assert result.succeeded_count == 1
+    assert len(result.failed) == 1
+    assert result.failed[0][0].name == "huge.jpg"
+    assert "synthetic bomb" in result.failed[0][1]
+
+
+def test_golden_panorama_outputs_are_byte_identical(tmp_path: Path) -> None:
+    written = pipeline.process_image(FIXTURES_DIR / "golden_panorama.jpg", tmp_path / "golden")
+    actual_hashes = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in written}
+    assert actual_hashes == GOLDEN_OUTPUT_HASHES

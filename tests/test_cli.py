@@ -1,10 +1,12 @@
 """Tests for the argparse entry point."""
 
 from pathlib import Path
+from typing import Any
 
 import pytest
+from PIL import Image
 
-from auto_border_pano import cli
+from auto_border_pano import cli, pipeline
 from tests.conftest import synthetic_panorama
 
 
@@ -47,6 +49,40 @@ def test_folder_mode_with_one_bad_file_exits_nonzero(
     assert (tmp_path / "out" / "good_1_padded_square.jpg").exists()
     captured = capsys.readouterr()
     assert "broken.jpg" in captured.err
+
+
+def test_single_file_non_oserror_failure_prints_clean_message(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # PIL.Image.DecompressionBombError subclasses Exception directly, not
+    # OSError or ValueError. A narrow except tuple lets it raise straight
+    # through main() as a traceback instead of a clean stderr message.
+    source = tmp_path / "pano.jpg"
+    synthetic_panorama(600, 200).save(source, "JPEG", quality=95)
+
+    def boom(*_args: Any, **_kwargs: Any) -> list[Path]:
+        raise Image.DecompressionBombError("synthetic bomb")
+
+    monkeypatch.setattr(pipeline, "process_image", boom)
+
+    exit_code = cli.main([str(source), str(tmp_path / "out")])
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "synthetic bomb" in captured.err
+
+
+def test_empty_folder_prints_clear_message_and_exits_zero(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    source_dir = tmp_path / "in"
+    source_dir.mkdir()
+
+    exit_code = cli.main([str(source_dir), str(tmp_path / "out")])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert f"No JPG files found in '{source_dir}'" in captured.out
 
 
 def test_default_prefix_is_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -105,7 +105,7 @@ def process_folder(
         prefix = output_folder / source.stem
         try:
             result.written.extend(process_image(source, prefix))
-        except (OSError, ValueError) as error:
+        except Exception as error:
             result.failed.append((source, str(error)))
         else:
             result.last_prefix = prefix

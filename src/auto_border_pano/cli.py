@@ -35,9 +35,13 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.input.is_dir():
+            if not pipeline.find_panoramas(args.input):
+                print(f"No JPG files found in '{args.input}'")
+                return 0
             result = pipeline.process_folder(args.input, args.output)
             print(
-                f"Wrote {result.succeeded_count} of {result.total_count} " f"files to {args.output}"
+                f"Wrote {result.succeeded_count} of {result.total_count} "
+                f"images to {args.output}"
             )
             for source, message in result.failed:
                 print(f"Error processing {source}: {message}", file=sys.stderr)
@@ -46,7 +50,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             for path in pipeline.process_image(args.input, args.output):
                 print(f"Wrote {path}")
-    except (OSError, ValueError) as error:
+    except Exception as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1
     return 0
