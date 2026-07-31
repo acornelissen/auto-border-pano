@@ -9,11 +9,8 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from PIL import Image, ImageTk
-
 from auto_border_pano import pipeline
-
-PREVIEW_MAX_PX = 150
+from auto_border_pano.gui.preview import PreviewPanes
 
 # Built once so process_images can do a plain dict lookup rather than
 # scanning pipeline.RATIOS on every run.
@@ -28,8 +25,6 @@ def preview_titles(count: int) -> list[str]:
 class PanoramaSplitterGUI:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title("Panorama Splitter")
-        self.root.geometry("800x600")
 
         self.input_path = tk.StringVar()
         self.output_path = tk.StringVar()
@@ -37,9 +32,6 @@ class PanoramaSplitterGUI:
         self.progress = tk.DoubleVar()
         self.status = tk.StringVar(value="Ready")
         self.ratio = tk.StringVar(value=pipeline.DEFAULT_RATIO.display)
-        self._preview_images: list[ImageTk.PhotoImage] = []
-        self.preview_labels: list[ttk.Label] = []
-        self._max_preview_columns = 0
 
         self._build_ui()
 
@@ -95,39 +87,12 @@ class PanoramaSplitterGUI:
         )
         ttk.Label(progress_frame, textvariable=self.status).grid(row=1, column=0, sticky=tk.W)
 
-        self.preview_frame = ttk.LabelFrame(main, text="Preview (Last Processed)", padding="10")
-        self.preview_frame.grid(
+        self.previews = PreviewPanes(main, "Preview (Last Processed)")
+        self.previews.frame.grid(
             row=6, column=0, columnspan=4, sticky=(tk.W, tk.E, tk.N, tk.S), pady=10
         )
-        self.preview_frame.rowconfigure(0, weight=1)
 
         main.rowconfigure(6, weight=1)
-
-    def _rebuild_preview_panes(self, count: int) -> None:
-        """Recreate the preview cells for a run's frame count.
-
-        The count varies with the aspect ratio, so the panes cannot be built
-        once at construction time. Runs on the main thread only.
-        """
-        for child in self.preview_frame.winfo_children():
-            child.destroy()
-        self.preview_labels = []
-
-        titles = preview_titles(count)
-        for column, title in enumerate(titles):
-            self.preview_frame.columnconfigure(column, weight=1)
-            cell = ttk.Frame(self.preview_frame)
-            cell.grid(row=0, column=column, padx=5, pady=5, sticky=(tk.N, tk.S, tk.E, tk.W))
-            ttk.Label(cell, text=title, font=("Arial", 10, "bold")).pack()
-            label = ttk.Label(cell, text="No preview", relief="sunken", anchor="center")
-            label.pack(expand=True, fill="both")
-            self.preview_labels.append(label)
-
-        # Drop stale column weights from any previous, longer run, up to the
-        # highest column count this instance has ever built.
-        for column in range(len(titles), self._max_preview_columns + 1):
-            self.preview_frame.columnconfigure(column, weight=0)
-        self._max_preview_columns = max(self._max_preview_columns, len(titles))
 
     def browse_file(self) -> None:
         filename = filedialog.askopenfilename(
@@ -162,24 +127,8 @@ class PanoramaSplitterGUI:
         self.output_path.set(str(Path(folder) / Path(source).stem) if source else folder)
 
     def update_preview(self, output_prefix: str, count: int) -> None:
-        self._rebuild_preview_panes(count)
-        images: list[ImageTk.PhotoImage] = []
-        for label, path in zip(
-            self.preview_labels, pipeline.output_paths(output_prefix, count), strict=True
-        ):
-            if not path.exists():
-                label.config(image="", text="No preview")
-                continue
-            try:
-                with Image.open(path) as img:
-                    img.thumbnail((PREVIEW_MAX_PX, PREVIEW_MAX_PX), Image.Resampling.LANCZOS)
-                    photo = ImageTk.PhotoImage(img)
-            except Exception as error:
-                label.config(image="", text=f"Error: {error}")
-                continue
-            images.append(photo)
-            label.config(image=photo, text="")
-        self._preview_images = images
+        self.previews.rebuild(preview_titles(count))
+        self.previews.show_paths(pipeline.output_paths(output_prefix, count))
 
     def _finish(
         self, message: str, prefix: str | None, count: int | None, error: str | None
@@ -281,9 +230,3 @@ class PanoramaSplitterGUI:
         ratio_name = _RATIO_BY_DISPLAY.get(selected_display, pipeline.DEFAULT_RATIO.name)
         target = self._run_batch if self.is_folder_mode.get() else self._run_single
         threading.Thread(target=target, args=(source, destination, ratio_name), daemon=True).start()
-
-
-def run() -> None:
-    root = tk.Tk()
-    PanoramaSplitterGUI(root)
-    root.mainloop()
