@@ -61,64 +61,76 @@ def section_count(pano_width: int, pano_height: int, ratio: AspectRatio) -> int:
     return max(MIN_SECTIONS, math.floor(pano_width / tile + 0.5))
 
 
-def padded_square_size(width: int, height: int) -> int:
-    """Return the edge length of the square canvas for a panorama.
+def padded_frame_size(
+    pano_width: int, pano_height: int, ratio: AspectRatio
+) -> tuple[int, int]:
+    """Canvas size for the whole-panorama frame at a given ratio.
 
-    Note that for any normal wide panorama the width term wins, so the
-    vertical padding never actually applies -- see make_padded_square.
+    Sized from the width so the panorama keeps SIDE_PADDING left and right.
+    If the ratio would then make the canvas too short to hold the panorama
+    with its minimum vertical padding, size from the height instead. Either
+    way the ratio is exact.
     """
-    return max(width + 2 * SIDE_PADDING, height + 2 * VERTICAL_PADDING)
+    width = pano_width + 2 * SIDE_PADDING
+    height = math.floor(width / ratio.value + 0.5)
+
+    minimum_height = pano_height + 2 * VERTICAL_PADDING
+    if height < minimum_height:
+        height = minimum_height
+        width = math.floor(height * ratio.value + 0.5)
+    return width, height
 
 
-def make_padded_square(image: Image.Image) -> Image.Image:
-    """Center a panorama on a white square canvas.
+def make_padded_frame(image: Image.Image, ratio: AspectRatio) -> Image.Image:
+    """Center a panorama on a white canvas of the target ratio.
 
-    The panorama is centered rather than offset by VERTICAL_PADDING, so a
-    wide panorama gets exactly SIDE_PADDING left and right and a much
-    larger leftover gap top and bottom. Preserved deliberately.
+    The panorama is centered, so at a tall ratio most of the frame is white
+    border. That is the intended aesthetic, not a bug.
     """
-    width, height = image.size
-    size = padded_square_size(width, height)
-    canvas = Image.new("RGB", (size, size), BACKGROUND)
-    canvas.paste(image, ((size - width) // 2, (size - height) // 2))
+    pano_width, pano_height = image.size
+    width, height = padded_frame_size(pano_width, pano_height, ratio)
+    canvas = Image.new("RGB", (width, height), BACKGROUND)
+    canvas.paste(image, ((width - pano_width) // 2, (height - pano_height) // 2))
     return canvas
 
 
-SECTION_SIZE = 1080
-SECTION_COUNT = 3
+def section_bounds(width: int, index: int, count: int) -> tuple[int, int]:
+    """Return the horizontal crop bounds of one detail frame.
 
-
-def section_bounds(width: int, index: int) -> tuple[int, int]:
-    """Return the horizontal crop bounds of one section.
-
-    Uses integer division, so when the width is not divisible by
-    SECTION_COUNT the remaining pixels on the right edge are discarded.
+    Uses integer division, so when the width is not divisible by `count`
+    the remaining pixels on the right edge are discarded.
     """
-    if not 0 <= index < SECTION_COUNT:
-        raise ValueError(f"index must be 0..{SECTION_COUNT - 1}, got {index}")
-    section_width = width // SECTION_COUNT
+    if not 0 <= index < count:
+        raise ValueError(f"index must be 0..{count - 1}, got {index}")
+    section_width = width // count
     start = index * section_width
     return start, start + section_width
 
 
-def make_section(image: Image.Image, index: int, size: int = SECTION_SIZE) -> Image.Image:
-    """Crop one section of the panorama and fill a square of `size`.
+def make_section(
+    image: Image.Image, index: int, count: int, ratio: AspectRatio
+) -> Image.Image:
+    """Crop one detail frame and scale it to exactly fill the target ratio.
 
-    Scales on whichever axis keeps the square fully covered, then
+    Scales by whichever axis keeps the target fully covered, then
     center-crops the overflow.
     """
     width, height = image.size
-    start, end = section_bounds(width, index)
+    start, end = section_bounds(width, index, count)
     crop = image.crop((start, 0, end, height))
     crop_width, crop_height = crop.size
 
-    if crop_width > crop_height:
-        scale = size / crop_height
-        resized = crop.resize((int(crop_width * scale), size), Image.Resampling.LANCZOS)
-        offset = (resized.width - size) // 2
-        return resized.crop((offset, 0, offset + size, size))
+    scale = max(ratio.width / crop_width, ratio.height / crop_height)
+    resized = crop.resize(
+        (
+            max(ratio.width, math.floor(crop_width * scale + 0.5)),
+            max(ratio.height, math.floor(crop_height * scale + 0.5)),
+        ),
+        Image.Resampling.LANCZOS,
+    )
 
-    scale = size / crop_width
-    resized = crop.resize((size, int(crop_height * scale)), Image.Resampling.LANCZOS)
-    offset = (resized.height - size) // 2
-    return resized.crop((0, offset, size, offset + size))
+    x_offset = (resized.width - ratio.width) // 2
+    y_offset = (resized.height - ratio.height) // 2
+    return resized.crop(
+        (x_offset, y_offset, x_offset + ratio.width, y_offset + ratio.height)
+    )
