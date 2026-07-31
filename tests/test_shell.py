@@ -43,9 +43,9 @@ def test_a_section_heading_is_capitalised_in_the_string(tk_root: tkinter.Tk) -> 
     """ttk has no text-transform, so caps have to be in the text itself."""
     built = shell.TwoColumn(tk_root)
 
-    heading = shell.section(built.rail, "Negative", row=0)
+    heading = shell.section(built.rail, "Source", row=0)
 
-    assert heading.cget("text") == "NEGATIVE"
+    assert heading.cget("text") == "SOURCE"
     assert heading.cget("style") == "Section.TLabel"
 
 

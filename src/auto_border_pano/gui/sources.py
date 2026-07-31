@@ -1,4 +1,4 @@
-"""The numbered negatives list: the ordering control, drawn as frames.
+"""The numbered sources list: the ordering control, drawn as frames.
 
 This replaces the `tk.Listbox` on the Compose tab. The Listbox was a raw Tk
 widget among ttk ones -- a pure black rectangle with a hard sunken border,
@@ -58,7 +58,7 @@ dead fourth row is the specific thing being fixed.
 EMPTY_HEIGHT = 2 * ROW_HEIGHT
 """Enough for the empty caption to wrap onto two lines in the rail."""
 
-EMPTY_CAPTION = "Add two negatives for a diptych, three for a triptych."
+EMPTY_CAPTION = "Add two sources for a diptych, three for a triptych."
 
 FALLBACK_WIDTH = 340
 """Stand-in width for the first draw, before the geometry manager reports a
@@ -72,7 +72,7 @@ thread, so a row must render before it knows its own size."""
 
 
 @dataclass(frozen=True)
-class Negative:
+class Source:
     """One row: a file, and its pixel size once somebody has read it.
 
     Frozen because a row is a fact about a file, not a mutable widget model.
@@ -96,8 +96,8 @@ class Negative:
         return f"{self.size[0]} × {self.size[1]}"  # noqa: RUF001
 
 
-class NegativesList:
-    """A short list of numbered negatives, in the order they will be placed."""
+class SourcesList:
+    """A short list of numbered sources, in the order they will be placed."""
 
     def __init__(
         self,
@@ -116,7 +116,7 @@ class NegativesList:
         self._number_font = theme.font(parent, "stencil")
         self._data_font = theme.font(parent, "data")
         self._body_font = theme.font(parent, "help")
-        self._items: list[Negative] = []
+        self._items: list[Source] = []
         self._selected: int | None = None
         self._on_select = on_select
         self._focused = False
@@ -142,7 +142,7 @@ class NegativesList:
         return len(self._items)
 
     @property
-    def items(self) -> tuple[Negative, ...]:
+    def items(self) -> tuple[Source, ...]:
         """What the rows currently show. A tuple, so a caller reading the
         rendered state cannot quietly mutate it behind the redraw."""
         return tuple(self._items)
@@ -152,7 +152,7 @@ class NegativesList:
         """The row the ordering buttons act on, or None if nothing is picked."""
         return self._selected
 
-    def set_items(self, items: Sequence[Negative]) -> None:
+    def set_items(self, items: Sequence[Source]) -> None:
         """Replace every row, keeping the selection where that still means
         something.
 
@@ -292,7 +292,7 @@ class NegativesList:
                 return candidate
         return ELLIPSIS
 
-    def _draw_row(self, index: int, item: Negative, width: int) -> None:
+    def _draw_row(self, index: int, item: Source, width: int) -> None:
         top = PAD_Y + index * ROW_HEIGHT
         selected = index == self._selected
         tags = (f"row{index}",)

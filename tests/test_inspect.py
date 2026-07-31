@@ -2,7 +2,7 @@
 
 Both tabs need to tell the user the consequence of their choices *before*
 they press the button: how many frames this ratio will cut, and how these
-negatives will be arranged. Both answers exist in `geometry` and `layout`,
+sources will be arranged. Both answers exist in `geometry` and `layout`,
 but `gui` may only import `pipeline`, so `pipeline` exposes them.
 """
 
@@ -19,7 +19,7 @@ def test_facts_report_the_pixels_and_the_native_ratio(tmp_path: Path) -> None:
     source = tmp_path / "pano.jpg"
     synthetic_panorama(3000, 1000).save(source, "JPEG", quality=95)
 
-    facts = pipeline.inspect_negative(source)
+    facts = pipeline.inspect_source(source)
 
     assert (facts.width, facts.height) == (3000, 1000)
     assert facts.native_ratio == "3.00:1"
@@ -32,7 +32,7 @@ def test_facts_round_the_native_ratio_to_two_places(tmp_path: Path) -> None:
     source = tmp_path / "pano.jpg"
     Image.new("RGB", (19921, 6607), "grey").save(source, "JPEG", quality=95)
 
-    assert pipeline.inspect_negative(source).native_ratio == "3.02:1"
+    assert pipeline.inspect_source(source).native_ratio == "3.02:1"
 
 
 def test_facts_count_every_frame_including_the_whole_panorama(tmp_path: Path) -> None:
@@ -42,7 +42,7 @@ def test_facts_count_every_frame_including_the_whole_panorama(tmp_path: Path) ->
     synthetic_panorama(3000, 1000).save(source, "JPEG", quality=95)
 
     for ratio in pipeline.RATIOS.values():
-        facts = pipeline.inspect_negative(source, ratio)
+        facts = pipeline.inspect_source(source, ratio)
         written = pipeline.process_image(source, tmp_path / f"out_{ratio.name}", ratio)
 
         assert facts.frame_count == len(written), f"{ratio.name} disagreed"
@@ -53,7 +53,7 @@ def test_facts_never_promise_fewer_than_three_frames(tmp_path: Path) -> None:
     source = tmp_path / "square.jpg"
     synthetic_panorama(1000, 900).save(source, "JPEG", quality=95)
 
-    assert pipeline.inspect_negative(source).frame_count >= 3
+    assert pipeline.inspect_source(source).frame_count >= 3
 
 
 def test_inspecting_does_not_decode_the_whole_image(
@@ -73,14 +73,14 @@ def test_inspecting_does_not_decode_the_whole_image(
 
     monkeypatch.setattr(Image.Image, "load", spy)
 
-    pipeline.inspect_negative(source)
+    pipeline.inspect_source(source)
 
-    assert loaded == [], "inspect_negative decoded pixel data it does not need"
+    assert loaded == [], "inspect_source decoded pixel data it does not need"
 
 
 def test_inspecting_a_missing_file_raises(tmp_path: Path) -> None:
     with pytest.raises(OSError):
-        pipeline.inspect_negative(tmp_path / "nope.jpg")
+        pipeline.inspect_source(tmp_path / "nope.jpg")
 
 
 def test_the_solved_arrangement_can_be_named_without_rendering_it(tmp_path: Path) -> None:

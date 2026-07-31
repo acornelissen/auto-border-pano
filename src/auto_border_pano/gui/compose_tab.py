@@ -14,14 +14,14 @@ from PIL import Image
 
 from auto_border_pano import pipeline
 from auto_border_pano.gui import shell, theme, tooltip
-from auto_border_pano.gui.negatives import Negative, NegativesList
+from auto_border_pano.gui.sources import Source, SourcesList
 from auto_border_pano.gui.strip import ContactStrip
 
 MIN_IMAGES = 2
 MAX_IMAGES = 3
 
-EMPTY_STATE = "Add two negatives for a diptych, three for a triptych."
-ONE_MORE = "Add one more negative."
+EMPTY_STATE = "Add two sources for a diptych, three for a triptych."
+ONE_MORE = "Add one more source."
 NO_PREFIX = "Choose where the composite should go."
 ORDER_HINT = "Left to right, in this order."
 
@@ -29,7 +29,7 @@ _RATIO_BY_DISPLAY: dict[str, str] = {r.display: r.name for r in pipeline.RATIOS.
 
 
 def _composite_noun(count: int) -> str:
-    """What this many negatives makes. Empty when it makes nothing yet."""
+    """What this many sources makes. Empty when it makes nothing yet."""
     if count == MIN_IMAGES:
         return "Diptych"
     if count == MAX_IMAGES:
@@ -108,7 +108,7 @@ class ComposeTab:
         self._solved: str = ""
         self._solve_token = 0
         # Pixel sizes by path, filled in by the solve worker below. Cached
-        # because the same negative is re-listed on every add, remove and
+        # because the same source is re-listed on every add, remove and
         # reorder, and re-reading its header each time would be wasteful.
         self._sizes: dict[str, tuple[int, int]] = {}
 
@@ -118,19 +118,19 @@ class ComposeTab:
         return MIN_IMAGES <= len(self.images) <= MAX_IMAGES
 
     def _build_ui(self) -> None:
-        # The rail reads top to bottom as a sentence -- these negatives, at
+        # The rail reads top to bottom as a sentence -- these sources, at
         # this format, to here, go -- and in the same order as the Split
         # tab's rail, so switching tabs no longer re-lays-out the window.
         rail = self.columns.rail
 
-        shell.section(rail, "Negatives", row=0)
+        shell.section(rail, "Sources", row=0)
 
         # Numbered rows in the contact strip's own visual language, because
         # the number *is* the arrangement: reordering here moves a numbered
         # frame there. The tk.Listbox this replaces was a black rectangle
         # with a sunken border among ttk widgets, and said nothing about the
         # one thing that matters -- that the order is the composite's order.
-        self.listbox = NegativesList(rail, on_select=self._on_select)
+        self.listbox = SourcesList(rail, on_select=self._on_select)
         self.listbox.canvas.grid(row=1, column=0, sticky=(tk.W, tk.E))
 
         # A row under the list rather than a column beside it: the list is
@@ -265,7 +265,7 @@ class ComposeTab:
         self.status.set(", ".join(parts))
 
     def _request_layout_name(self) -> None:
-        """Ask, off the main thread, how these negatives will be arranged.
+        """Ask, off the main thread, how these sources will be arranged.
 
         Reads every piece of tk state here on the main thread and hands the
         worker plain strings; `name_layout` opens files, so it must not run
@@ -280,7 +280,7 @@ class ComposeTab:
 
         sources = list(self.images)
         # The sizes shown in the list are wanted whether or not the set is
-        # composable yet -- one negative still has dimensions worth showing.
+        # composable yet -- one source still has dimensions worth showing.
         if not sources:
             return
         threading.Thread(
@@ -296,7 +296,7 @@ class ComposeTab:
             # Header reads only, and one unreadable file must not cost the
             # others their dimensions.
             with contextlib.suppress(OSError):
-                facts = pipeline.inspect_negative(source)
+                facts = pipeline.inspect_source(source)
                 sizes[source] = (facts.width, facts.height)
         try:
             name = pipeline.name_layout(sources, pipeline.RATIOS[ratio_name])
@@ -327,7 +327,7 @@ class ComposeTab:
             # widget, not through _refresh_list, which would start another
             # solve and loop.
             self.listbox.set_items(
-                [Negative(path=path, size=self._sizes.get(path)) for path in self.images]
+                [Source(path=path, size=self._sizes.get(path)) for path in self.images]
             )
 
     def _on_ratio_change(self, _event: object = None) -> None:
@@ -337,12 +337,12 @@ class ComposeTab:
         # Sizes may be unknown until the worker below reports; a row renders
         # without them rather than waiting.
         self.listbox.set_items(
-            [Negative(path=path, size=self._sizes.get(path)) for path in self.images]
+            [Source(path=path, size=self._sizes.get(path)) for path in self.images]
         )
         # The band counts what is loaded here, since no single filename
         # describes a composite.
         count = len(self.images)
-        self.subject.set(f"{count} negatives" if count else "")
+        self.subject.set(f"{count} sources" if count else "")
         self._request_layout_name()
         self._apply_button_states()
         # The output prefix is derived from the first image. If the field
@@ -383,7 +383,7 @@ class ComposeTab:
             return
         self._swap(index, index - 1)
         self._refresh_list()
-        # The moved negative stays selected, so a second press keeps moving
+        # The moved source stays selected, so a second press keeps moving
         # the same one rather than whatever landed under the cursor.
         self.listbox.select(index - 1)
 

@@ -9,7 +9,7 @@ every iteration, before `mise run check` and the commit.
 | 2 | Copy rewrite and modal removal | done |
 | 3 | Two-column layout, radio pair, live readouts, file facts | done |
 | 4 | Contact strip Canvas replacing `PreviewPanes` | done |
-| 5 | Numbered negatives list replacing `tk.Listbox` | done |
+| 5 | Numbered sources list replacing `tk.Listbox` | done |
 
 All five stages are in.
 

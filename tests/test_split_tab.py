@@ -225,7 +225,7 @@ def test_process_images_reports_a_missing_input_in_the_inline_error_label(
 
     app.process_images()
 
-    expected = "That file is not there any more. Choose another negative."
+    expected = "That file is not there any more. Choose another source."
     assert app.error.value == expected  # type: ignore[attr-defined]
 
 
@@ -313,7 +313,7 @@ def test_finish_reports_a_processing_failure_inline_and_never_in_a_dialog(
     assert app.error.value == "broken"  # type: ignore[attr-defined]
 
 
-def test_finish_batch_reports_negatives_and_frames(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_finish_batch_reports_sources_and_frames(monkeypatch: pytest.MonkeyPatch) -> None:
     modals: list[tuple[str, str]] = []
     monkeypatch.setattr(messagebox, "showinfo", lambda title, msg: modals.append((title, msg)))
 
@@ -333,7 +333,7 @@ def test_finish_batch_reports_negatives_and_frames(monkeypatch: pytest.MonkeyPat
 
     app._finish_batch(result, "1.91:1")
 
-    assert app.status.value == "Cut 1 negatives at 1.91:1. 2 frames written."  # type: ignore[attr-defined]
+    assert app.status.value == "Cut 1 sources at 1.91:1. 2 frames written."  # type: ignore[attr-defined]
     assert modals == []
 
 
@@ -363,7 +363,7 @@ def test_finish_batch_names_every_failed_file_and_keeps_the_reason(
 
     app._finish_batch(result, "1.91:1")
 
-    assert app.status.value == "Cut 1 of 2 negatives. b.jpg could not be read."  # type: ignore[attr-defined]
+    assert app.status.value == "Cut 1 of 2 sources. b.jpg could not be read."  # type: ignore[attr-defined]
     assert app.error.value == "b.jpg: portrait input"  # type: ignore[attr-defined]
     assert warnings == []
 
@@ -395,14 +395,14 @@ def test_finish_batch_reports_an_empty_folder_in_the_status_line(
     assert app.process_btn.last_state == "normal"  # type: ignore[attr-defined]
 
 
-def test_set_progress_names_the_negative(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_set_progress_names_the_source(monkeypatch: pytest.MonkeyPatch) -> None:
     app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
     app.progress = StubVar()  # type: ignore[assignment]
     app.status = StubVar()  # type: ignore[assignment]
 
     app._set_progress(0, 3, "horizons3-hp5-4.jpg")
 
-    assert app.status.value == "Negative 1 of 3 · horizons3-hp5-4.jpg"  # type: ignore[attr-defined]
+    assert app.status.value == "Source 1 of 3 · horizons3-hp5-4.jpg"  # type: ignore[attr-defined]
 
 
 def test_apply_facts_fills_the_readouts_and_the_button_label() -> None:
@@ -412,7 +412,7 @@ def test_apply_facts_fills_the_readouts_and_the_button_label() -> None:
     app.frame_count = StubVar("")  # type: ignore[assignment]
     app.action = StubVar("")  # type: ignore[assignment]
 
-    app._apply_facts(7, pipeline.NegativeFacts(19921, 6607, "3.01:1", 4))
+    app._apply_facts(7, pipeline.SourceFacts(19921, 6607, "3.01:1", 4))
 
     assert app.facts.value == "19921 × 6607 · 3.01:1"  # type: ignore[attr-defined]  # noqa: RUF001
     assert app.frame_count.value == "4 frames"  # type: ignore[attr-defined]
@@ -420,7 +420,7 @@ def test_apply_facts_fills_the_readouts_and_the_button_label() -> None:
 
 
 def test_apply_facts_ignores_a_stale_inspection() -> None:
-    """The user can pick a second negative before the first header read comes
+    """The user can pick a second source before the first header read comes
     back. The older answer must not overwrite the newer one -- that would leave
     the rail describing a file that is no longer loaded.
     """
@@ -431,9 +431,9 @@ def test_apply_facts_ignores_a_stale_inspection() -> None:
     app.action = StubVar("")  # type: ignore[assignment]
 
     # The newer request (token 2) lands first.
-    app._apply_facts(2, pipeline.NegativeFacts(4000, 1000, "4.00:1", 5))
+    app._apply_facts(2, pipeline.SourceFacts(4000, 1000, "4.00:1", 5))
     # The older one (token 1) arrives late and must be dropped entirely.
-    app._apply_facts(1, pipeline.NegativeFacts(100, 100, "1.00:1", 2))
+    app._apply_facts(1, pipeline.SourceFacts(100, 100, "1.00:1", 2))
 
     assert app.facts.value == "4000 × 1000 · 4.00:1"  # type: ignore[attr-defined]  # noqa: RUF001
     assert app.frame_count.value == "5 frames"  # type: ignore[attr-defined]
@@ -475,7 +475,7 @@ def test_inspect_never_touches_a_tk_object_and_returns_through_after(tmp_path: P
     assert app.facts.value == "600 × 200 · 3.00:1"  # type: ignore[attr-defined]  # noqa: RUF001
 
 
-def test_inspect_reports_an_unreadable_negative_as_no_count(tmp_path: Path) -> None:
+def test_inspect_reports_an_unreadable_source_as_no_count(tmp_path: Path) -> None:
     app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
     stub_root = StubRoot()
     app.root = stub_root  # type: ignore[assignment]
@@ -662,7 +662,7 @@ def test_a_single_run_reports_every_frame_as_it_lands(
 
     app._run_single(str(source), str(tmp_path / "out"), pipeline.DEFAULT_RATIO.name)
 
-    expected_frames = pipeline.inspect_negative(source, pipeline.DEFAULT_RATIO).frame_count
+    expected_frames = pipeline.inspect_source(source, pipeline.DEFAULT_RATIO).frame_count
     assert seen == [f"{n}/{expected_frames}" for n in range(1, expected_frames + 1)]
     assert app.previews.frame_count == expected_frames
     assert app.previews.errors == []

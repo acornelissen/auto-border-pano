@@ -37,7 +37,7 @@ ProgressCallback = Callable[[int, int, Path], None]
 # (frame_index, total_frames, path_just_written), zero-based like
 # ProgressCallback's completed count, so the GUI's existing
 # `(done + 1) / total` progress arithmetic works unchanged. Distinct from
-# ProgressCallback -- "frame 3 of 5" of one negative, not "file 3 of 10".
+# ProgressCallback -- "frame 3 of 5" of one source, not "file 3 of 10".
 FrameCallback = Callable[[int, int, Path], None]
 
 _log = logging.getLogger(__name__)
@@ -142,8 +142,8 @@ COMPOSITE_SUFFIXES = {2: "_diptych.jpg", 3: "_triptych.jpg"}
 
 
 @dataclass(frozen=True)
-class NegativeFacts:
-    """What a negative is, and what the current ratio will do to it.
+class SourceFacts:
+    """What a source is, and what the current ratio will do to it.
 
     Everything the interface needs to state a consequence before the user
     commits to it, rather than reporting it afterwards in the past tense.
@@ -155,8 +155,8 @@ class NegativeFacts:
     frame_count: int
 
 
-def inspect_negative(path: Path | str, ratio: AspectRatio = DEFAULT_RATIO) -> NegativeFacts:
-    """Read a negative's shape without decoding it.
+def inspect_source(path: Path | str, ratio: AspectRatio = DEFAULT_RATIO) -> SourceFacts:
+    """Read a source's shape without decoding it.
 
     This runs on every file selection, and the user's own scans reach
     132MP, so it must stay a header read -- `Image.open` is lazy and
@@ -168,7 +168,7 @@ def inspect_negative(path: Path | str, ratio: AspectRatio = DEFAULT_RATIO) -> Ne
     """
     with Image.open(path) as opened:
         width, height = opened.size
-    return NegativeFacts(
+    return SourceFacts(
         width=width,
         height=height,
         native_ratio=f"{width / height:.2f}:1",
@@ -177,7 +177,7 @@ def inspect_negative(path: Path | str, ratio: AspectRatio = DEFAULT_RATIO) -> Ne
 
 
 def name_layout(input_paths: Sequence[Path | str], ratio: AspectRatio = DEFAULT_RATIO) -> str:
-    """Name the arrangement these negatives will get, without rendering it.
+    """Name the arrangement these sources will get, without rendering it.
 
     The solver only needs each source's aspect ratio, so this reads headers
     and stops. `compose_preview` renders through the same `layout.solve`

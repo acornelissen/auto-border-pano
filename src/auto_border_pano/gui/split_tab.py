@@ -17,7 +17,7 @@ from auto_border_pano.gui.strip import ContactStrip
 # scanning pipeline.RATIOS on every run.
 _RATIO_BY_DISPLAY: dict[str, str] = {r.display: r.name for r in pipeline.RATIOS.values()}
 
-NO_COUNT = "Load a negative to see the frame count"
+NO_COUNT = "Load a source to see the frame count"
 """Shown whenever the frame count is not known: no file, folder mode, or an
 unreadable file. Never a stale or guessed number."""
 
@@ -49,7 +49,7 @@ class PanoramaSplitterGUI:
         # under the primary button, cleared at the start of every run.
         self.error = tk.StringVar()
         self.ratio = tk.StringVar(value=pipeline.DEFAULT_RATIO.display)
-        # What the app read off the negative's header: dimensions and native
+        # What the app read off the source's header: dimensions and native
         # ratio in mono, the frame count the chosen ratio implies, and the
         # button's own label, which counts what it will produce.
         self.facts = tk.StringVar()
@@ -77,7 +77,7 @@ class PanoramaSplitterGUI:
 
         # The rail reads top to bottom as a sentence: this file, at this
         # ratio, to here, go.
-        shell.section(rail, "Negative", row=0)
+        shell.section(rail, "Source", row=0)
 
         input_row = ttk.Frame(rail)
         input_row.grid(row=1, column=0, sticky=(tk.W, tk.E))
@@ -160,7 +160,7 @@ class PanoramaSplitterGUI:
     # --- The live readouts --------------------------------------------------
 
     def _on_selection_changed(self, *_args: object) -> None:
-        """Re-read the negative's header. Main thread only.
+        """Re-read the source's header. Main thread only.
 
         Bumping the token first means any inspection already in flight is
         stale from here on, whichever way this call ends.
@@ -184,7 +184,7 @@ class PanoramaSplitterGUI:
     def _inspect(self, token: int, source: str, ratio_name: str) -> None:
         """Runs on a worker thread. Touches nothing but plain values."""
         try:
-            facts: pipeline.NegativeFacts | None = pipeline.inspect_negative(
+            facts: pipeline.SourceFacts | None = pipeline.inspect_source(
                 source, pipeline.RATIOS[ratio_name]
             )
         except Exception:
@@ -193,7 +193,7 @@ class PanoramaSplitterGUI:
             facts = None
         self.root.after(0, self._apply_facts, token, facts)
 
-    def _apply_facts(self, token: int, facts: pipeline.NegativeFacts | None) -> None:
+    def _apply_facts(self, token: int, facts: pipeline.SourceFacts | None) -> None:
         """Runs on the main thread. All widget mutation happens here."""
         if token != self._inspect_token:
             return
@@ -284,12 +284,12 @@ class PanoramaSplitterGUI:
 
         if failed:
             names = ", ".join(path.name for path, _ in failed)
-            message = f"Cut {succeeded} of {total} negatives. {names} could not be read."
+            message = f"Cut {succeeded} of {total} sources. {names} could not be read."
             # The status names the files; the reasons go to the error label
             # so nothing the user needs to act on is lost.
             self.error.set("; ".join(f"{path.name}: {reason}" for path, reason in failed))
         else:
-            message = f"Cut {total} negatives at {ratio}. {len(result.written)} frames written."
+            message = f"Cut {total} sources at {ratio}. {len(result.written)} frames written."
         self.status.set(message)
         try:
             if result.last_prefix is not None and result.last_count is not None:
@@ -348,13 +348,13 @@ class PanoramaSplitterGUI:
 
     def _set_progress(self, done: int, total: int, name: str) -> None:
         self.progress.set((done + 1) / total * 100 if total else 0)
-        self.status.set(f"Negative {done + 1} of {total} · {name}")
+        self.status.set(f"Source {done + 1} of {total} · {name}")
 
     def process_images(self) -> None:
         self.error.set("")
         source = self.input_path.get()
         if not source or not Path(source).exists():
-            self.error.set("That file is not there any more. Choose another negative.")
+            self.error.set("That file is not there any more. Choose another source.")
             return
         destination = self.output_path.get()
         if not destination:

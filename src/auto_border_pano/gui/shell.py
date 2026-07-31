@@ -56,7 +56,7 @@ class TwoColumn:
 
 
 def section(parent: tk.Misc, title: str, row: int) -> ttk.Label:
-    """A rail section heading: `NEGATIVE`, `FORMAT`, `DESTINATION`.
+    """A rail section heading: `SOURCE`, `FORMAT`, `DESTINATION`.
 
     The rail is grouped by headings and whitespace rather than by rules --
     hairline rules everywhere is the broadsheet default, and this is a

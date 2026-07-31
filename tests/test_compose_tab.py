@@ -470,7 +470,7 @@ def test_a_compose_failure_is_reported_inline(
 def test_the_rows_gain_their_dimensions_once_the_headers_are_read(
     tk_root: tkinter.Tk, tmp_path: Path
 ) -> None:
-    """The list shows each negative's pixel size, but the sizes come off a
+    """The list shows each source's pixel size, but the sizes come off a
     worker thread. A row must render before they arrive and pick them up
     after, without a second solve being kicked off in the process."""
     from PIL import Image
@@ -496,7 +496,7 @@ def test_the_rows_gain_their_dimensions_once_the_headers_are_read(
     assert tab._solve_token == token, "applying sizes must not start another solve"
 
 
-def test_moving_a_negative_keeps_it_selected(tk_root: tkinter.Tk) -> None:
+def test_moving_a_source_keeps_it_selected(tk_root: tkinter.Tk) -> None:
     """Order is the composite's order, so the thing you are moving has to
     stay the thing you are moving -- otherwise a second press moves whatever
     happened to land under it."""
@@ -517,7 +517,7 @@ def test_moving_a_negative_keeps_it_selected(tk_root: tkinter.Tk) -> None:
     assert tab.listbox.selected_index == 0
 
 
-def test_removing_a_negative_leaves_a_sane_selection(tk_root: tkinter.Tk) -> None:
+def test_removing_a_source_leaves_a_sane_selection(tk_root: tkinter.Tk) -> None:
     tab = _tk_tab(tk_root)
     tab.images = ["a.jpg", "b.jpg", "c.jpg"]
     tab._refresh_list()
