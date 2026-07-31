@@ -26,6 +26,11 @@ class ComposeTab:
         self.frame = ttk.Frame(parent, padding="10")
         self.images: list[str] = []
         self._selection: int | None = None
+        # Tracks the last prefix this class itself derived from the first
+        # image, so _refresh_list can tell "the user hasn't touched this
+        # field" apart from "the user typed their own prefix" and only
+        # overwrite the former.
+        self._derived_prefix: str = ""
 
         self.output_path = tk.StringVar()
         self.ratio = tk.StringVar(value=pipeline.DEFAULT_RATIO.display)
@@ -75,8 +80,12 @@ class ComposeTab:
         )
         ttk.Button(output_row, text="Browse", command=self.browse_output).grid(row=0, column=2)
 
-        self.compose_btn = ttk.Button(self.frame, text="Compose", command=self.compose)
-        self.compose_btn.grid(row=3, column=0, pady=10)
+        action_row = ttk.Frame(self.frame)
+        action_row.grid(row=3, column=0, pady=10)
+        self.preview_btn = ttk.Button(action_row, text="Preview", command=self.preview)
+        self.preview_btn.pack(side="left", padx=5)
+        self.save_btn = ttk.Button(action_row, text="Save", command=self.save)
+        self.save_btn.pack(side="left", padx=5)
 
         ttk.Label(self.frame, textvariable=self.status).grid(row=4, column=0, sticky=tk.W)
 
@@ -91,6 +100,16 @@ class ComposeTab:
         self.status.set(
             f"{len(self.images)} image(s)" if self.can_compose() else "Add two or three images"
         )
+        # The output prefix is derived from the first image. If the field
+        # still holds that derived value -- i.e. the user hasn't typed their
+        # own -- re-derive it from the current first image, so add A, add B,
+        # remove A, Save no longer writes next to A's now-absent name.
+        if self.output_path.get() != self._derived_prefix:
+            return
+        derived = str(Path(self.images[0]).with_suffix("")) + "_composite" if self.images else ""
+        if derived != self.output_path.get():
+            self.output_path.set(derived)
+        self._derived_prefix = derived
 
     def _on_select(self, _event: object) -> None:
         selection: tuple[int, ...] = self.listbox.curselection()  # type: ignore[no-untyped-call]
@@ -107,8 +126,6 @@ class ComposeTab:
         if not filename:
             return
         self.images.append(filename)
-        if not self.output_path.get():
-            self.output_path.set(str(Path(filename).with_suffix("")) + "_composite")
         self._refresh_list()
 
     def _swap(self, first: int, second: int) -> None:
@@ -145,8 +162,15 @@ class ComposeTab:
         if folder:
             self.output_path.set(str(Path(folder) / "composite"))
 
+    def _set_buttons_state(self, state: str) -> None:
+        self.preview_btn.config(state=state)
+        self.save_btn.config(state=state)
+
     def _finish(self, message: str, path: str | None, error: str | None) -> None:
-        """Runs on the main thread. All widget mutation happens here."""
+        """Runs on the main thread once Save's worker reports back.
+
+        All widget mutation happens here, never on the worker thread.
+        """
         self.status.set(message)
         try:
             if path is not None:
@@ -154,11 +178,28 @@ class ComposeTab:
                 with Image.open(path) as img:
                     self.previews.show_images([img.copy()])
         finally:
-            self.compose_btn.config(state="normal")
+            self._set_buttons_state("normal")
         if error is not None:
             messagebox.showerror("Error", error)
         else:
             messagebox.showinfo("Success", message)
+
+    def _finish_preview(self, message: str, image: Image.Image | None, error: str | None) -> None:
+        """Runs on the main thread once Preview's worker reports back.
+
+        Unlike `_finish`, there is no file to reload -- the rendered image
+        travels back as plain data through `root.after` and is shown
+        directly, without ever touching disk.
+        """
+        self.status.set(message)
+        try:
+            if image is not None:
+                self.previews.rebuild(["Composite"])
+                self.previews.show_images([image])
+        finally:
+            self._set_buttons_state("normal")
+        if error is not None:
+            messagebox.showerror("Error", error)
 
     def _run_compose(self, sources: list[str], prefix: str, ratio_name: str) -> None:
         try:
@@ -169,12 +210,22 @@ class ComposeTab:
         self.root.after(
             0,
             self._finish,
-            f"Wrote {result.path.name} using the {result.layout_name} layout",
+            f"Saved {result.path.name} using the {result.layout_name} layout",
             str(result.path),
             None,
         )
 
-    def compose(self) -> None:
+    def _run_preview(self, sources: list[str], ratio_name: str) -> None:
+        try:
+            image, layout_name = pipeline.compose_preview(sources, pipeline.RATIOS[ratio_name])
+        except Exception as error:
+            self.root.after(0, self._finish_preview, "Failed", None, str(error))
+            return
+        self.root.after(
+            0, self._finish_preview, f"Previewing the {layout_name} layout", image, None
+        )
+
+    def save(self) -> None:
         if not self.can_compose():
             messagebox.showerror("Error", f"Select {MIN_IMAGES} or {MAX_IMAGES} images")
             return
@@ -184,8 +235,18 @@ class ComposeTab:
             return
         ratio_name = _RATIO_BY_DISPLAY.get(self.ratio.get(), pipeline.DEFAULT_RATIO.name)
         sources = list(self.images)
-        self.compose_btn.config(state="disabled")
+        self._set_buttons_state("disabled")
         self.status.set("Working...")
         threading.Thread(
             target=self._run_compose, args=(sources, prefix, ratio_name), daemon=True
         ).start()
+
+    def preview(self) -> None:
+        if not self.can_compose():
+            messagebox.showerror("Error", f"Select {MIN_IMAGES} or {MAX_IMAGES} images")
+            return
+        ratio_name = _RATIO_BY_DISPLAY.get(self.ratio.get(), pipeline.DEFAULT_RATIO.name)
+        sources = list(self.images)
+        self._set_buttons_state("disabled")
+        self.status.set("Working...")
+        threading.Thread(target=self._run_preview, args=(sources, ratio_name), daemon=True).start()

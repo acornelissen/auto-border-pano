@@ -110,7 +110,7 @@ def test_finish_reenables_button_even_if_update_preview_raises() -> None:
     """A surprise exception from update_preview must not wedge the GUI.
 
     update_preview's own except Exception only covers the image-decode step;
-    _rebuild_preview_panes and the strict zip sit outside any try. If either
+    PreviewPanes.rebuild and the strict zip sit outside any try. If either
     raises, the Process button must still come back to "normal" via a
     finally, not be left disabled forever.
     """
@@ -401,6 +401,103 @@ def test_compose_worker_reports_failure_without_dying(tmp_path: Path) -> None:
     assert path is None
 
 
+def test_compose_worker_preview_does_not_write_a_file(tmp_path: Path) -> None:
+    # Preview must reach pipeline.compose_preview with the same discipline
+    # as Save's worker (plain data in, root.after out) but never touch disk.
+    from auto_border_pano.gui import compose_tab
+
+    fixtures = Path(__file__).parent / "fixtures"
+    sources = [str(fixtures / "compose_wide.jpg"), str(fixtures / "compose_square.jpg")]
+
+    calls: list[tuple[Any, ...]] = []
+
+    class StubRoot:
+        def after(self, _delay: int, func: Any, *args: Any) -> None:
+            calls.append(args)
+            func(*args)
+
+    tab = compose_tab.ComposeTab.__new__(compose_tab.ComposeTab)
+    tab.root = StubRoot()  # type: ignore[assignment]
+    tab._finish_preview = lambda *args: calls.append(args)  # type: ignore[method-assign]
+
+    before = set(tmp_path.iterdir())
+    tab._run_preview(sources, "4:5")
+
+    assert calls, "preview worker never reported back through root.after"
+    message, image, error = calls[-1]
+    assert error is None
+    assert image is not None
+    assert "layout" in message, f"expected the layout name in the message, got: {message!r}"
+    assert set(tmp_path.iterdir()) == before, "preview must not write any file"
+
+
+def test_compose_worker_preview_reports_failure_without_dying(tmp_path: Path) -> None:
+    from auto_border_pano.gui import compose_tab
+
+    calls: list[tuple[Any, ...]] = []
+
+    class StubRoot:
+        def after(self, _delay: int, func: Any, *args: Any) -> None:
+            calls.append(args)
+            func(*args)
+
+    tab = compose_tab.ComposeTab.__new__(compose_tab.ComposeTab)
+    tab.root = StubRoot()  # type: ignore[assignment]
+    tab._finish_preview = lambda *args: calls.append(args)  # type: ignore[method-assign]
+
+    tab._run_preview(["/does/not/exist.jpg", "/nor/this.jpg"], "4:5")
+
+    assert calls, "preview worker died silently instead of reporting the error"
+    _message, image, error = calls[-1]
+    assert error is not None
+    assert image is None
+
+
+def test_preview_button_does_not_require_an_output_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
+    from auto_border_pano.gui import compose_tab
+
+    captured: dict[str, Any] = {}
+
+    class _StubThread:
+        def __init__(self, target: Any, args: tuple[Any, ...], daemon: bool) -> None:
+            captured["target"] = target
+            captured["args"] = args
+
+        def start(self) -> None:
+            captured["started"] = True
+
+    monkeypatch.setattr(threading, "Thread", _StubThread)
+
+    tab = compose_tab.ComposeTab.__new__(compose_tab.ComposeTab)
+    tab.images = ["a.jpg", "b.jpg"]
+    tab.output_path = _StubVar("")  # type: ignore[assignment]
+    tab.ratio = _StubVar(pipeline.DEFAULT_RATIO.display)  # type: ignore[assignment]
+    tab.status = _StubVar()  # type: ignore[assignment]
+    tab.preview_btn = _StubButton()  # type: ignore[assignment]
+    tab.save_btn = _StubButton()  # type: ignore[assignment]
+
+    tab.preview()
+
+    assert captured.get("started") is True
+    assert captured["target"] == tab._run_preview
+    assert captured["args"] == (["a.jpg", "b.jpg"], pipeline.DEFAULT_RATIO.name)
+
+
+def test_save_button_still_requires_an_output_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
+    from auto_border_pano.gui import compose_tab
+
+    tab = compose_tab.ComposeTab.__new__(compose_tab.ComposeTab)
+    tab.images = ["a.jpg", "b.jpg"]
+    tab.output_path = _StubVar("")  # type: ignore[assignment]
+
+    errors: list[tuple[str, str]] = []
+    monkeypatch.setattr(messagebox, "showerror", lambda title, msg: errors.append((title, msg)))
+
+    tab.save()
+
+    assert errors, "Save without an output prefix should have raised an error dialog"
+
+
 def test_compose_tab_builds_a_working_ratio_combobox_under_real_tk() -> None:
     """Constructed via ``__new__`` (as above), the pure-logic tests would stay
     green even if ``__init__``/``_build_ui`` never ran -- e.g. if the ratio
@@ -420,6 +517,44 @@ def test_compose_tab_builds_a_working_ratio_combobox_under_real_tk() -> None:
         assert tab.ratio.get() == pipeline.DEFAULT_RATIO.display
         assert list(tab.ratio_combo["values"]) == [r.display for r in pipeline.RATIOS.values()]
         assert tab.can_compose() is False
+        assert tab.preview_btn.cget("text") == "Preview"
+        assert tab.save_btn.cget("text") == "Save"
+    finally:
+        root.destroy()
+
+
+def test_split_tab_builds_under_a_notebook_page_with_working_previews(tmp_path: Path) -> None:
+    """Every splitter test above builds `PanoramaSplitterGUI` via `__new__`,
+    which never runs `_build_ui` -- so a broken constructor, such as one
+    that assumes `self.root` is the Tk root rather than a notebook page,
+    would stay green forever. Build a real instance under a `ttk.Frame`
+    (as `gui.app.run` does, nesting it inside a notebook) on a withdrawn
+    root, and exercise `update_preview` against real preview panes.
+    """
+    import tkinter
+    from tkinter import ttk
+
+    from auto_border_pano import gui, pipeline
+
+    source = tmp_path / "pano.jpg"
+    synthetic_panorama(600, 200).save(source, "JPEG", quality=95)
+    written = pipeline.process_image(source, tmp_path / "out", pipeline.DEFAULT_RATIO)
+    count = len(written) - 1
+
+    root = tkinter.Tk()
+    root.withdraw()
+    try:
+        page = ttk.Frame(root)
+        app = gui.PanoramaSplitterGUI(page)
+
+        assert app.ratio.get() == pipeline.DEFAULT_RATIO.display
+        assert app.previews.labels == []
+
+        app.update_preview(str(tmp_path / "out"), count)
+
+        assert len(app.previews.labels) == count + 1
+        for label in app.previews.labels:
+            assert label.cget("text") == ""
     finally:
         root.destroy()
 
