@@ -28,3 +28,15 @@ options:
 ## Concerns
 
 None outstanding. The pre-commit hook's ruff-format auto-fix caused the first `git commit` attempt to abort without committing (formatting was applied to gui.py and test_cli.py) — re-staged and committed cleanly on the second attempt, no --no-verify used.
+
+## Fix round 1
+
+Closed the Minor finding: the label-to-ratio lookup in `process_images` (gui.py) used `next(...)` over a generator scan and would raise a raw `StopIteration` on an unrecognised `self.ratio` value. Unreachable from the UI today (the combobox is readonly and populated from the same source), but a latent footgun for any future programmatic caller.
+
+Fix: added a module-level `_RATIO_BY_DISPLAY` dict (built once, not scanned per run) and changed the lookup to `_RATIO_BY_DISPLAY.get(selected_display, pipeline.DEFAULT_RATIO.name)`, so an unrecognised value degrades to the documented default instead of crashing. The lookup and fallback both still happen on the main thread in `process_images`; the worker still receives only a plain string.
+
+Added `test_process_images_falls_back_to_default_ratio_for_an_unrecognised_label` in tests/test_gui.py, mirroring the existing `test_process_images_threads_the_selected_ratio_not_the_default` pattern: sets `app.ratio` to a bogus label, stubs `threading.Thread`, and asserts the worker receives `pipeline.DEFAULT_RATIO.name` with no exception propagating.
+
+`mise run check` green (72 tests passed, up from 71). Golden hashes in tests/test_pipeline.py untouched.
+
+Commit: 47e7492
