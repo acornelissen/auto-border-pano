@@ -29,7 +29,7 @@ Verify:
 mise run check   # ruff lint, mypy --strict, pytest — run this before committing
 ```
 
-`mise run check` is the single command that must pass. It runs `lint`, `typecheck`, and `test` (see `.mise.toml` for the individual tasks).
+`mise run check` is the single command that must pass. It runs `lint`, `typecheck`, and `test` (see `mise.toml` for the individual tasks).
 
 ## Architecture
 
@@ -52,4 +52,4 @@ The canvas size is `max(width + 200, height + 20)`; the panorama is then centere
 
 ### Concurrency
 
-The GUI starts a plain `threading.Thread` per run and calls `messagebox`/`ttk` methods directly from it. Only widget mutation on completion (`_finish`, `_finish_batch`, `_set_progress`) is marshalled back via `root.after()`. If you touch the threading code, keep all widget updates on the main thread via `root.after()`.
+`process_images()` reads the tk `StringVar`s on the main thread and passes them into the worker as plain strings via the thread's `args`. `_run_single`/`_run_batch` (running on the worker thread) call only into `pipeline` and touch no tk object at all; every result is handed to `self.root.after(...)`, which runs `_finish`, `_finish_batch`, and `_set_progress` back on the main thread. Invariant to preserve: nothing on the worker thread may read or write a tk object, including tk variables — `root.after()` is the only sanctioned crossing back to the main thread.
