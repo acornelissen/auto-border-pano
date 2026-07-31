@@ -40,7 +40,10 @@ install.bat
 
 ## Usage
 
-**GUI:** `mise run gui` (or `run_gui.bat` on Windows)
+**GUI:** `mise run gui` (or `run_gui.bat` on Windows). The window is a
+two-tab notebook: **Split** for the single-panorama/batch workflow below,
+and **Diptych / Triptych** for composing two or three photos into one frame
+(see [Diptychs and triptychs](#diptychs-and-triptychs)).
 
 **CLI:**
 
@@ -58,11 +61,16 @@ Run `uv run pano-split --help` for all options. Folder mode writes to
    ```bash
    mise run gui
    ```
+   On the **Split** tab:
    - Click "Browse File" to select a single panorama
    - Click "Browse Folder" to process multiple images
    - Pick a target ratio
    - Click "Process Images" to start
    - View previews of the generated images
+
+   Switch to the **Diptych / Triptych** tab to compose two or three photos
+   into one frame instead — see
+   [Diptychs and triptychs](#diptychs-and-triptychs).
 
 2. **CLI - single file:**
    ```bash
@@ -118,6 +126,23 @@ mise run split -- ./panoramas ./output --ratio 1.91:1
 
 Portrait images are rejected — this tool expects landscape panoramas. In a
 batch the rejected file is reported and the rest continue.
+
+## Diptychs and triptychs
+
+The second tab composes two or three photographs into a single frame at any
+of the three ratios.
+
+The layout is chosen for you. The tool tries each sensible arrangement — a
+row, a column, and for three images the variants with one large panel beside
+two stacked ones — and keeps whichever fills the frame best. Panels are never
+cropped: each keeps its own aspect ratio, and whatever space is left over
+becomes white border. That is what lets a 6x17 panorama, a square 6x6 and a
+35mm frame sit in one composite without any of them losing content.
+
+Images stay in the order you arrange them. Use Up and Down to change it.
+
+Unlike the splitter, portrait images are fine here — mixing orientations is
+much of the point.
 
 ## Output Details
 
