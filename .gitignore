@@ -30,3 +30,6 @@ ENV/
 # Test outputs (if you have a specific test output directory)
 test_output/
 temp/
+
+# Pre-refactor output references (regenerable, see plan Task 1)
+reference/

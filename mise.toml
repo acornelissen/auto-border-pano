@@ -1,0 +1,38 @@
+[tools]
+python = "3.13.13"
+uv = "latest"
+
+[env]
+_.python.venv = { path = ".venv", create = true }
+
+[tasks.setup]
+description = "Install dependencies"
+run = "uv sync"
+
+[tasks.gui]
+description = "Launch the GUI"
+run = "uv run pano-split-gui"
+
+[tasks.split]
+description = "Run the CLI"
+run = "uv run pano-split"
+
+[tasks.test]
+description = "Run tests"
+run = "uv run pytest"
+
+[tasks.lint]
+description = "Lint"
+run = "uv run ruff check ."
+
+[tasks.fmt]
+description = "Format"
+run = "uv run ruff format ."
+
+[tasks.typecheck]
+description = "Type check"
+run = "uv run mypy src tests"
+
+[tasks.check]
+description = "Lint, type check and test"
+depends = ["lint", "typecheck", "test"]
