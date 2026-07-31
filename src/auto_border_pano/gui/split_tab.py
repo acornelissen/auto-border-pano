@@ -11,7 +11,7 @@ from tkinter import filedialog, ttk
 
 from auto_border_pano import pipeline
 from auto_border_pano.gui import shell, theme
-from auto_border_pano.gui.preview import PreviewPanes
+from auto_border_pano.gui.strip import ContactStrip
 
 # Built once so process_images can do a plain dict lookup rather than
 # scanning pipeline.RATIOS on every run.
@@ -152,8 +152,10 @@ class PanoramaSplitterGUI:
         # the controls stay together at the top.
         rail.rowconfigure(13, weight=1)
 
-        self.previews = PreviewPanes(columns.table, "")
-        self.previews.frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        # The strip renders its unexposed empty state from construction, so
+        # the largest thing on screen says something before the first run.
+        self.previews = ContactStrip(columns.table)
+        self.previews.canvas.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
 
     # --- The live readouts --------------------------------------------------
 
@@ -245,7 +247,7 @@ class PanoramaSplitterGUI:
         self.output_path.set(str(Path(folder) / Path(source).stem) if source else folder)
 
     def update_preview(self, output_prefix: str, count: int) -> None:
-        self.previews.rebuild(preview_titles(count))
+        self.previews.set_frames(preview_titles(count))
         self.previews.show_paths(pipeline.output_paths(output_prefix, count))
 
     def _finish(
@@ -296,8 +298,14 @@ class PanoramaSplitterGUI:
             self.process_btn.config(state="normal")
 
     def _run_single(self, source: str, prefix: str, ratio_name: str) -> None:
+        def report(done: int, total: int, path: Path) -> None:
+            # Worker thread. Hands plain data back and touches nothing tk.
+            self.root.after(0, self._set_frame_progress, done, total, path)
+
         try:
-            written = pipeline.process_image(source, prefix, pipeline.RATIOS[ratio_name])
+            written = pipeline.process_image(
+                source, prefix, pipeline.RATIOS[ratio_name], on_frame=report
+            )
         except Exception as error:
             message = f"Could not cut {Path(source).name} — {error}"
             self.root.after(0, self._finish, message, None, None, str(error))
@@ -323,6 +331,20 @@ class PanoramaSplitterGUI:
             self.root.after(0, self._finish, message, None, None, str(error))
             return
         self.root.after(0, self._finish_batch, result, ratio_name)
+
+    def _set_frame_progress(self, done: int, total: int, path: Path) -> None:
+        """Runs on the main thread. Progress *is* the preview.
+
+        Each frame appears on the strip as it lands on disk, so the bar is
+        no longer the only thing moving during a run -- and on a single file
+        it used to be the only thing that did not move, going 0 to 100 with
+        nothing in between.
+        """
+        if self.previews.frame_count != total:
+            self.previews.set_frames(preview_titles(total - 1))
+        self.previews.mark_written(done, path)
+        self.progress.set((done + 1) / total * 100 if total else 0)
+        self.status.set(f"Cutting frame {done + 1} of {total}")
 
     def _set_progress(self, done: int, total: int, name: str) -> None:
         self.progress.set((done + 1) / total * 100 if total else 0)

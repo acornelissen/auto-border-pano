@@ -14,7 +14,7 @@ from PIL import Image
 
 from auto_border_pano import pipeline
 from auto_border_pano.gui import shell, theme
-from auto_border_pano.gui.preview import PreviewPanes
+from auto_border_pano.gui.strip import ContactStrip
 
 MIN_IMAGES = 2
 MAX_IMAGES = 3
@@ -209,8 +209,10 @@ class ComposeTab:
         ).grid(row=12, column=0, sticky=tk.W, pady=(theme.SPACE_S, 0))
         rail.rowconfigure(13, weight=1)
 
-        self.previews = PreviewPanes(self.columns.table, "Composite")
-        self.previews.frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        # One frame, not four: a composite is a single image. The strip
+        # still renders its unexposed state before anything is composed.
+        self.previews = ContactStrip(self.columns.table, frames=1)
+        self.previews.canvas.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
 
         self._refresh_list()
 
@@ -404,7 +406,7 @@ class ComposeTab:
         self.status.set(message)
         try:
             if path is not None:
-                self.previews.rebuild([layout_name.upper()])
+                self.previews.set_frames([layout_name])
                 with Image.open(path) as img:
                     self.previews.show_images([img.copy()])
         finally:
@@ -434,7 +436,7 @@ class ComposeTab:
         self.status.set(message)
         try:
             if image is not None:
-                self.previews.rebuild([layout_name.upper()])
+                self.previews.set_frames([layout_name])
                 self.previews.show_images([image])
         finally:
             self._apply_button_states()

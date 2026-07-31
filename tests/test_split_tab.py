@@ -79,7 +79,7 @@ def test_finish_reenables_button_even_if_update_preview_raises() -> None:
     """A surprise exception from update_preview must not wedge the GUI.
 
     update_preview's own except Exception only covers the image-decode step;
-    PreviewPanes.rebuild and the strict zip sit outside any try. If either
+    ContactStrip.set_frames and the strict zip sit outside any try. If either
     raises, the Process button must still come back to "normal" via a
     finally, not be left disabled forever.
     """
@@ -615,10 +615,54 @@ def test_split_tab_builds_under_a_notebook_page_with_working_previews(
     app = gui.PanoramaSplitterGUI(page)
 
     assert app.ratio.get() == pipeline.DEFAULT_RATIO.display
-    assert app.previews.labels == []
+    # The strip shows an unexposed frame from construction. It never shows
+    # an empty box: that absence was the loudest complaint in the audit.
+    assert app.previews.frame_count > 0
+    assert app.previews.errors == []
 
     app.update_preview(str(tmp_path / "out"), count)
 
-    assert len(app.previews.labels) == count + 1
-    for label in app.previews.labels:
-        assert label.cget("text") == ""
+    assert app.previews.frame_count == count + 1
+    assert app.previews.errors == [], "every written frame should have decoded"
+
+
+def test_a_single_run_reports_every_frame_as_it_lands(
+    tk_root: tkinter.Tk, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Progress *is* the preview.
+
+    `_run_single` used to report nothing at all, so on the most common
+    workflow the bar went 0 to 100 with no intermediate state. It now hands
+    every frame to the strip as the frame lands on disk. This is the wiring
+    between `pipeline.process_image`'s callback and `ContactStrip`, so it
+    exercises both ends rather than a stub of either.
+    """
+    from tkinter import ttk
+
+    source = tmp_path / "pano.jpg"
+    synthetic_panorama(600, 200).save(source, "JPEG", quality=95)
+
+    page = ttk.Frame(tk_root)
+    app = gui.PanoramaSplitterGUI(page)
+
+    # `root.after` needs a running mainloop, which pytest has not got; run
+    # the callback inline instead, exactly as StubRoot does elsewhere here.
+    monkeypatch.setattr(
+        app.root, "after", lambda _delay, callback, *args: callback(*args), raising=False
+    )
+
+    seen: list[str] = []
+    original = app._set_frame_progress
+
+    def spy(done: int, total: int, path: Path) -> None:
+        seen.append(f"{done + 1}/{total}")
+        original(done, total, path)
+
+    app._set_frame_progress = spy  # type: ignore[method-assign]
+
+    app._run_single(str(source), str(tmp_path / "out"), pipeline.DEFAULT_RATIO.name)
+
+    expected_frames = pipeline.inspect_negative(source, pipeline.DEFAULT_RATIO).frame_count
+    assert seen == [f"{n}/{expected_frames}" for n in range(1, expected_frames + 1)]
+    assert app.previews.frame_count == expected_frames
+    assert app.previews.errors == []
