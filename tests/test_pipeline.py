@@ -287,6 +287,44 @@ def test_compose_accepts_portrait_images(tmp_path: Path) -> None:
     assert result.path.exists()
 
 
+def test_compose_preview_renders_without_writing_a_file(tmp_path: Path) -> None:
+    before = set(tmp_path.iterdir())
+
+    image, layout_name = pipeline.compose_preview(COMPOSE_FIXTURES[:2])
+
+    assert image.size == (pipeline.DEFAULT_RATIO.width, pipeline.DEFAULT_RATIO.height)
+    assert layout_name
+    assert set(tmp_path.iterdir()) == before, "compose_preview must not touch the filesystem"
+
+
+def test_compose_preview_matches_the_requested_ratio(tmp_path: Path) -> None:
+    for ratio in pipeline.RATIOS.values():
+        image, layout_name = pipeline.compose_preview(COMPOSE_FIXTURES, ratio)
+        assert image.size == (ratio.width, ratio.height), ratio.name
+        assert layout_name
+
+
+def test_compose_images_and_compose_preview_agree(tmp_path: Path) -> None:
+    # compose_images is a thin save-to-disk wrapper around compose_preview;
+    # the pixels and chosen layout must not diverge between them.
+    import hashlib
+    from io import BytesIO
+
+    preview_image, preview_layout = pipeline.compose_preview(
+        COMPOSE_FIXTURES, pipeline.RATIOS["1:1"]
+    )
+    buffer = BytesIO()
+    preview_image.save(buffer, "JPEG", quality=pipeline.JPEG_QUALITY)
+
+    result = pipeline.compose_images(COMPOSE_FIXTURES, tmp_path / "out", pipeline.RATIOS["1:1"])
+
+    assert preview_layout == result.layout_name
+    assert (
+        hashlib.sha256(buffer.getvalue()).hexdigest()
+        == hashlib.sha256(result.path.read_bytes()).hexdigest()
+    )
+
+
 def test_compose_creates_the_output_directory(tmp_path: Path) -> None:
     result = pipeline.compose_images(COMPOSE_FIXTURES[:2], tmp_path / "nested" / "deeper" / "out")
     assert result.path.exists()

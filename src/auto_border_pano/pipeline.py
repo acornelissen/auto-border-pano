@@ -108,30 +108,78 @@ class CompositeResult:
     layout_name: str
 
 
+# Draft/thumbnail toward this multiple of a panel's own solved box before the
+# final exact resize in compose.render. Large enough that any source already
+# within this margin of its box is left untouched -- so this only trims
+# memory for sources meaningfully bigger than what they'll render at, and
+# never touches the pixels the final resize sees for anything else.
+_DOWNSCALE_MARGIN = 6
+
+
+def _load_for_box(path: Path, box: layout.Box) -> Image.Image:
+    """Open one composite source, decoded no larger than it needs to be.
+
+    `compose_images` used to hold every source at full scan resolution
+    simultaneously, which peaked at gigabytes of RSS for large photos.
+    Nothing downstream needs more detail than `_DOWNSCALE_MARGIN` times the
+    panel's own box, so shrink toward that here: `Image.draft` lets libjpeg
+    decode at a reduced DCT scale up front (a no-op for non-JPEG sources,
+    and for sources already near the target), and `thumbnail` finishes with
+    a real LANCZOS reduction if draft didn't get all the way there. Both
+    only ever shrink, never grow, so a source already at or below the
+    margin is returned untouched -- and `compose.render` still does its own
+    exact resize to the box afterwards, so output quality is unaffected.
+    """
+    target = (box.width * _DOWNSCALE_MARGIN, box.height * _DOWNSCALE_MARGIN)
+    with Image.open(path) as opened:
+        opened.draft("RGB", target)
+        image = opened.convert("RGB")
+    if image.width > target[0] or image.height > target[1]:
+        image.thumbnail(target, Image.Resampling.LANCZOS)
+    return image
+
+
+def compose_preview(
+    input_paths: Sequence[Path | str],
+    ratio: AspectRatio = DEFAULT_RATIO,
+) -> tuple[Image.Image, str]:
+    """Solve and render a composite in memory, without writing anything.
+
+    Returns the rendered image and the name of the winning layout, so the
+    GUI can let a user compare arrangements before committing one to disk.
+    `compose_images` is a thin wrapper around this that also saves the
+    result, so there is exactly one solve-and-render path.
+    """
+    paths = [Path(p) for p in input_paths]
+    if len(paths) not in COMPOSITE_SUFFIXES:
+        raise ValueError(f"expected 2 or 3 images, got {len(paths)}")
+
+    with_sizes = []
+    for path in paths:
+        with Image.open(path) as opened:
+            with_sizes.append(opened.size)
+
+    aspects = [width / height for width, height in with_sizes]
+    solved = layout.solve(aspects, ratio, geometry.SIDE_PADDING, layout.GUTTER)
+
+    images = [_load_for_box(path, box) for path, box in zip(paths, solved.boxes, strict=True)]
+    canvas = compose.render(images, solved, ratio)
+    return canvas, solved.name
+
+
 def compose_images(
     input_paths: Sequence[Path | str],
     output_prefix: Path | str,
     ratio: AspectRatio = DEFAULT_RATIO,
 ) -> CompositeResult:
     """Compose two or three images into one frame at the target ratio."""
-    paths = [Path(p) for p in input_paths]
-    if len(paths) not in COMPOSITE_SUFFIXES:
-        raise ValueError(f"expected 2 or 3 images, got {len(paths)}")
-
-    images = []
-    for path in paths:
-        with Image.open(path) as opened:
-            images.append(opened.convert("RGB"))
-
-    aspects = [image.width / image.height for image in images]
-    solved = layout.solve(aspects, ratio, geometry.SIDE_PADDING, layout.GUTTER)
-    canvas = compose.render(images, solved, ratio)
+    canvas, layout_name = compose_preview(input_paths, ratio)
 
     prefix = Path(output_prefix)
-    target = prefix.with_name(prefix.name + COMPOSITE_SUFFIXES[len(paths)])
+    target = prefix.with_name(prefix.name + COMPOSITE_SUFFIXES[len(input_paths)])
     target.parent.mkdir(parents=True, exist_ok=True)
     canvas.save(target, "JPEG", quality=JPEG_QUALITY)
-    return CompositeResult(target, solved.name)
+    return CompositeResult(target, layout_name)
 
 
 def find_panoramas(folder: Path | str) -> list[Path]:
