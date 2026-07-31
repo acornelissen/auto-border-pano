@@ -53,7 +53,7 @@ def gui_main() -> int:
     importing the package can never terminate the host process.
     """
     try:
-        from auto_border_pano.gui import run  # type: ignore[import-untyped]
+        import tkinter  # noqa: F401
     except ImportError:
         print(
             "Error: tkinter is not available.\n\n"
@@ -67,6 +67,7 @@ def gui_main() -> int:
             file=sys.stderr,
         )
         return 1
+    from auto_border_pano.gui import run  # type: ignore[import-untyped]
     run()
     return 0
 
