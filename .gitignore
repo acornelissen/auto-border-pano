@@ -33,3 +33,5 @@ temp/
 
 # Pre-refactor output references (regenerable, see plan Task 1)
 reference/
+# Sample panoramas for manual verification (not tracked)
+samples/
