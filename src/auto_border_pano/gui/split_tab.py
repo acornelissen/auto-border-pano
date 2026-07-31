@@ -20,7 +20,8 @@ re-read from a combobox that may have moved on.
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PIL import Image
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QButtonGroup,
     QFileDialog,
@@ -76,8 +77,13 @@ class SplitTab(QWidget):
         self._detail = ""
         # Monotonic; only the newest inspection may write to the readouts.
         self._inspect_token = 0
+        # True while a run or a preview is in flight. The single fact the
+        # button states are derived from, so neither action can be started
+        # twice.
+        self._running = False
 
         self._build()
+        self._apply_button_states()
 
         self.source_row.field.textChanged.connect(self._on_selection_changed)
         self.folder_radio.toggled.connect(self._on_selection_changed)
@@ -149,6 +155,17 @@ class SplitTab(QWidget):
         self.action_btn.clicked.connect(self.process_images)
         rail.addWidget(self.action_btn)
 
+        # Preview is free and reversible, so it sits below the action that
+        # writes to disk rather than beside it as a peer -- but it is still a
+        # button. Styled as bare text it read as a caption hanging off the
+        # primary; an outline with no fill keeps the hierarchy and the
+        # affordance at the same time. Compose's rail says this identically.
+        rail.addSpacing(theme.S)
+        self.preview_btn = QPushButton("Preview")
+        self.preview_btn.setObjectName("Secondary")
+        self.preview_btn.clicked.connect(self.preview)
+        rail.addWidget(self.preview_btn)
+
         rail.addSpacing(theme.M)
         self.status_label = shell.help_label("Ready")
         rail.addWidget(self.status_label)
@@ -174,8 +191,9 @@ class SplitTab(QWidget):
 
         # An object lying on the light table, not a panel filling it.
         self.strip = ContactStrip(self.columns.table)
-        self.columns.table_layout.addWidget(self.strip, 0, Qt.AlignmentFlag.AlignTop)
-        self.columns.table_layout.addStretch(1)
+        # No top alignment and no stretch under it: the strip fills the
+        # table, so the frames are as large as the window allows.
+        self.columns.table_layout.addWidget(self.strip, 1)
 
     # --- What the band should say ------------------------------------------
 
@@ -214,6 +232,9 @@ class SplitTab(QWidget):
         self._inspect_token += 1
         token = self._inspect_token
         source = self.source_row.text()
+        # Everything this method reacts to -- the source, the mode, the ratio
+        # -- also decides whether Preview is pressable.
+        self._apply_button_states()
         # The band names whatever is loaded, folder or file -- it is the one
         # thing on screen that says what you are working on.
         subject = Path(source).name if source else ""
@@ -269,6 +290,27 @@ class SplitTab(QWidget):
 
     def _set_error(self, message: str) -> None:
         self.error_label.setText(message)
+
+    def can_preview(self) -> bool:
+        """Preview needs a readable single panorama, and nothing else.
+
+        No destination: previewing writes nothing, so demanding a folder
+        first would be asking for a decision the action does not use. Folder
+        mode is out because there is no one panorama to render.
+        """
+        source = self.source_row.text()
+        return bool(source) and not self.folder_radio.isChecked() and Path(source).is_file()
+
+    def _apply_button_states(self) -> None:
+        """The single place that decides which buttons are pressable.
+
+        Derived from two facts only -- is something in flight, and is there a
+        panorama to preview -- so it cannot go out of date. Called from
+        construction, from every change to the selection, and from both ends
+        of a run.
+        """
+        self.action_btn.setEnabled(not self._running)
+        self.preview_btn.setEnabled(not self._running and self.can_preview())
 
     # --- Choosing -----------------------------------------------------------
 
@@ -337,11 +379,12 @@ class SplitTab(QWidget):
         self.progress_bar.setValue(100)
         self.progress_bar.setVisible(False)
         self.status_label.setText(message)
+        self._running = False
         try:
             if prefix is not None and count is not None:
                 self.update_preview(prefix, count)
         finally:
-            self.action_btn.setEnabled(True)
+            self._apply_button_states()
         # Success is the status line and the strip filling in; a modal would
         # only cover the frames the user came to see. Failure is reported the
         # same way, inline and in chinagraph -- the status line already
@@ -357,12 +400,13 @@ class SplitTab(QWidget):
         total = result.total_count
         failed = result.failed
         ratio = pipeline.RATIOS[ratio_name].name
+        self._running = False
 
         if total == 0:
             self.status_label.setText(
                 "No JPGs in that folder. Auto Border Pano reads .jpg and .jpeg."
             )
-            self.action_btn.setEnabled(True)
+            self._apply_button_states()
             return
 
         if failed:
@@ -378,7 +422,7 @@ class SplitTab(QWidget):
             if result.last_prefix is not None and result.last_count is not None:
                 self.update_preview(str(result.last_prefix), result.last_count)
         finally:
-            self.action_btn.setEnabled(True)
+            self._apply_button_states()
 
     def _start_single(self, source: str, prefix: str, ratio_name: str) -> None:
         def cut() -> list[Path]:
@@ -433,7 +477,8 @@ class SplitTab(QWidget):
         if not destination:
             self._set_error("Choose where the frames should go.")
             return
-        self.action_btn.setEnabled(False)
+        self._running = True
+        self._apply_button_states()
         self.progress_bar.setValue(0)
         self.progress_bar.setVisible(True)
         self.status_label.setText("Cutting frames")
@@ -442,3 +487,44 @@ class SplitTab(QWidget):
             self._start_batch(source, destination, ratio_name)
             return
         self._start_single(source, destination, ratio_name)
+
+    def preview(self) -> None:
+        """Render the frames a run would write, without writing any of them.
+
+        No destination is read: nothing lands on disk, so there is nothing to
+        ask where to put. The button is disabled unless `can_preview()`
+        holds; the guard here is a safety net for programmatic callers.
+        """
+        if not self.can_preview() or self._running:
+            return
+        self._set_error("")
+        source = self.source_row.text()
+        ratio_name = self._ratio_name()
+        self._running = True
+        self._apply_button_states()
+        self.status_label.setText("Rendering preview")
+
+        def render() -> list[Image.Image]:
+            # Worker thread. Touches no widget; the frames come back as plain
+            # data and are shown on the GUI thread below.
+            return pipeline.preview_frames(source, pipeline.RATIOS[ratio_name])
+
+        def done(frames: list[Image.Image]) -> None:
+            self._running = False
+            ratio = pipeline.RATIOS[ratio_name].name
+            self.status_label.setText(f"Preview of {len(frames)} frames at {ratio}")
+            try:
+                self.strip.set_frames(preview_titles(len(frames) - 1))
+                self.strip.show_images(frames)
+            finally:
+                self._apply_button_states()
+
+        def failed(error: BaseException) -> None:
+            # The same inline path a failed run takes. No modal, here or
+            # anywhere else in this tab.
+            self._running = False
+            self.status_label.setText(f"Could not preview {Path(source).name} — {error}")
+            self._set_error(str(error))
+            self._apply_button_states()
+
+        submit(render, done, failed)

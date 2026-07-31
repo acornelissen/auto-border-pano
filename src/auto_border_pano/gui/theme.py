@@ -148,7 +148,7 @@ def stylesheet() -> str:
     #Rail QLineEdit, #Rail QComboBox {{ background: {WELL}; }}
     #Rail QPushButton {{ background: {WELL}; }}
     #Rail QPushButton#Primary {{ background: {CHINAGRAPH}; }}
-    #Rail QPushButton#Link {{ background: transparent; }}
+    #Rail QPushButton#Secondary {{ background: transparent; }}
     #Table {{ background: {TABLE}; }}
 
     QLabel {{ background: transparent; }}
@@ -207,15 +207,18 @@ def stylesheet() -> str:
     }}
 
     /* Free and reversible, so it must not read as a peer of the action
-       that writes to disk. */
-    QPushButton#Link {{
+       that writes to disk -- but it is still a button, and styled as bare
+       text it read as a caption hanging off the primary rather than as
+       something to press. It keeps the outline and loses the fill. */
+    QPushButton#Secondary {{
         background: transparent;
-        border: none;
-        color: {INK_DIM};
-        padding: 6px 0;
-        text-align: left;
+        border: 1px solid {EDGE};
+        color: {INK};
+        padding: 8px 14px;
     }}
-    QPushButton#Link:hover {{ color: {INK}; text-decoration: underline; }}
+    QPushButton#Secondary:hover {{ background: {WELL}; border-color: {INK_DIM}; }}
+    QPushButton#Secondary:pressed {{ background: {PANEL}; }}
+    QPushButton#Secondary:disabled {{ color: #9AA2A9; border-color: {EDGE}; }}
 
     /* The element that gave the old build away: ttk welded a bevelled
        arrow button onto a bordered box. Here the field is flat and the

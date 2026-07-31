@@ -284,3 +284,92 @@ def test_preview_titles_name_the_whole_panorama_first() -> None:
         "FRAME 2 · DETAIL",
         "FRAME 3 · DETAIL",
     ]
+
+
+# --- previewing ---------------------------------------------------------------
+
+
+def test_preview_fills_the_strip_and_writes_nothing(
+    qtbot: Any, tab: SplitTab, tmp_path: Path
+) -> None:
+    """The frames a run would write, on screen, with the disk untouched."""
+    source = _panorama(tmp_path)
+    before = sorted(tmp_path.iterdir())
+    tab.source_row.setText(str(source))
+    qtbot.waitUntil(lambda: tab.preview_btn.isEnabled())
+
+    tab.preview()
+    qtbot.waitUntil(lambda: tab.preview_btn.isEnabled(), timeout=20000)
+
+    expected = pipeline.inspect_source(source, pipeline.DEFAULT_RATIO).frame_count
+    assert tab.strip.frame_count == expected
+    assert tab.strip.exposed == expected
+    assert tab.strip.errors == []
+    assert tab.status_label.text() == f"Preview of {expected} frames at 4:5"
+    assert tab.error_label.text() == ""
+    # Previewing renders in memory; nothing may land beside the source.
+    assert sorted(tmp_path.iterdir()) == before
+
+
+def test_preview_does_not_need_a_destination(qtbot: Any, tab: SplitTab, tmp_path: Path) -> None:
+    """Nothing is written, so there is nothing to ask where to put."""
+    source = _panorama(tmp_path)
+    tab.source_row.setText(str(source))
+    tab.dest_row.setText("")
+    qtbot.waitUntil(lambda: tab.preview_btn.isEnabled())
+
+    tab.preview()
+    qtbot.waitUntil(lambda: tab.strip.exposed > 0, timeout=20000)
+
+    assert tab.error_label.text() == ""
+
+
+def test_preview_is_off_without_a_source_and_in_folder_mode(
+    qtbot: Any, tab: SplitTab, tmp_path: Path
+) -> None:
+    assert tab.preview_btn.isEnabled() is False
+
+    source = _panorama(tmp_path)
+    tab.source_row.setText(str(source))
+    qtbot.waitUntil(lambda: tab.preview_btn.isEnabled())
+
+    # A folder has no one panorama to preview.
+    tab.folder_radio.setChecked(True)
+    assert tab.preview_btn.isEnabled() is False
+
+    tab.single_radio.setChecked(True)
+    assert tab.preview_btn.isEnabled() is True
+
+    tab.source_row.setText(str(tmp_path / "gone.jpg"))
+    assert tab.preview_btn.isEnabled() is False
+
+
+def test_preview_cannot_be_pressed_twice_and_reports_failure_inline(
+    qtbot: Any, tab: SplitTab, tmp_path: Path
+) -> None:
+    portrait = tmp_path / "tall.jpg"
+    synthetic_panorama(200, 600).save(portrait, "JPEG", quality=95)
+    tab.source_row.setText(str(portrait))
+    qtbot.waitUntil(lambda: tab.preview_btn.isEnabled())
+
+    tab.preview()
+    # In flight: neither action may be started again.
+    assert tab.preview_btn.isEnabled() is False
+    assert tab.action_btn.isEnabled() is False
+
+    qtbot.waitUntil(lambda: tab.preview_btn.isEnabled(), timeout=20000)
+    assert tab.status_label.text().startswith("Could not preview tall.jpg — ")
+    assert "portrait" in tab.error_label.text()
+
+
+def test_preview_sits_below_the_primary_and_is_not_a_peer_of_it(tab: SplitTab) -> None:
+    """Mirrors the Compose tab's own test, so the two rails cannot drift."""
+    rail = tab.columns.rail_layout
+    order = []
+    for index in range(rail.count()):
+        item = rail.itemAt(index)
+        order.append(None if item is None else item.widget())
+    assert order.index(tab.preview_btn) > order.index(tab.action_btn)
+    assert tab.action_btn.objectName() == "Primary"
+    # An outlined button, not bare text: it still has to read as pressable.
+    assert tab.preview_btn.objectName() == "Secondary"

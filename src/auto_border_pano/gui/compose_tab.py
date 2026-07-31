@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from PIL import Image
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
@@ -312,12 +312,15 @@ class ComposeTab(QWidget):
         rail.addWidget(self.save_btn)
 
         # Preview is free and reversible, so it sits below the action that
-        # writes to disk at text weight rather than beside it as a peer.
-        rail.addSpacing(theme.M)
+        # writes to disk rather than beside it as a peer -- but it is still a
+        # button. Styled as bare text it read as a caption hanging off the
+        # primary; an outline with no fill keeps the hierarchy and the
+        # affordance at the same time.
+        rail.addSpacing(theme.S)
         self.preview_btn = QPushButton("Preview")
-        self.preview_btn.setObjectName("Link")
+        self.preview_btn.setObjectName("Secondary")
         self.preview_btn.clicked.connect(self.preview)
-        rail.addWidget(self.preview_btn, 0, Qt.AlignmentFlag.AlignLeft)
+        rail.addWidget(self.preview_btn)
 
         # Only ever a reason to act on: a file that would not compose, a
         # missing prefix, sources left out.
@@ -337,8 +340,9 @@ class ComposeTab(QWidget):
         self.previews = ContactStrip(frames=1)
         # Top of the table, at its natural height: the strip is an object
         # lying on the light table, not a panel filling it.
-        self.columns.table_layout.addWidget(self.previews)
-        self.columns.table_layout.addStretch(1)
+        # No stretch under it: the strip fills the table, so the composite
+        # preview is as large as the window allows.
+        self.columns.table_layout.addWidget(self.previews, 1)
 
     def _glyph_button(self, glyph: str, tip: str, handler: Callable[[], None]) -> QPushButton:
         """A one-glyph button whose tooltip is its only accessible name."""

@@ -434,7 +434,8 @@ def test_preview_sits_below_save_and_is_not_a_peer_of_it(tab: ComposeTab) -> Non
         order.append(None if item is None else item.widget())
     assert order.index(tab.preview_btn) > order.index(tab.save_btn)
     assert tab.save_btn.objectName() == "Primary"
-    assert tab.preview_btn.objectName() == "Link"
+    # An outlined button, not bare text: it still has to read as pressable.
+    assert tab.preview_btn.objectName() == "Secondary"
 
 
 def test_the_strip_is_at_the_top_of_the_table_at_its_natural_height(tab: ComposeTab) -> None:

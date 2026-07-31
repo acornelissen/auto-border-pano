@@ -93,31 +93,40 @@ def test_frames_size_from_the_available_width_not_a_constant(qtbot: QtBot) -> No
     built.resize(1400, 400)
     wide = built.frame_size
 
-    assert strip.MIN_FRAME_PX <= narrow < wide <= strip.MAX_FRAME_PX
+    assert strip.MIN_FRAME_PX <= narrow < wide
 
 
-def test_a_single_frame_is_a_frame_not_a_column_sized_square(qtbot: QtBot) -> None:
-    """Compose builds the strip with one frame in a tall narrow column.
-    Sized from the width alone that produced one enormous square."""
+def test_a_single_frame_fills_the_space_it_is_given(qtbot: QtBot) -> None:
+    """The strip fills its half of the window now: a preview you have to
+    squint at is not doing its job. It is still bounded by BOTH dimensions,
+    so a lone frame in a tall narrow column cannot become a square taller
+    than the column."""
     built = _built(qtbot)
     built.set_frames(["diptych"])
 
     built.resize(560, 1200)
 
-    assert built.frame_size <= strip.MAX_FRAME_PX
-    assert built.frame_size < 560 - 2 * strip.EDGE
-    # And it asks for its own height, not the column's.
-    assert built.sizeHint().height() == built.frame_size + strip.CHROME_PX
-    assert built.sizeHint().height() < 1200 / 2
+    assert built.frame_size == 560 - 2 * strip.EDGE
+    assert built.frame_size < 1200
+
+    # Given more room it takes more, with no constant ceiling in the way.
+    built.resize(560, 900)
+    taller = built.frame_size
+    built.resize(560, 300)
+    assert built.frame_size < taller
+    assert built.extent <= 300, "the sheet drew past the bottom of its cell"
 
 
 def test_a_short_cell_bounds_the_frame_by_height_too(qtbot: QtBot) -> None:
+    """A wide short cell must bind on height, or the sheet draws past its
+    own bottom edge."""
     built = _built(qtbot)
     built.set_frames(["a"])
 
     built.resize(1200, 160)
 
-    assert built.frame_size == 160 - strip.CHROME_PX
+    assert built.frame_size < 1200 - 2 * strip.EDGE
+    assert built.extent <= 160
 
 
 def test_the_strip_never_collapses_below_a_legible_frame(qtbot: QtBot) -> None:
@@ -244,3 +253,39 @@ def test_an_out_of_range_frame_is_ignored_rather_than_raising(
 
     assert built.exposed == 0
     assert built.errors == []
+
+
+def test_the_sheet_wraps_to_use_the_height_it_is_given(qtbot: QtBot) -> None:
+    """A contact sheet wraps, and that is what lets the frames actually fill
+    the space. Held to one row, the width alone decides how big a frame can
+    be, so a tall window just left empty table underneath -- the strip
+    filled its cell while painting a thin band at the top of it.
+    """
+    built = _built(qtbot)
+    built.set_frames([f"frame {index}" for index in range(6)])
+
+    built.resize(900, 260)
+    flat = built.frame_size
+    assert built.columns == 6, "a short cell should keep them on one row"
+
+    built.resize(900, 900)
+
+    assert built.columns < 6, "a tall cell should wrap them"
+    assert built.rows > 1
+    assert built.frame_size > flat, "wrapping is pointless if frames stay small"
+    # And it still fits inside the space it was given.
+    assert built.extent <= 900
+    assert built.span <= 900
+
+
+def test_a_wrapped_sheet_still_numbers_every_frame_in_order(qtbot: QtBot) -> None:
+    """The numbering is the point: frame 1 is the whole panorama and 2..N
+    are its details in order. Wrapping must not renumber them."""
+    built = _built(qtbot)
+    built.set_frames([f"frame {index}" for index in range(6)])
+    built.resize(900, 900)
+
+    assert built.rows > 1
+    assert [built.caption_at(index) for index in range(6)] == [
+        f"FRAME {index}" for index in range(6)
+    ]

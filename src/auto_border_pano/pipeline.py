@@ -138,6 +138,36 @@ def process_image(
     return targets
 
 
+def preview_frames(
+    input_path: Path | str,
+    ratio: AspectRatio = DEFAULT_RATIO,
+) -> list[Image.Image]:
+    """Render every frame in memory, without writing anything.
+
+    The same split `process_image` performs, stopping short of saving, so a
+    user can see what a ratio will do to a panorama before committing it to
+    disk. `compose_preview` is the equivalent on the composite side.
+
+    Cheap despite the name: each frame comes out at the target ratio's own
+    size, not the source's, so previewing a 132MP scan holds a handful of
+    ~1080px images rather than a copy of the scan per frame.
+    """
+    with Image.open(input_path) as opened:
+        source = opened.convert("RGB")
+
+    width, height = source.size
+    if width < height:
+        raise ValueError(
+            f"{input_path} is portrait ({width}x{height}); "
+            "auto-border-pano expects a landscape panorama"
+        )
+
+    count = geometry.section_count(width, height, ratio)
+    frames = [geometry.make_padded_frame(source, ratio)]
+    frames += [geometry.make_section(source, index, count, ratio) for index in range(count)]
+    return frames
+
+
 COMPOSITE_SUFFIXES = {2: "_diptych.jpg", 3: "_triptych.jpg"}
 
 

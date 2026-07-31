@@ -33,6 +33,7 @@ Two things are genuinely different under Qt:
   run straight through frame 2's caption.
 """
 
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -67,13 +68,19 @@ CHROME_PX = TOP + NUMBER_ROW + STENCIL_ROW + BOTTOM
 """Everything in a frame's column that is not the photograph."""
 
 MIN_FRAME_PX = 72
-MAX_FRAME_PX = 260
-"""Frames size from the space actually available, between these bounds.
+"""Frames size from the space actually available, with no upper bound.
 
 A constant maximum is why a working run once showed postage stamps in a
-pane 540pt tall. The opposite failure is just as bad: sizing a single frame
-from a wide column made one frame the size of the column. A frame is a
-thumbnail of a run, not the run.
+pane 540pt tall. There is no maximum now: the strip fills its half of the
+window, because a preview you have to squint at is not doing its job.
+"""
+
+THUMBNAIL_PX = 900
+"""What an image is bounded to on the way in.
+
+Not a display bound -- the strip draws at whatever size the window allows.
+This is the ceiling on what is held in memory per frame, so a 132MP scan is
+resampled once on arrival and never again.
 """
 
 APERTURE = 1
@@ -87,7 +94,6 @@ Four is the commonest run -- one whole frame plus three details -- and the
 count is only a drawing, so being wrong about it costs nothing.
 """
 
-EMPTY_CAPTION = "NOTHING ON THE STRIP YET"
 UNREADABLE_CAPTION = "UNREADABLE"
 
 
@@ -121,7 +127,7 @@ def _bounded(image: Image.Image) -> Image.Image:
     never send the original back through the resampler.
     """
     copied = image.copy()
-    copied.thumbnail((MAX_FRAME_PX, MAX_FRAME_PX), Image.Resampling.LANCZOS)
+    copied.thumbnail((THUMBNAIL_PX, THUMBNAIL_PX), Image.Resampling.LANCZOS)
     return copied
 
 
@@ -160,13 +166,13 @@ class ContactStrip(QWidget):
         self._metrics = QFontMetrics(self._font)
         self._frames: list[_Frame] = [_Frame() for _ in range(max(frames, 1))]
         self._errors: list[str] = []
-        self._frame_size = MAX_FRAME_PX
-        # Vertically Maximum, never Expanding. The strip is an object lying
-        # on the light table, not a panel filling it: painted over a whole
-        # column it becomes a large pale box with a thin row of pictures
-        # floating in the middle, which is the same "big box mostly
-        # containing nothing" the strip exists to replace.
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+        self._frame_size = MIN_FRAME_PX
+        self._columns = max(frames, 1)
+        # Expanding in both directions: the frames grow to fill the space the
+        # window gives them. The strip's own background is painted only
+        # behind the film, so filling the cell does not leave a large pale
+        # panel around it.
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, False)
         self._remeasure()
 
@@ -186,14 +192,36 @@ class ContactStrip(QWidget):
         return self._sync()
 
     @property
-    def span(self) -> int:
-        """How far the strip's own background reaches.
+    def columns(self) -> int:
+        """How many frames the sheet puts on a row at the current size."""
+        self._sync()
+        return self._columns
 
-        As long as the film in it, never the full column width: a pale tail
-        beyond the last frame reads as an unfinished panel, not a strip.
+    @property
+    def rows(self) -> int:
+        # Syncs first, like every other derived reader here: the column
+        # count follows the geometry, and geometry is set the moment a
+        # widget is resized even though the event is deferred while hidden.
+        self._sync()
+        return math.ceil(len(self._frames) / max(self._columns, 1))
+
+    @property
+    def span(self) -> int:
+        """How far the sheet's own background reaches across.
+
+        As wide as the film in it, never the full column width: a pale tail
+        beyond the last frame reads as an unfinished panel, not a sheet.
         """
-        count = len(self._frames)
-        return 2 * EDGE + count * (self.frame_size + GUTTER) - GUTTER
+        size = self.frame_size
+        columns = min(self._columns, len(self._frames))
+        return 2 * EDGE + columns * (size + GUTTER) - GUTTER
+
+    @property
+    def extent(self) -> int:
+        """How far it reaches down."""
+        self._sync()
+        rows = self.rows
+        return 2 * EDGE + rows * (self._frame_size + CHROME_PX) + GUTTER * (rows - 1)
 
     def set_frames(self, titles: Sequence[str]) -> None:
         """Lay out one frame per title, discarding everything from the last
@@ -280,26 +308,41 @@ class ContactStrip(QWidget):
 
     # --- geometry -----------------------------------------------------------
 
-    def _measure(self) -> int:
-        """The frame size the current space allows.
+    @staticmethod
+    def _size_for(count: int, columns: int, width: int, height: int) -> int:
+        """Frame size for a given number of columns, or 0 if it will not fit."""
+        rows = math.ceil(count / columns)
+        across = width - 2 * EDGE - GUTTER * (columns - 1)
+        down = height - 2 * EDGE - rows * CHROME_PX - GUTTER * (rows - 1)
+        if across <= 0 or down <= 0:
+            return 0
+        return min(across // columns, down // rows)
 
-        Bounded by width and height both. Width alone is not enough: in a
-        tall narrow column a single frame sized from the width became a
-        square the size of the column.
+    def _measure(self) -> tuple[int, int]:
+        """The frame size and column count the current space allows.
+
+        A contact sheet wraps, and that is what lets the frames actually
+        fill the space. In one fixed row the width alone decides how big a
+        frame can be, so a tall window just left empty table underneath --
+        the strip filled its cell while painting a thin band at the top of
+        it. Trying every column count and keeping whichever makes the frames
+        biggest uses both dimensions instead.
         """
         count = len(self._frames)
-        size = MAX_FRAME_PX
         if not self.testAttribute(Qt.WidgetAttribute.WA_Resized):
             # Nobody has given it a real cell yet, so its size is still Qt's
-            # placeholder 100x30. Measuring against that would state a
-            # minimum-size appetite and the layout would grant it.
-            return size
-        if self.width() > 1:
-            usable = self.width() - 2 * EDGE - GUTTER * (count - 1)
-            size = MIN_FRAME_PX if usable <= 0 else usable // count
-        if self.height() > 1:
-            size = min(size, self.height() - CHROME_PX)
-        return max(MIN_FRAME_PX, min(MAX_FRAME_PX, int(size)))
+            # placeholder 100x30. Measuring against that would state an
+            # appetite the layout would then grant.
+            return MIN_FRAME_PX, count
+        width, height = max(self.width(), 1), max(self.height(), 1)
+        best_size, best_columns = 0, count
+        for columns in range(1, count + 1):
+            size = self._size_for(count, columns, width, height)
+            # Ties go to fewer rows: at equal size a single row reads as a
+            # strip, which is what the frames are.
+            if size > best_size:
+                best_size, best_columns = size, columns
+        return max(MIN_FRAME_PX, int(best_size)), best_columns
 
     def _sync(self) -> int:
         """Bring the cached frame size up to date with the current geometry.
@@ -309,7 +352,7 @@ class ContactStrip(QWidget):
         while it is hidden, and a strip that reported a stale size until it
         was shown would be reporting a lie.
         """
-        self._frame_size = self._measure()
+        self._frame_size, self._columns = self._measure()
         return self._frame_size
 
     def _remeasure(self) -> None:
@@ -322,7 +365,11 @@ class ContactStrip(QWidget):
         self.update()
 
     def sizeHint(self) -> QSize:
-        return QSize(self.span, self.frame_size + CHROME_PX)
+        # Deliberately the minimum, not the measured size. The widget now
+        # expands to fill its cell, so asking for the size it currently
+        # happens to be would let the widget and its layout push each other
+        # around on every repaint.
+        return self.minimumSizeHint()
 
     def minimumSizeHint(self) -> QSize:
         count = len(self._frames)
@@ -341,9 +388,9 @@ class ContactStrip(QWidget):
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
         painter.setFont(self._font)
 
-        size = self._sync()
+        self._sync()
         span = self.span
-        band = size + CHROME_PX
+        band = self.extent
 
         # Panel, not rebate. A black slab this size reads as a hole in the
         # light table; the strip is a sleeve lying on it, and the frames are
@@ -356,25 +403,24 @@ class ContactStrip(QWidget):
         for index, frame in enumerate(self._frames):
             self._paint_frame(painter, index, frame)
 
-        if self.exposed == 0:
-            # Once, across the whole strip. Once per frame would turn an
-            # unexposed strip into a wall of repeated text.
-            painter.setPen(theme.rgb(theme.INK_DIM))
-            painter.drawText(
-                QRect(0, TOP + NUMBER_ROW, span, size),
-                int(Qt.AlignmentFlag.AlignCenter),
-                EMPTY_CAPTION,
-            )
+        # No caption on an empty strip. The numbered, empty apertures
+        # already say there is nothing on it, and captioning them said the
+        # same thing twice -- in the largest element in the window.
         painter.end()
 
     def _paint_frame(self, painter: QPainter, index: int, frame: _Frame) -> None:
         size = self._frame_size
-        left = EDGE + index * (size + GUTTER)
-        top = TOP + NUMBER_ROW
+        column = index % max(self._columns, 1)
+        row = index // max(self._columns, 1)
+        left = EDGE + column * (size + GUTTER)
+        # Every row carries its own number line and stencil line, so both
+        # are offset from the row rather than from the widget.
+        row_top = EDGE + row * (size + CHROME_PX + GUTTER)
+        top = row_top + TOP + NUMBER_ROW
 
         painter.setPen(theme.rgb(theme.CHINAGRAPH))
         painter.drawText(
-            QRect(left, TOP, size, NUMBER_ROW),
+            QRect(left, row_top + TOP, size, NUMBER_ROW),
             int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
             str(index + 1),
         )
