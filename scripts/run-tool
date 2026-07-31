@@ -1,0 +1,27 @@
+#!/bin/sh
+# Run a project dev tool without assuming uv is on PATH.
+#
+# Git spawns hooks with a minimal environment, so mise's shims are usually
+# absent. Prefer mise if we can find it, since it owns the toolchain; fall
+# back to a bare uv for contributors who manage the venv themselves.
+set -eu
+
+for candidate in \
+    "${MISE_INSTALL_PATH:-}" \
+    "$(command -v mise 2>/dev/null || true)" \
+    /opt/homebrew/bin/mise \
+    /usr/local/bin/mise \
+    "$HOME/.local/bin/mise"
+do
+    if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+        exec "$candidate" exec -- uv run "$@"
+    fi
+done
+
+if command -v uv >/dev/null 2>&1; then
+    exec uv run "$@"
+fi
+
+echo "run-tool: neither mise nor uv found; cannot run $1" >&2
+echo "Install mise (https://mise.jdx.dev) then run: mise run setup" >&2
+exit 1

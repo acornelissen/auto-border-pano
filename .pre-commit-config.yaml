@@ -10,13 +10,13 @@ repos:
     hooks:
       - id: mypy
         name: mypy
-        entry: uv run mypy src tests
-        language: system
+        entry: scripts/run-tool mypy src tests
+        language: script
         pass_filenames: false
 
       - id: pytest
         name: pytest
-        entry: uv run pytest
-        language: system
+        entry: scripts/run-tool pytest
+        language: script
         pass_filenames: false
         stages: [pre-push]
