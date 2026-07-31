@@ -1,103 +1,18 @@
-"""Shared fixtures and stubs for the auto_border_pano test suite.
+"""Shared fixtures for the auto_border_pano test suite.
 
-The GUI stubs below let the worker-thread tests run headlessly. They do not
-create a real Tk root or display; `_run_single`/`_run_batch` are plain
-functions that only touch tk objects through `root.after`, so a stub root
-with an `.after` that runs the callback immediately is enough to exercise
-them.
+The GUI stubs that used to live here went with the tkinter build. Qt tests
+use `pytest-qt`'s `qtbot`, which supplies a session `QApplication` and real
+widgets, so nothing has to be faked.
 """
 
-import gc
-import threading
-import tkinter
-from collections.abc import Iterator
-from typing import Any
+import os
 
-import pytest
 from PIL import Image
 
-from auto_border_pano.gui import theme
-
-
-@pytest.fixture
-def tk_root() -> Iterator[tkinter.Tk]:
-    """A withdrawn, themed Tk root for the tests that build real widgets.
-
-    The `gc.collect()` before `destroy()` is not tidiness. A `tk.Variable`
-    finalises by calling back into its interpreter, so any variable still
-    garbage at teardown raises "main thread is not in main loop" out of
-    `__del__` once the root is gone -- surfacing later as a
-    PytestUnraisableExceptionWarning against whichever unrelated test
-    happened to trigger the collection. Collecting while the interpreter is
-    still alive makes those finalisers legal.
-
-    A tab's worker threads hold its bound methods for as long as they run,
-    and the widget tree keeps its owner alive through the bound methods Tk holds
-    for its callbacks, so a tab object -- and the variables hanging off it --
-    is still reachable while the root stands. Destroying the children first
-    breaks those links, so the collection below can actually reach them.
-    """
-    window = tkinter.Tk()
-    window.withdraw()
-    theme.apply(window)
-    yield window
-    for thread in threading.enumerate():
-        if thread is not threading.current_thread():
-            thread.join(timeout=5)
-    for child in window.winfo_children():
-        child.destroy()
-    gc.collect()
-    window.destroy()
-
-
-class StubRoot:
-    """Records `after` calls and runs the callback immediately, synchronously."""
-
-    def __init__(self) -> None:
-        self.calls: list[tuple[Any, ...]] = []
-
-    def after(self, _delay: int, callback: Any, *args: Any) -> None:
-        self.calls.append((callback, *args))
-        callback(*args)
-
-
-class StubVar:
-    """Stand-in for a tk.DoubleVar/StringVar that just records the last value."""
-
-    def __init__(self, value: Any = None) -> None:
-        self.value: Any = value
-
-    def set(self, value: Any) -> None:
-        self.value = value
-
-    def get(self) -> Any:
-        return self.value
-
-
-class StubButton:
-    def __init__(self) -> None:
-        self.last_state: str | None = None
-
-    def config(self, state: str) -> None:
-        self.last_state = state
-
-
-class StubGridded:
-    """A widget the code only ever shows and hides.
-
-    The progress bar earns its space only while a run is in flight, so the
-    partial-instance tests need something that records grid()/grid_remove()
-    without a real Tk widget behind it.
-    """
-
-    def __init__(self) -> None:
-        self.shown: bool | None = None
-
-    def grid(self) -> None:
-        self.shown = True
-
-    def grid_remove(self) -> None:
-        self.shown = False
+# Set before any test module imports Qt. The GUI tests build real widgets,
+# and without this they open windows on the desktop of whoever is running
+# the suite -- and fail outright anywhere without a display.
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 
 def synthetic_panorama(width: int = 3000, height: int = 800) -> Image.Image:

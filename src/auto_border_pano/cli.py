@@ -88,22 +88,19 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def gui_main() -> int:
-    """Launch the GUI, explaining clearly if tkinter is unavailable.
+    """Launch the GUI, explaining clearly if Qt is unavailable.
 
-    The guard lives here rather than at module scope in gui.py so that
-    importing the package can never terminate the host process.
+    The guard lives here rather than at module scope in the GUI package so
+    that importing the package can never terminate the host process.
     """
     try:
-        import tkinter  # noqa: F401
+        import PySide6  # noqa: F401
     except ImportError:
         print(
-            "Error: tkinter is not available.\n\n"
-            "tkinter is required for the GUI.\n"
-            "  macOS (Homebrew):  brew install python-tk\n"
-            "  Ubuntu/Debian:     sudo apt-get install python3-tk\n"
-            "  Fedora:            sudo dnf install python3-tkinter\n"
-            "  Arch:              sudo pacman -S tk\n"
-            "  SUSE:              sudo zypper install python3-tk\n\n"
+            "Error: PySide6 is not available.\n\n"
+            "PySide6 provides the GUI. Install it with:\n"
+            "  uv sync            (inside a checkout of this project)\n"
+            "  pip install PySide6\n\n"
             "Alternatively use the command-line version: pano-split --help",
             file=sys.stderr,
         )

@@ -106,25 +106,23 @@ def test_folder_mode_default_output(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert (tmp_path / "output" / "a_1_padded.jpg").exists()
 
 
-def test_gui_main_without_tkinter(
+def test_gui_main_without_qt(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    # Simulate tkinter being unavailable by hiding it from sys.modules
+    """Missing the GUI toolkit must explain itself and exit non-zero, not
+    raise. The guard lives in cli rather than at the GUI package's module
+    scope so that importing the package can never kill the host process."""
+    import builtins
     import sys
 
-    # Remove tkinter from sys.modules if it exists
-    monkeypatch.delitem(sys.modules, "tkinter", raising=False)
-
-    # Mock __import__ to raise ImportError when tkinter is imported
-    import builtins
-
+    monkeypatch.delitem(sys.modules, "PySide6", raising=False)
     original_import = builtins.__import__
 
     def mock_import(  # type: ignore[no-untyped-def]
         name, globals_=None, locals_=None, fromlist=(), level=0
     ):
-        if name == "tkinter":
-            raise ImportError("No module named 'tkinter'")
+        if name == "PySide6":
+            raise ImportError("No module named 'PySide6'")
         return original_import(name, globals_, locals_, fromlist, level)
 
     monkeypatch.setattr(builtins, "__import__", mock_import)
@@ -133,8 +131,8 @@ def test_gui_main_without_tkinter(
 
     assert exit_code == 1
     captured = capsys.readouterr()
-    assert "tkinter is not available" in captured.err
-    assert "brew install python-tk" in captured.err
+    assert "PySide6 is not available" in captured.err
+    assert "pano-split --help" in captured.err
 
 
 def test_ratio_flag_changes_the_output_shape(tmp_path: Path) -> None:

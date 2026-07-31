@@ -1,21 +1,44 @@
-"""The diptych and triptych tab.
+"""The diptych and triptych tab, as Qt draws it.
 
 Pick two or three images, choose a target ratio, and the arrangement is
 solved automatically from the images' own shapes.
+
+Two things carry over from the tkinter build unchanged in spirit and are
+worth stating up front, because both were earned:
+
+1. **No modal ever.** Every rule this interface has is enforced by making
+   the control unpressable, and the one thing left to say -- a file that
+   would not compose, a missing destination, sources left out -- goes to an
+   inline chinagraph line. There is not a `QMessageBox` in this module.
+2. **Never state an arrangement the solver has not returned.** The layout
+   name is live, recomputed off the GUI thread whenever the list or the
+   ratio changes, and it shows nothing rather than something stale.
+
+What is genuinely new is the concurrency. Qt queues a worker's result back
+to the GUI thread by itself, so `gui.work.submit` takes a job that returns
+plain data and hands it to a callback here. There is no `root.after` and no
+window-closed guard. The token guard stays, because staleness does not.
 """
 
-import contextlib
-import threading
-import tkinter as tk
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
-from tkinter import filedialog, ttk
 
 from PIL import Image
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import (
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QWidget,
+)
 
 from auto_border_pano import pipeline
-from auto_border_pano.gui import shell, theme, tooltip
+from auto_border_pano.gui import shell, theme
 from auto_border_pano.gui.sources import Source, SourcesList
 from auto_border_pano.gui.strip import ContactStrip
+from auto_border_pano.gui.work import submit
 
 MIN_IMAGES = 2
 MAX_IMAGES = 3
@@ -24,6 +47,9 @@ EMPTY_STATE = "Add two sources for a diptych, three for a triptych."
 ONE_MORE = "Add one more source."
 NO_PREFIX = "Choose where the composite should go."
 ORDER_HINT = "Left to right, in this order."
+WORKING = "Composing"
+
+IMAGE_FILTER = "Image files (*.jpg *.jpeg *.JPG *.JPEG);;All files (*)"
 
 _RATIO_BY_DISPLAY: dict[str, str] = {r.display: r.name for r in pipeline.RATIOS.values()}
 
@@ -110,11 +136,63 @@ def _save_label(count: int) -> str:
     return "Save composite"
 
 
-class ComposeTab:
-    def __init__(self, parent: tk.Misc) -> None:
-        self.root = parent
-        self.columns = shell.TwoColumn(parent)
-        self.frame = self.columns.frame
+@dataclass(frozen=True)
+class _Solve:
+    """What the off-thread solve brings back. Plain data, no widgets."""
+
+    token: int
+    name: str
+    count: int
+    sizes: dict[str, tuple[int, int]]
+
+
+@dataclass(frozen=True)
+class _Composed:
+    """A finished Save. The path is where it landed on disk."""
+
+    path: Path
+    layout_name: str
+    ratio_name: str
+
+
+@dataclass(frozen=True)
+class _Previewed:
+    """A finished Preview. The image never touches disk."""
+
+    image: Image.Image
+    layout_name: str
+    ratio_name: str
+    count: int
+
+
+def _solve_job(token: int, sources: list[str], ratio_name: str) -> _Solve:
+    """Runs on a worker. Opens files, touches no widget.
+
+    One unreadable file must not cost the others their dimensions, and a
+    count the solver cannot arrange is not an error to report -- it is
+    simply no name to show.
+    """
+    sizes: dict[str, tuple[int, int]] = {}
+    for source in sources:
+        try:
+            facts = pipeline.inspect_source(source)
+        except OSError:
+            continue
+        sizes[source] = (facts.width, facts.height)
+    try:
+        name = pipeline.name_layout(sources, pipeline.RATIOS[ratio_name])
+    except (ValueError, OSError):
+        name = ""
+    return _Solve(token=token, name=name, count=len(sources), sizes=sizes)
+
+
+class ComposeTab(QWidget):
+    """Two or three sources, one frame."""
+
+    band_changed = Signal(str, str)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
         self.images: list[str] = []
         self._selection: int | None = None
         # Tracks the last prefix this class itself derived from the first
@@ -122,155 +200,196 @@ class ComposeTab:
         # field" apart from "the user typed their own prefix" and only
         # overwrite the former.
         self._derived_prefix: str = ""
-
-        self.output_path = tk.StringVar()
-        self.ratio = tk.StringVar(value=pipeline.DEFAULT_RATIO.display)
-        self.status = tk.StringVar(value=EMPTY_STATE)
-        self.hint = tk.StringVar(value="")
-        self.layout_name = tk.StringVar(value="")
-        # What the rebate band should stencil while this tab is in front:
-        # what is loaded, and what this tab will make of it. The band belongs
-        # to the shell, not to either tab, so each tab just states these and
-        # the shell decides whose to show.
-        self.subject = tk.StringVar()
-        self.detail = tk.StringVar()
+        self._subject = ""
+        self._detail = ""
 
         # The arrangement the solver last returned for the current list and
         # ratio, and the token of the request that produced it. Every solve
-        # is stamped with a token so a slow two-image solve landing after a
-        # third image was added cannot overwrite the newer answer.
+        # is stamped so a slow two-image solve landing after a third image
+        # was added cannot overwrite the newer answer.
         self._solved: str = ""
         self._solve_token = 0
-        # Pixel sizes by path, filled in by the solve worker below. Cached
-        # because the same source is re-listed on every add, remove and
-        # reorder, and re-reading its header each time would be wasteful.
+        # Pixel sizes by path. Cached because the same source is re-listed
+        # on every add, remove and reorder, and re-reading its header each
+        # time would be wasteful.
         self._sizes: dict[str, tuple[int, int]] = {}
 
         self._build_ui()
+        self._refresh_list()
 
-    def can_compose(self) -> bool:
-        return MIN_IMAGES <= len(self.images) <= MAX_IMAGES
+    # --- what the band stencils ---------------------------------------------
+
+    @property
+    def subject(self) -> str:
+        return self._subject
+
+    @property
+    def detail(self) -> str:
+        return self._detail
+
+    def _set_band(self, subject: str, detail: str) -> None:
+        if (subject, detail) == (self._subject, self._detail):
+            return
+        self._subject, self._detail = subject, detail
+        self.band_changed.emit(subject, detail)
+
+    # --- construction -------------------------------------------------------
 
     def _build_ui(self) -> None:
         # The rail reads top to bottom as a sentence -- these sources, at
         # this format, to here, go -- and in the same order as the Split
-        # tab's rail, so switching tabs no longer re-lays-out the window.
-        rail = self.columns.rail
+        # tab's rail, so switching tabs does not re-lay-out the window.
+        self.columns = shell.TwoColumn(self)
+        outer = QHBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(self.columns)
 
-        shell.section(rail, "Sources", row=0)
+        rail = self.columns.rail_layout
+
+        rail.addWidget(shell.section("Sources"))
+        rail.addSpacing(theme.S)
 
         # Numbered rows in the contact strip's own visual language, because
         # the number *is* the arrangement: reordering here moves a numbered
-        # frame there. The tk.Listbox this replaces was a black rectangle
-        # with a sunken border among ttk widgets, and said nothing about the
-        # one thing that matters -- that the order is the composite's order.
-        self.listbox = SourcesList(rail, on_select=self._on_select)
-        self.listbox.canvas.grid(row=1, column=0, sticky=(tk.W, tk.E))
+        # frame there.
+        self.listbox = SourcesList()
+        self.listbox.selection_changed.connect(self._on_select)
+        rail.addWidget(self.listbox)
 
         # A row under the list rather than a column beside it: the list is
-        # the subject, the four controls act on it. Add is a different kind
-        # of action from the other three -- it grows the list, they act on
-        # whichever row is selected -- so it sits alone at the left edge and
-        # they cluster at the right, and the gap between them says so.
-        buttons = ttk.Frame(rail)
-        buttons.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(theme.SPACE_S, 0))
-        self.add_btn = ttk.Button(buttons, text="+ Add", command=self.add_image)
-        self.add_btn.pack(side="left")
-        # Packed right to left so the three read, left to right, as up, down
-        # and remove while staying flush with the rail's right edge.
-        self.remove_btn = ttk.Button(buttons, text="×", width=3, command=self.remove)  # noqa: RUF001
-        self.remove_btn.pack(side="right")
-        self.down_btn = ttk.Button(buttons, text="↓", width=3, command=self.move_down)
-        self.down_btn.pack(side="right", padx=(0, theme.SPACE_S))
-        self.up_btn = ttk.Button(buttons, text="↑", width=3, command=self.move_up)
-        self.up_btn.pack(side="right", padx=(0, theme.SPACE_S))
+        # the subject, the four controls act on it. Add grows the list, the
+        # other three act on whichever row is selected, so it sits alone at
+        # the left edge and they cluster at the right.
+        buttons = QWidget()
+        button_row = QHBoxLayout(buttons)
+        button_row.setContentsMargins(0, 0, 0, 0)
+        button_row.setSpacing(theme.S)
 
-        # These three are glyphs, so the tooltip is their only name. It shows
-        # on focus as well as hover, which is what keeps them reachable
-        # without a pointer.
-        tooltip.attach(self.up_btn, "Move earlier")
-        tooltip.attach(self.down_btn, "Move later")
-        tooltip.attach(self.remove_btn, "Remove")
+        self.add_btn = QPushButton("+ Add")
+        self.add_btn.clicked.connect(self.add_image)
+        button_row.addWidget(self.add_btn)
+        button_row.addStretch(1)
 
-        ttk.Label(rail, text=ORDER_HINT, style="Help.TLabel", wraplength=shell.RAIL_WIDTH).grid(
-            row=3, column=0, sticky=tk.W, pady=(theme.SPACE_S, 0)
-        )
+        self.up_btn = self._glyph_button("↑", "Move earlier", self.move_up)
+        self.down_btn = self._glyph_button("↓", "Move later", self.move_down)
+        self.remove_btn = self._glyph_button("×", "Remove", self.remove)  # noqa: RUF001
+        for button in (self.up_btn, self.down_btn, self.remove_btn):
+            button_row.addWidget(button)
 
-        shell.section(rail, "Format", row=4)
-        self.ratio_combo = ttk.Combobox(
-            rail,
-            textvariable=self.ratio,
-            values=[r.display for r in pipeline.RATIOS.values()],
-            state="readonly",
-        )
-        self.ratio_combo.grid(row=5, column=0, sticky=(tk.W, tk.E))
-        self.ratio_combo.bind("<<ComboboxSelected>>", self._on_ratio_change)
+        rail.addSpacing(theme.S)
+        rail.addWidget(buttons)
+
+        rail.addSpacing(theme.S)
+        rail.addWidget(shell.help_label(ORDER_HINT))
+
+        rail.addSpacing(theme.L)
+        rail.addWidget(shell.section("Format"))
+        rail.addSpacing(theme.S)
+        self.ratio_combo = shell.Combo()
+        self.ratio_combo.addItems([r.display for r in pipeline.RATIOS.values()])
+        self.ratio_combo.setCurrentText(pipeline.DEFAULT_RATIO.display)
+        self.ratio_combo.currentIndexChanged.connect(self._on_ratio_change)
+        rail.addWidget(self.ratio_combo)
 
         # The consequence of the ratio, stated before the user commits to it.
-        ttk.Label(rail, textvariable=self.layout_name, style="Help.TLabel").grid(
-            row=6, column=0, sticky=tk.W, pady=(theme.SPACE_S, 0)
-        )
+        rail.addSpacing(theme.S)
+        self.layout_label = shell.help_label("")
+        rail.addWidget(self.layout_label)
 
-        shell.section(rail, "Destination", row=7)
-        output_row = ttk.Frame(rail)
-        output_row.grid(row=8, column=0, sticky=(tk.W, tk.E))
-        output_row.columnconfigure(0, weight=1)
+        rail.addSpacing(theme.L)
+        rail.addWidget(shell.section("Destination"))
+        rail.addSpacing(theme.S)
         # Field and button side by side, exactly as the Split tab builds its
-        # own output row. The two rails are one product; a destination that
-        # is laid out one way here and another way there is the most visible
-        # way for them to drift apart.
-        self.output_entry = shell.path_entry(output_row, self.output_path)
-        ttk.Button(output_row, text="Choose folder", command=self.browse_output).grid(
-            row=0, column=1, padx=(theme.SPACE_S, 0)
-        )
+        # own output row. The two rails are one product.
+        self.output_row = shell.PathRow("Choose folder")
+        self.output_row.button.clicked.connect(self.browse_output)
+        rail.addWidget(self.output_row)
 
-        self.save_btn = ttk.Button(
-            rail, text="Save composite", command=self.save, style="Primary.TButton"
-        )
-        self.save_btn.grid(row=9, column=0, sticky=(tk.W, tk.E), pady=(theme.SPACE_L, 0))
+        rail.addSpacing(theme.L)
+        self.save_btn = QPushButton(_save_label(0))
+        self.save_btn.setObjectName("Primary")
+        self.save_btn.clicked.connect(self.save)
+        rail.addWidget(self.save_btn)
 
         # Preview is free and reversible, so it sits below the action that
         # writes to disk at text weight rather than beside it as a peer.
-        # Hard against Save it read as a caption on the button; the same
-        # step the Split tab puts between its primary button and the line
-        # under it separates the two actions.
-        self.preview_btn = ttk.Button(
-            rail, text="Preview", command=self.preview, style="Link.TButton"
-        )
-        self.preview_btn.grid(row=10, column=0, sticky=tk.W, pady=(theme.SPACE_M, 0))
+        rail.addSpacing(theme.M)
+        self.preview_btn = QPushButton("Preview")
+        self.preview_btn.setObjectName("Link")
+        self.preview_btn.clicked.connect(self.preview)
+        rail.addWidget(self.preview_btn, 0, Qt.AlignmentFlag.AlignLeft)
+
+        # Only ever a reason to act on: a file that would not compose, a
+        # missing prefix, sources left out.
+        rail.addSpacing(theme.M)
+        self.hint_label = shell.help_label("")
+        rail.addWidget(self.hint_label)
 
         # The resting sentence: what this makes, how it is arranged, at what
         # ratio -- the same slot the Split tab gives its status line.
-        ttk.Label(
-            rail, textvariable=self.status, style="Help.TLabel", wraplength=shell.RAIL_WIDTH
-        ).grid(row=11, column=0, sticky=tk.W, pady=(theme.SPACE_M, 0))
-
-        # Only ever a reason to act on: a file that would not compose, a
-        # missing prefix, sources left out. The status line above carries
-        # everything else, so the two can never read as competing sentences.
-        self.hint_label = ttk.Label(
-            rail, textvariable=self.hint, style="Help.TLabel", wraplength=shell.RAIL_WIDTH
-        )
-        self.hint_label.grid(row=12, column=0, sticky=tk.W, pady=(theme.SPACE_S, 0))
-        rail.rowconfigure(13, weight=1)
+        rail.addSpacing(theme.S)
+        self.status_label = shell.help_label(EMPTY_STATE)
+        rail.addWidget(self.status_label)
+        rail.addStretch(1)
 
         # One frame, not four: a composite is a single image. The strip
         # still renders its unexposed state before anything is composed.
-        self.previews = ContactStrip(self.columns.table, frames=1)
+        self.previews = ContactStrip(frames=1)
         # Top of the table, at its natural height: the strip is an object
         # lying on the light table, not a panel filling it.
-        self.previews.canvas.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N))
+        self.columns.table_layout.addWidget(self.previews)
+        self.columns.table_layout.addStretch(1)
 
-        self._refresh_list()
+    def _glyph_button(self, glyph: str, tip: str, handler: Callable[[], None]) -> QPushButton:
+        """A one-glyph button whose tooltip is its only accessible name."""
+        button = QPushButton(glyph)
+        button.setFixedWidth(34)
+        button.setToolTip(tip)
+        button.setAccessibleName(tip)
+        button.clicked.connect(handler)
+        return button
+
+    # --- state --------------------------------------------------------------
+
+    def can_compose(self) -> bool:
+        return MIN_IMAGES <= len(self.images) <= MAX_IMAGES
 
     def _bare_ratio(self) -> str:
         """The ratio as the user reads it, e.g. '4:5' -- never the display form."""
-        name = _RATIO_BY_DISPLAY.get(self.ratio.get(), pipeline.DEFAULT_RATIO.name)
-        return pipeline.RATIOS[name].name
+        return pipeline.RATIOS[self._ratio_name()].name
+
+    def _ratio_name(self) -> str:
+        return _RATIO_BY_DISPLAY.get(self.ratio_combo.currentText(), pipeline.DEFAULT_RATIO.name)
+
+    @property
+    def status(self) -> str:
+        return self.status_label.text()
+
+    @property
+    def hint(self) -> str:
+        return self.hint_label.text()
+
+    @property
+    def layout_name(self) -> str:
+        return self.layout_label.text()
+
+    def _set_status(self, text: str) -> None:
+        self.status_label.setText(text)
 
     def _set_hint(self, text: str, *, error: bool = False) -> None:
-        self.hint.set(text)
-        self.hint_label.configure(style="Error.TLabel" if error else "Help.TLabel")
+        self.hint_label.setText(text)
+        self._restyle(self.hint_label, "Error" if error else "Help")
+
+    @staticmethod
+    def _restyle(label: QLabel, name: str) -> None:
+        """Swap a label between voices. Qt only re-reads the stylesheet for a
+        widget whose object name changed if it is told to."""
+        if label.objectName() == name:
+            return
+        label.setObjectName(name)
+        style = label.style()
+        style.unpolish(label)
+        style.polish(label)
 
     def _apply_button_states(self) -> None:
         """The single place that decides which buttons are pressable.
@@ -278,23 +397,29 @@ class ComposeTab:
         Every rule the interface used to report in a modal is enforced here
         instead: Add stops at MAX_IMAGES, Save and Preview need a composable
         set, and the reorder buttons need something selected to act on.
+        Called from construction and from everything that changes the list
+        or the selection, so it can never be out of date.
         """
         count = len(self.images)
-        self.add_btn.config(state="normal" if count < MAX_IMAGES else "disabled")
+        self.add_btn.setEnabled(count < MAX_IMAGES)
 
         index = self._selection
         has_selection = index is not None and 0 <= index < count
-        self.remove_btn.config(state="normal" if has_selection else "disabled")
-        self.up_btn.config(state="normal" if has_selection and index != 0 else "disabled")
-        self.down_btn.config(state="normal" if has_selection and index != count - 1 else "disabled")
+        self.remove_btn.setEnabled(has_selection)
+        self.up_btn.setEnabled(has_selection and index != 0)
+        self.down_btn.setEnabled(has_selection and index != count - 1)
 
-        self._set_buttons_state("normal" if self.can_compose() else "disabled")
-        self.save_btn.config(text=_save_label(count))
+        self._set_buttons_enabled(self.can_compose())
+        self.save_btn.setText(_save_label(count))
         # Why Save is disabled belongs to the status line, which is already
         # the sentence describing what the current set makes. Saying it in
         # the hint as well printed two near-identical sentences one above
         # the other, which reads as a rendering fault rather than as help.
         self._set_hint("")
+
+    def _set_buttons_enabled(self, enabled: bool) -> None:
+        self.preview_btn.setEnabled(enabled)
+        self.save_btn.setEnabled(enabled)
 
     def _update_status(self) -> None:
         """State the consequence: what this makes, how it is arranged, at
@@ -305,28 +430,29 @@ class ComposeTab:
         if not noun:
             # One voice: the status line says what is missing, so the hint
             # under it stays free for things the user has to act on.
-            self.status.set(ONE_MORE if count == 1 else EMPTY_STATE)
-            self.detail.set("")
+            self._set_status(ONE_MORE if count == 1 else EMPTY_STATE)
+            self._set_band(self._subject, "")
             return
         arrangement = present_layout(self._solved, count).lower()
         parts = (
             [noun, arrangement, self._bare_ratio()] if arrangement else [noun, self._bare_ratio()]
         )
-        self.status.set(", ".join(parts))
-        self.detail.set(f"{self._bare_ratio()} · {noun.lower()}")
+        self._set_status(", ".join(parts))
+        self._set_band(self._subject, f"{self._bare_ratio()} · {noun.lower()}")
+
+    # --- the live solve -----------------------------------------------------
 
     def _request_layout_name(self) -> None:
-        """Ask, off the main thread, how these sources will be arranged.
+        """Ask, off the GUI thread, how these sources will be arranged.
 
-        Reads every piece of tk state here on the main thread and hands the
-        worker plain strings; `name_layout` opens files, so it must not run
-        here. The token makes the answer discardable: add a third image
-        while a two-image solve is in flight and the older reply is dropped
-        instead of overwriting the newer one.
+        `name_layout` opens files, so it must not run here. The token makes
+        the answer discardable: add a third image while a two-image solve is
+        in flight and the older reply is dropped instead of overwriting the
+        newer one.
         """
         self._solve_token += 1
         self._solved = ""
-        self.layout_name.set("")
+        self.layout_label.setText("")
         self._update_status()
 
         sources = list(self.images)
@@ -334,81 +460,61 @@ class ComposeTab:
         # composable yet -- one source still has dimensions worth showing.
         if not sources:
             return
-        threading.Thread(
-            target=self._run_name_layout,
-            args=(self._solve_token, sources, self._bare_ratio()),
-            daemon=True,
-        ).start()
+        token = self._solve_token
+        ratio_name = self._ratio_name()
+        submit(
+            lambda: _solve_job(token, sources, ratio_name),
+            self._apply_layout_name,
+            self._solve_failed,
+        )
 
-    def _run_name_layout(self, token: int, sources: list[str], ratio_name: str) -> None:
-        """Worker. Touches no tk object; reports back through root.after."""
-        sizes: dict[str, tuple[int, int]] = {}
-        for source in sources:
-            # Header reads only, and one unreadable file must not cost the
-            # others their dimensions.
-            with contextlib.suppress(OSError):
-                facts = pipeline.inspect_source(source)
-                sizes[source] = (facts.width, facts.height)
-        try:
-            name = pipeline.name_layout(sources, pipeline.RATIOS[ratio_name])
-        except (ValueError, OSError):
-            # A count the solver cannot arrange, or a file it cannot read.
-            # Either way there is no name to show, and showing a stale or
-            # guessed one would be worse than showing nothing.
-            name = ""
-        # Scheduling is the only crossing back; if the window closed while
-        # the solve was in flight there is nothing left to tell.
-        # RuntimeError as well as TclError: Tk raises the former when the
-        # interpreter has no main loop left to schedule onto.
-        with contextlib.suppress(tk.TclError, RuntimeError):
-            self.root.after(0, self._apply_layout_name, token, name, len(sources), sizes)
+    def _solve_failed(self, _error: BaseException) -> None:
+        """A solve that blew up has no name to show, and nothing to say: the
+        rail simply stays empty rather than reporting an internal fault."""
+        return
 
-    def _apply_layout_name(
-        self, token: int, name: str, count: int, sizes: dict[str, tuple[int, int]]
-    ) -> None:
-        """Runs on the main thread. Late answers are dropped, not shown."""
-        if token != self._solve_token:
+    def _apply_layout_name(self, solved: _Solve) -> None:
+        """Runs on the GUI thread. Late answers are dropped, not shown."""
+        if solved.token != self._solve_token:
             return
-        self._solved = name
-        self.layout_name.set(present_layout(name, count))
+        self._solved = solved.name
+        self.layout_label.setText(present_layout(solved.name, solved.count))
         self._update_status()
-        if sizes and not sizes.items() <= self._sizes.items():
-            self._sizes.update(sizes)
+        if solved.sizes and not solved.sizes.items() <= self._sizes.items():
+            self._sizes.update(solved.sizes)
             # Redraw the rows now the dimensions are known. Straight to the
             # widget, not through _refresh_list, which would start another
             # solve and loop.
-            self.listbox.set_items(
-                [Source(path=path, size=self._sizes.get(path)) for path in self.images]
-            )
+            self.listbox.set_items(self._rows())
 
-    def _on_ratio_change(self, _event: object = None) -> None:
-        self._request_layout_name()
+    # --- the list -----------------------------------------------------------
+
+    def _rows(self) -> list[Source]:
+        return [Source(path=path, size=self._sizes.get(path)) for path in self.images]
 
     def _refresh_list(self) -> None:
-        # Sizes may be unknown until the worker below reports; a row renders
+        # Sizes may be unknown until the worker reports; a row renders
         # without them rather than waiting.
-        self.listbox.set_items(
-            [Source(path=path, size=self._sizes.get(path)) for path in self.images]
-        )
+        self.listbox.set_items(self._rows())
         # The band counts what is loaded here, since no single filename
         # describes a composite.
         count = len(self.images)
-        self.subject.set(f"{count} sources" if count else "")
+        self._set_band(f"{count} sources" if count else "", self._detail)
         self._request_layout_name()
         self._apply_button_states()
         # The output prefix is derived from the first image. If the field
         # still holds that derived value -- i.e. the user hasn't typed their
         # own -- re-derive it from the current first image, so add A, add B,
         # remove A, Save no longer writes next to A's now-absent name.
-        if self.output_path.get() != self._derived_prefix:
+        if self.output_row.text() != self._derived_prefix:
             return
         derived = str(Path(self.images[0]).with_suffix("")) + "_composite" if self.images else ""
-        if derived != self.output_path.get():
-            self.output_path.set(derived)
+        if derived != self.output_row.text():
+            self.output_row.setText(derived)
         self._derived_prefix = derived
 
-    def _on_select(self, index: int | None) -> None:
-        self._selection = index
+    def _on_select(self, index: object) -> None:
+        self._selection = index if isinstance(index, int) else None
         self._apply_button_states()
 
     def add_image(self) -> None:
@@ -416,15 +522,12 @@ class ComposeTab:
         # net for programmatic callers, not something a user can reach.
         if len(self.images) >= MAX_IMAGES:
             return
-        chosen = filedialog.askopenfilenames(
-            title="Choose sources",
-            filetypes=[("Image files", "*.jpg *.jpeg *.JPG *.JPEG"), ("All files", "*.*")],
-        )
+        chosen, _filter = QFileDialog.getOpenFileNames(self, "Choose sources", "", IMAGE_FILTER)
         if not chosen:
             return
         self._accept(list(chosen))
 
-    def _accept(self, chosen: list[str]) -> None:
+    def _accept(self, chosen: Sequence[str]) -> None:
         """Take as many of the chosen files as there is room for.
 
         The dialog lets a user pick any number, so pick five for a triptych
@@ -473,117 +576,86 @@ class ComposeTab:
         self._apply_button_states()
 
     def browse_output(self) -> None:
-        folder = filedialog.askdirectory(title="Select Output Folder")
+        folder = QFileDialog.getExistingDirectory(self, "Select output folder")
         if folder:
-            self.output_path.set(str(Path(folder) / "composite"))
+            self.output_row.setText(str(Path(folder) / "composite"))
 
-    def _set_buttons_state(self, state: str) -> None:
-        self.preview_btn.config(state=state)
-        self.save_btn.config(state=state)
-
-    def _finish(
-        self, message: str, path: str | None, error: str | None, layout_name: str = ""
-    ) -> None:
-        """Runs on the main thread once Save's worker reports back.
-
-        All widget mutation happens here, never on the worker thread. The
-        layout name travels separately from the status message so the pane
-        title can stand on its own under the image.
-        """
-        self.status.set(message)
-        try:
-            if path is not None:
-                self.previews.set_frames([layout_name])
-                with Image.open(path) as img:
-                    self.previews.show_images([img.copy()])
-        finally:
-            self._apply_button_states()
-        if error is not None:
-            self._set_hint(error, error=True)
-
-    def _finish_preview(
-        self,
-        message: str,
-        image: Image.Image | None,
-        error: str | None,
-        layout_name: str = "",
-    ) -> None:
-        """Runs on the main thread once Preview's worker reports back.
-
-        Unlike `_finish`, there is no file to reload -- the rendered image
-        travels back as plain data through `root.after` and is shown
-        directly, without ever touching disk.
-
-        The layout name arrives as its own argument rather than being read
-        back out of `message`. The two carry different things: the stencil
-        under the frame names the arrangement, and the status line stays on
-        the resting sentence, so nothing has to parse a sentence to find a
-        noun.
-        """
-        self.status.set(message)
-        try:
-            if image is not None:
-                self.previews.set_frames([layout_name])
-                self.previews.show_images([image])
-        finally:
-            self._apply_button_states()
-        if error is not None:
-            self._set_hint(error, error=True)
-
-    def _run_compose(self, sources: list[str], prefix: str, ratio_name: str) -> None:
-        try:
-            ratio = pipeline.RATIOS[ratio_name]
-            result = pipeline.compose_images(sources, prefix, ratio)
-        except Exception as error:
-            self.root.after(0, self._finish, f"Could not compose — {error}", None, str(error))
-            return
-        self.root.after(
-            0,
-            self._finish,
-            f"Saved {result.path.name} — {result.layout_name}, {ratio.name}",
-            str(result.path),
-            None,
-            result.layout_name,
-        )
-
-    def _run_preview(self, sources: list[str], ratio_name: str) -> None:
-        ratio = pipeline.RATIOS[ratio_name]
-        try:
-            image, layout_name = pipeline.compose_preview(sources, ratio)
-        except Exception as error:
-            self.root.after(
-                0, self._finish_preview, f"Could not compose — {error}", None, str(error)
-            )
-            return
-        # The status line goes back to the resting sentence -- the preview
-        # is on screen, so a past-tense narration of it would be noise. The
-        # arrangement is named in the stencil under the frame instead.
-        arrangement = present_layout(layout_name, len(sources)).lower()
-        resting = f"{_composite_noun(len(sources))}, {arrangement}, {ratio.name}"
-        self.root.after(0, self._finish_preview, resting, image, None, layout_name)
+    # --- writing and previewing ---------------------------------------------
 
     def save(self) -> None:
         # Save is disabled unless this holds; the guard is a safety net.
         if not self.can_compose():
             return
-        prefix = self.output_path.get()
+        prefix = self.output_row.text()
         if not prefix:
             self._set_hint(NO_PREFIX, error=True)
             return
-        ratio_name = _RATIO_BY_DISPLAY.get(self.ratio.get(), pipeline.DEFAULT_RATIO.name)
+        ratio = pipeline.RATIOS[self._ratio_name()]
         sources = list(self.images)
-        self._set_buttons_state("disabled")
-        self.status.set("Composing")
-        threading.Thread(
-            target=self._run_compose, args=(sources, prefix, ratio_name), daemon=True
-        ).start()
+        self._set_buttons_enabled(False)
+        self._set_status(WORKING)
+
+        def job() -> _Composed:
+            result = pipeline.compose_images(sources, prefix, ratio)
+            return _Composed(result.path, result.layout_name, ratio.name)
+
+        submit(job, self._finish, self._failed)
 
     def preview(self) -> None:
         # Preview is disabled unless this holds; the guard is a safety net.
         if not self.can_compose():
             return
-        ratio_name = _RATIO_BY_DISPLAY.get(self.ratio.get(), pipeline.DEFAULT_RATIO.name)
+        ratio = pipeline.RATIOS[self._ratio_name()]
         sources = list(self.images)
-        self._set_buttons_state("disabled")
-        self.status.set("Composing")
-        threading.Thread(target=self._run_preview, args=(sources, ratio_name), daemon=True).start()
+        self._set_buttons_enabled(False)
+        self._set_status(WORKING)
+
+        def job() -> _Previewed:
+            image, layout_name = pipeline.compose_preview(sources, ratio)
+            return _Previewed(image, layout_name, ratio.name, len(sources))
+
+        submit(job, self._finish_preview, self._failed)
+
+    def _failed(self, error: BaseException) -> None:
+        """One failure path for both actions. Inline, never modal."""
+        self._set_status(f"Could not compose — {error}")
+        self._apply_button_states()
+        self._set_hint(str(error), error=True)
+
+    def _finish(self, composed: _Composed) -> None:
+        """Runs on the GUI thread once Save's job returns.
+
+        The layout name travels separately from the status message so the
+        pane title can stand on its own under the image.
+        """
+        self._set_status(
+            f"Saved {composed.path.name} — {composed.layout_name}, {composed.ratio_name}"
+        )
+        try:
+            self.previews.set_frames([composed.layout_name])
+            self.previews.show_paths([composed.path])
+        finally:
+            self._apply_button_states()
+
+    def _finish_preview(self, previewed: _Previewed) -> None:
+        """Runs on the GUI thread once Preview's job returns.
+
+        Unlike `_finish` there is no file to reload -- the rendered image
+        travels back as plain data and is shown directly, without ever
+        touching disk. The status line goes back to the resting sentence,
+        because the preview is on screen and a past-tense narration of it
+        would be noise; the arrangement is named in the stencil under the
+        frame instead.
+        """
+        arrangement = present_layout(previewed.layout_name, previewed.count).lower()
+        self._set_status(
+            f"{_composite_noun(previewed.count)}, {arrangement}, {previewed.ratio_name}"
+        )
+        try:
+            self.previews.set_frames([previewed.layout_name])
+            self.previews.show_images([previewed.image])
+        finally:
+            self._apply_button_states()
+
+    def _on_ratio_change(self, _index: int = 0) -> None:
+        self._request_layout_name()

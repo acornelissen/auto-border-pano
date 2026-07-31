@@ -1,311 +1,290 @@
-"""The light-table theme: five colours, three type roles, one spacing scale.
+"""The light-table design system, as Qt draws it.
 
-The app is not a darkroom. It never asks you to judge tone -- tone is fixed
-the moment the scan is made -- it asks you to judge layout. So the chrome is
-a light table rather than the dark grey every other photo tool inherits, and
-the white border in the output reads as the paper margin it is instead of as
-glare.
+The concept is unchanged from the tkinter build: this app never asks you to
+judge tone -- tone is fixed the moment the scan is made -- it asks you to
+judge layout, so the chrome is a light table rather than the dark grey every
+other photo tool inherits.
 
-Everything here is presentation only. No widget in this module knows what a
-panorama is, and nothing outside `gui/` imports it.
+What changed is the execution, and both changes were needed.
 
-`apply()` switches ttk to `clam`. That is not cosmetic: under macOS's native
-`aqua` theme ttk ignores `background`, `fieldbackground` and `bordercolor`
-outright, so none of the palette below would take effect. Losing the native
-look is the deliberate trade.
+`clam` built a combobox out of a bevelled arrow button welded to a bordered
+box, and a button out of a hard 1px border. Recolouring never touched that
+vocabulary. A stylesheet does.
+
+And the old palette had no range: three greys within a few percent of each
+other, no white and no dark surface, so everything sat in one narrow tonal
+band and read as a wash. That was a design error, not a toolkit one. This
+palette runs white to near-black.
+
+Presentation only. Nothing here knows what a panorama is.
 """
 
-import tkinter as tk
-from collections.abc import Sequence
-from tkinter import font as tkfont
-from tkinter import ttk
-from typing import Literal
+from PySide6.QtGui import QColor, QFont, QFontDatabase
 
 # --- Colour -----------------------------------------------------------------
-# Five tokens, no more. `chinagraph` earns its salience by being the only
-# saturated colour in the app; a second accent would cost the primary action
-# its primacy.
 
-LIGHTBOX = "#F1F4F6"
-"""The table surface. Cool white, ~5200K. Window and panel background."""
+TABLE = "#FBFCFD"
+"""The light table itself. Window background."""
 
-SLEEVE = "#DCE1E4"
-"""Polypropylene negative sleeve. Recessed areas and input wells."""
+PANEL = "#EEF1F4"
+"""The control rail, sitting just below the table."""
 
-REBATE = "#1B1D1F"
-"""Film base. The strip, the header band, primary text. 15.4:1 on lightbox."""
+WELL = "#FFFFFF"
+"""Input fields. A field you type into should be paper."""
 
-SPROCKET = "#8B9298"
-"""Sprocket-hole grey. Rules, disabled states, large-text-only utility copy."""
+EDGE = "#D5DBE0"
+"""Hairlines and dividers -- one device pixel, which Qt can actually do."""
 
-CHINAGRAPH = "#D5372C"
-"""The grease pencil an editor marks selects with. Primary action and errors."""
+REBATE = "#15171A"
+"""Film base: the header band and the strip."""
 
-INK_SECONDARY = "#5A5F63"
-"""Secondary body text: `rebate` at 70% over `lightbox`, 7.1:1.
+INK = "#14171A"
+"""Primary text. 16.1:1 on the table."""
 
-`sprocket` is 3.3:1 on `lightbox`, which clears WCAG AA only at the 3:1
-large-text threshold. Anything smaller than 12pt semibold uses this instead.
+INK_DIM = "#5C646B"
+"""Secondary text. 5.9:1 on the panel, so it clears AA at any size."""
+
+CHINAGRAPH = "#C9302A"
+"""The grease pencil an editor marks selects with.
+
+The primary action and errors, and nothing else. It earns its salience by
+being the only saturated colour in the app; a second accent would cost the
+primary action its primacy.
 """
 
-# --- Spacing ----------------------------------------------------------------
-# One scale, three steps. Every padx/pady in the GUI is one of these, so
-# things that belong together look like it.
+CHINAGRAPH_HOVER = "#B62923"
+CHINAGRAPH_DOWN = "#9E221D"
 
-SPACE_S = 6
-SPACE_M = 12
-SPACE_L = 24
+# --- Spacing ----------------------------------------------------------------
+# One scale. Everything that belongs together is spaced the same way.
+
+S = 6
+M = 12
+L = 24
+XL = 36
+
+RAIL_WIDTH = 320
+BAND_HEIGHT = 52
 
 # --- Type -------------------------------------------------------------------
-# Three roles. Anything the machine measured -- paths, pixel dimensions,
-# ratios, counts -- is set in `data`, which is what separates "the file you
-# chose" from "what we call it" at a glance.
+# Three roles. Anything the machine measured -- paths, pixel counts, ratios --
+# is set in `data`, which separates "the file you chose" from "what we call
+# it" at a glance.
 
-EMULSION_STACK = (
-    "Avenir Next Condensed",
-    "Helvetica Neue Condensed Bold",
-    "Oswald",
-    "Helvetica Neue",
-    "Helvetica",
-)
-BODY_STACK = ("Avenir Next", "Inter", "Helvetica Neue", "Helvetica")
-DATA_STACK = ("SF Mono", "Menlo", "Courier New", "Courier")
-
-_ROLES: dict[str, tuple[Sequence[str], int, Literal["normal", "bold"]]] = {
-    # role         stack           size  weight
-    "band": (EMULSION_STACK, 26, "bold"),
-    "heading": (BODY_STACK, 19, "bold"),
-    "action": (BODY_STACK, 15, "normal"),
-    "body": (BODY_STACK, 13, "normal"),
-    "stencil": (EMULSION_STACK, 12, "bold"),
-    "data": (DATA_STACK, 11, "normal"),
-    "help": (BODY_STACK, 11, "normal"),
-}
-
-STYLE_NAMES = (
-    "TFrame",
-    "TLabel",
-    "TEntry",
-    "TButton",
-    "TCombobox",
-    "TRadiobutton",
-    "TNotebook",
-    "TNotebook.Tab",
-    "Horizontal.TProgressbar",
-    "Section.TLabel",
-    "Stencil.TLabel",
-    "Data.TLabel",
-    "Help.TLabel",
-    "Error.TLabel",
-    "Heading.TLabel",
-    "Primary.TButton",
-    "Link.TButton",
-)
-
-# Tk owns named fonts per interpreter, and a fresh `tkfont.Font` leaks a new
-# one on every call. The previews rebuild on every run, so cache per root.
-_font_cache: dict[tuple[int, str], tkfont.Font] = {}
-_family_cache: dict[tuple[int, tuple[str, ...]], str] = {}
+_STENCIL_STACK = ("Avenir Next Condensed", "Helvetica Neue", "Inter", "Helvetica")
+_BODY_STACK = ("Avenir Next", "Inter", "Helvetica Neue", "Helvetica")
+_DATA_STACK = ("SF Mono", "Menlo", "Courier New")
 
 
-def resolve_family(root: tk.Misc, stack: Sequence[str]) -> str:
-    """First installed family in `stack`, or Tk's own default if none is."""
-    key = (id(root.tk), tuple(stack))
-    cached = _family_cache.get(key)
-    if cached is not None:
-        return cached
-
-    installed = {name.lower(): name for name in tkfont.families(root)}
-    for candidate in stack:
-        found = installed.get(candidate.lower())
-        if found is not None:
-            _family_cache[key] = found
-            return found
-
-    fallback = tkfont.nametofont("TkDefaultFont", root).cget("family")
-    _family_cache[key] = fallback
-    return fallback
+def _first_installed(stack: tuple[str, ...]) -> str:
+    families = set(QFontDatabase.families())
+    for name in stack:
+        if name in families:
+            return name
+    return QFontDatabase.systemFont(QFontDatabase.SystemFont.GeneralFont).family()
 
 
-def font(root: tk.Misc, role: str) -> tkfont.Font:
-    """The font for a type role, resolved against what is actually installed."""
-    stack, size, weight = _ROLES[role]
-    key = (id(root.tk), role)
-    cached = _font_cache.get(key)
-    if cached is not None:
-        return cached
-
-    resolved = tkfont.Font(root=root, family=resolve_family(root, stack), size=size, weight=weight)
-    _font_cache[key] = resolved
-    return resolved
+def body_family() -> str:
+    return _first_installed(_BODY_STACK)
 
 
-def apply(root: tk.Misc) -> None:
-    """Put the whole app on the light table. Safe to call more than once."""
-    style = ttk.Style(root)
-    style.theme_use("clam")
+def data_family() -> str:
+    return _first_installed(_DATA_STACK)
 
-    body = font(root, "body")
 
-    style.configure(
-        ".",
-        background=LIGHTBOX,
-        foreground=REBATE,
-        fieldbackground=SLEEVE,
-        bordercolor=SPROCKET,
-        lightcolor=LIGHTBOX,
-        darkcolor=LIGHTBOX,
-        troughcolor=SLEEVE,
-        focuscolor=CHINAGRAPH,
-        font=body,
-    )
+def stencil_family() -> str:
+    return _first_installed(_STENCIL_STACK)
 
-    style.configure("TFrame", background=LIGHTBOX)
-    style.configure("TLabel", background=LIGHTBOX, foreground=REBATE, font=body)
 
-    style.configure(
-        "TEntry",
-        fieldbackground=SLEEVE,
-        foreground=REBATE,
-        insertcolor=REBATE,
-        borderwidth=0,
-        relief="flat",
-        padding=(SPACE_S, SPACE_S),
-        font=font(root, "data"),
-    )
-    style.map(
-        "TEntry",
-        fieldbackground=[("disabled", LIGHTBOX)],
-        foreground=[("disabled", SPROCKET)],
-    )
+def stencil_font(size: int = 11, tracking: float = 2.2) -> QFont:
+    """Condensed caps with wide tracking, the way a lab prints an edge.
 
-    style.configure(
-        "TButton",
-        background=SLEEVE,
-        foreground=REBATE,
-        bordercolor=SPROCKET,
-        borderwidth=1,
-        relief="flat",
-        padding=(SPACE_M, SPACE_S),
-        font=body,
-    )
-    style.map(
-        "TButton",
-        background=[("pressed", SPROCKET), ("active", "#CDD3D7"), ("disabled", LIGHTBOX)],
-        foreground=[("disabled", SPROCKET)],
-        # A disabled button keeps its edge. Filled with the panel colour and
-        # borderless it stops reading as a button at all -- grey text floating
-        # on the rail looks like a rendering fault rather than "not yet".
-        bordercolor=[("disabled", "#C3C9CD")],
-    )
+    Letter-spacing was Canvas-only under tkinter -- one text item per glyph
+    at a measured offset. Qt just does it.
+    """
+    font = QFont(stencil_family(), size)
+    font.setWeight(QFont.Weight.DemiBold)
+    font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, tracking)
+    font.setCapitalization(QFont.Capitalization.AllUppercase)
+    return font
 
-    style.configure(
-        "Primary.TButton",
-        background=CHINAGRAPH,
-        foreground=LIGHTBOX,
-        bordercolor=CHINAGRAPH,
-        padding=(SPACE_M, SPACE_S + 2),
-        font=font(root, "action"),
-    )
-    style.map(
-        "Primary.TButton",
-        background=[("pressed", "#A82A21"), ("active", "#C13129"), ("disabled", SLEEVE)],
-        foreground=[("disabled", SPROCKET)],
-        bordercolor=[("disabled", SLEEVE)],
-    )
 
-    # "Preview" is free and reversible; it must not read as a peer of the
-    # action that writes to disk.
-    style.configure(
-        "Link.TButton",
-        background=LIGHTBOX,
-        foreground=INK_SECONDARY,
-        borderwidth=0,
-        relief="flat",
-        padding=(0, SPACE_S),
-        font=body,
-    )
-    style.map(
-        "Link.TButton",
-        background=[("active", LIGHTBOX), ("pressed", LIGHTBOX)],
-        foreground=[("active", REBATE), ("disabled", SPROCKET)],
-    )
+def data_font(size: int = 11) -> QFont:
+    return QFont(data_family(), size)
 
-    style.configure(
-        "TCombobox",
-        fieldbackground=SLEEVE,
-        background=SLEEVE,
-        foreground=REBATE,
-        arrowcolor=REBATE,
-        bordercolor=SPROCKET,
-        borderwidth=0,
-        padding=(SPACE_S, SPACE_S),
-        font=body,
-    )
-    style.map(
-        "TCombobox",
-        fieldbackground=[("readonly", SLEEVE)],
-        selectbackground=[("readonly", SLEEVE)],
-        selectforeground=[("readonly", REBATE)],
-    )
-    # The dropdown list is a raw Tk widget the style engine cannot reach.
-    root.option_add("*TCombobox*Listbox.background", LIGHTBOX)
-    root.option_add("*TCombobox*Listbox.foreground", REBATE)
-    root.option_add("*TCombobox*Listbox.selectBackground", CHINAGRAPH)
-    root.option_add("*TCombobox*Listbox.selectForeground", LIGHTBOX)
 
-    style.configure(
-        "TRadiobutton",
-        background=LIGHTBOX,
-        foreground=REBATE,
-        indicatorcolor=LIGHTBOX,
-        font=body,
-    )
-    style.map(
-        "TRadiobutton",
-        indicatorcolor=[("selected", CHINAGRAPH)],
-        background=[("active", LIGHTBOX)],
-    )
+def rgb(value: str) -> QColor:
+    return QColor(value)
 
-    # The tabs start at the same gutter as the control rail below them.
-    # Flush against the window edge they read as a rendering fault, and
-    # nothing else in the app touches the edge.
-    style.configure("TNotebook", background=LIGHTBOX, borderwidth=0, tabmargins=(SPACE_L, 0, 0, 0))
-    style.configure(
-        "TNotebook.Tab",
-        background=SLEEVE,
-        foreground=INK_SECONDARY,
-        bordercolor=SLEEVE,
-        padding=(SPACE_L, SPACE_S + 2),
-        font=font(root, "action"),
-    )
-    style.map(
-        "TNotebook.Tab",
-        background=[("selected", LIGHTBOX)],
-        foreground=[("selected", REBATE)],
-        # clam grows the selected tab by default, so the two tabs render at
-        # different sizes and the active one sits lower than its neighbour.
-        # Pin the expansion to nothing; colour alone says which is selected.
-        expand=[("selected", [0, 0, 0, 0])],
-    )
 
-    style.configure(
-        "Horizontal.TProgressbar",
-        # Not chinagraph. The accent is reserved for the primary action; a
-        # progress bar that competes with it costs the button its primacy.
-        background=REBATE,
-        troughcolor=SLEEVE,
-        bordercolor=SLEEVE,
-        borderwidth=0,
-        lightcolor=REBATE,
-        darkcolor=REBATE,
-    )
+# --- Stylesheet -------------------------------------------------------------
 
-    # Caps are applied in the string, not by the style -- ttk has no
-    # text-transform. `sprocket` is legible here because these are 12pt bold.
-    style.configure("Section.TLabel", foreground=SPROCKET, font=font(root, "stencil"))
-    style.configure("Stencil.TLabel", foreground=SPROCKET, font=font(root, "stencil"))
-    style.configure("Heading.TLabel", foreground=REBATE, font=font(root, "heading"))
-    style.configure("Data.TLabel", foreground=INK_SECONDARY, font=font(root, "data"))
-    style.configure("Help.TLabel", foreground=INK_SECONDARY, font=font(root, "help"))
-    style.configure("Error.TLabel", foreground=CHINAGRAPH, font=font(root, "help"))
+
+def stylesheet() -> str:
+    """One sheet for the whole app.
+
+    Deliberately no rounded corners and no shadows anywhere, even though Qt
+    makes both trivial. The direction is a light table and film rebate, and
+    both are hard-edged. A toolkit removing a constraint is not a reason to
+    spend it.
+    """
+    body = body_family()
+    data = data_family()
+    return f"""
+    QWidget {{
+        background: {TABLE};
+        color: {INK};
+        font-family: "{body}";
+        font-size: 13px;
+    }}
+
+    #Rail {{
+        background: {PANEL};
+        border-right: 1px solid {EDGE};
+    }}
+    /* Layout containers carry no colour of their own; without this they
+       inherit the global QWidget white and punch holes in the rail. */
+    #Rail QWidget {{ background: transparent; }}
+    #Rail QLineEdit, #Rail QComboBox {{ background: {WELL}; }}
+    #Rail QPushButton {{ background: {WELL}; }}
+    #Rail QPushButton#Primary {{ background: {CHINAGRAPH}; }}
+    #Rail QPushButton#Link {{ background: transparent; }}
+    #Table {{ background: {TABLE}; }}
+
+    QLabel {{ background: transparent; }}
+    QLabel#Section {{
+        color: {INK_DIM};
+        font-family: "{body}";
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 1.1px;
+    }}
+    QLabel#Help {{ color: {INK_DIM}; font-size: 12px; }}
+    QLabel#Data {{ color: {INK_DIM}; font-family: "{data}"; font-size: 11px; }}
+    QLabel#Error {{ color: {CHINAGRAPH}; font-size: 12px; }}
+
+    QLineEdit {{
+        background: {WELL};
+        border: 1px solid {EDGE};
+        padding: 7px 9px;
+        font-family: "{data}";
+        font-size: 12px;
+        selection-background-color: {CHINAGRAPH};
+        selection-color: {WELL};
+    }}
+    QLineEdit:focus {{ border: 1px solid {INK}; }}
+    QLineEdit:disabled {{ background: {PANEL}; color: {INK_DIM}; }}
+
+    QPushButton {{
+        background: {WELL};
+        border: 1px solid {EDGE};
+        padding: 7px 14px;
+        color: {INK};
+    }}
+    QPushButton:hover {{ background: {PANEL}; }}
+    QPushButton:pressed {{ background: {EDGE}; }}
+    QPushButton:disabled {{ background: {PANEL}; color: #9AA2A9; border-color: {EDGE}; }}
+
+    QPushButton#Primary {{
+        background: {CHINAGRAPH};
+        border: 1px solid {CHINAGRAPH};
+        color: #FFFFFF;
+        padding: 10px 16px;
+        font-size: 14px;
+    }}
+    QPushButton#Primary:hover {{
+        background: {CHINAGRAPH_HOVER};
+        border-color: {CHINAGRAPH_HOVER};
+    }}
+    QPushButton#Primary:pressed {{
+        background: {CHINAGRAPH_DOWN};
+        border-color: {CHINAGRAPH_DOWN};
+    }}
+    QPushButton#Primary:disabled {{
+        background: {EDGE};
+        border-color: {EDGE};
+        color: #FFFFFF;
+    }}
+
+    /* Free and reversible, so it must not read as a peer of the action
+       that writes to disk. */
+    QPushButton#Link {{
+        background: transparent;
+        border: none;
+        color: {INK_DIM};
+        padding: 6px 0;
+        text-align: left;
+    }}
+    QPushButton#Link:hover {{ color: {INK}; text-decoration: underline; }}
+
+    /* The element that gave the old build away: ttk welded a bevelled
+       arrow button onto a bordered box. Here the field is flat and the
+       arrow is drawn by us, small and quiet. */
+    QComboBox {{
+        background: {WELL};
+        border: 1px solid {EDGE};
+        padding: 7px 9px;
+        color: {INK};
+    }}
+    QComboBox:focus {{ border: 1px solid {INK}; }}
+    QComboBox::drop-down {{ border: none; width: 26px; }}
+    QComboBox QAbstractItemView {{
+        background: {WELL};
+        border: 1px solid {EDGE};
+        selection-background-color: {CHINAGRAPH};
+        selection-color: #FFFFFF;
+        outline: none;
+        padding: 2px;
+    }}
+
+    /* The stock indicator is macOS system blue -- which was the original
+       audit's complaint that the only saturated pixels in the app belonged
+       to the least important controls. The selected state is chinagraph,
+       like every other "this one" mark here. */
+    QRadioButton {{ background: transparent; spacing: 8px; }}
+    QRadioButton::indicator {{
+        width: 13px;
+        height: 13px;
+        border: 1px solid #B9C1C8;
+        border-radius: 7px;
+        background: {WELL};
+    }}
+    QRadioButton::indicator:hover {{ border-color: {INK_DIM}; }}
+    /* A thin border keeps the radius; a thick one squares the corners off,
+       because Qt draws the radius on the outer edge only. */
+    QRadioButton::indicator:checked {{
+        border: 1px solid {CHINAGRAPH};
+        background: {CHINAGRAPH};
+    }}
+
+    QProgressBar {{
+        background: {EDGE};
+        border: none;
+        height: 3px;
+        text-align: center;
+    }}
+    QProgressBar::chunk {{ background: {CHINAGRAPH}; }}
+
+    QTabWidget::pane {{ border: none; background: {TABLE}; }}
+    QTabBar {{ background: {REBATE}; qproperty-drawBase: 0; }}
+    QTabBar::tab:first {{ margin-left: {L}px; }}
+    QTabBar::tab {{
+        background: transparent;
+        color: #7E868D;
+        padding: 9px 18px;
+        margin-right: 2px;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.8px;
+    }}
+    QTabBar::tab:selected {{ color: #FFFFFF; }}
+    QTabBar::tab:hover:!selected {{ color: #B9C0C6; }}
+
+    QToolTip {{
+        background: {REBATE};
+        color: {TABLE};
+        border: none;
+        padding: 5px 8px;
+        font-size: 12px;
+    }}
+    """

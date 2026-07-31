@@ -1,770 +1,286 @@
-"""Tests for the Split tab: `PanoramaSplitterGUI`, its worker threads and previews."""
+"""Tests for the Qt Split tab.
 
-import threading
-import tkinter
+Widget visibility is asserted with `isVisibleTo(tab)` rather than
+`isVisible()`: the tab is never shown in a headless run, so `isVisible()` is
+False for everything and would pass whatever the code did.
+"""
+
 from pathlib import Path
-from tkinter import messagebox
 from typing import Any
 
 import pytest
 from PIL import Image
+from PySide6.QtWidgets import QDialog, QMessageBox, QRadioButton
 
-from auto_border_pano import gui, pipeline
-from auto_border_pano.gui import split_tab
-from tests.conftest import StubButton, StubGridded, StubRoot, StubVar, synthetic_panorama
+from auto_border_pano import pipeline
+from auto_border_pano.gui.split_tab import NO_COUNT, UNCOUNTED_ACTION, SplitTab, preview_titles
+from tests.conftest import synthetic_panorama
+
+pytest.importorskip("pytestqt")
 
 
-def test_run_single_survives_non_oserror_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.fixture
+def tab(qtbot: Any) -> SplitTab:
+    widget = SplitTab()
+    qtbot.addWidget(widget)
+    return widget
+
+
+def _panorama(tmp_path: Path, name: str = "pano.jpg") -> Path:
+    source = tmp_path / name
+    synthetic_panorama(600, 200).save(source, "JPEG", quality=95)
+    return source
+
+
+@pytest.mark.parametrize("ratio_name", list(pipeline.RATIOS))
+def test_frame_count_readout_matches_what_the_pipeline_writes(
+    qtbot: Any, tab: SplitTab, tmp_path: Path, ratio_name: str
 ) -> None:
-    """A worker thread must never die silently, even on a non-OSError exception.
+    """The count in the rail is a promise about files on disk. Check it
+    against the real pipeline, for every ratio, not against a stub."""
+    source = _panorama(tmp_path)
+    ratio = pipeline.RATIOS[ratio_name]
+    written = pipeline.process_image(source, tmp_path / f"out-{ratio_name}", ratio)
 
-    PIL.Image.DecompressionBombError subclasses Exception directly, not
-    OSError or ValueError, so a narrow except tuple lets it kill the daemon
-    thread before `_finish` is ever scheduled -- the Process button stays
-    disabled and the status stays "Working..." forever.
-    """
+    tab.ratio_box.setCurrentText(ratio.display)
+    tab.source_row.setText(str(source))
 
+    qtbot.waitUntil(lambda: tab.count_label.text() == f"{len(written)} frames")
+    assert tab.action_btn.text() == f"Cut {len(written)} frames"
+    assert tab.facts_label.text() == "600 × 200 · 3.00:1"  # noqa: RUF001
+    assert tab.detail == f"{ratio_name} · {len(written)} frames"
+    assert tab.subject == "pano.jpg"
+
+
+def test_the_readouts_reset_with_no_file_and_in_folder_mode(
+    qtbot: Any, tab: SplitTab, tmp_path: Path
+) -> None:
+    source = _panorama(tmp_path)
+
+    assert tab.count_label.text() == NO_COUNT
+    assert tab.facts_label.text() == ""
+
+    tab.source_row.setText(str(source))
+    qtbot.waitUntil(lambda: tab.count_label.text() == "5 frames")
+    assert tab.facts_label.text() == "600 × 200 · 3.00:1"  # noqa: RUF001
+
+    tab.folder_radio.setChecked(True)
+    assert tab.count_label.text() == NO_COUNT
+    assert tab.facts_label.text() == ""
+    assert tab.action_btn.text() == UNCOUNTED_ACTION
+
+    tab.single_radio.setChecked(True)
+    qtbot.waitUntil(lambda: tab.count_label.text() == "5 frames")
+
+    tab.source_row.setText("")
+    assert tab.count_label.text() == NO_COUNT
+    assert tab.facts_label.text() == ""
+
+
+def test_the_mode_radios_actually_switch_mode(tab: SplitTab) -> None:
+    """The old build reported the mode with a label describing a control that
+    did not exist. These are real radios."""
+    radios = tab.findChildren(QRadioButton)
+    assert [radio.text() for radio in radios] == ["One frame", "Whole folder"]
+
+    radios[1].setChecked(True)
+    assert tab.folder_radio.isChecked() is True
+    radios[0].setChecked(True)
+    assert tab.folder_radio.isChecked() is False
+
+
+def test_an_unreadable_source_shows_no_count(qtbot: Any, tab: SplitTab, tmp_path: Path) -> None:
+    broken = tmp_path / "broken.jpg"
+    broken.write_bytes(b"not a jpeg")
+    tab.source_row.setText(str(broken))
+    qtbot.waitUntil(lambda: tab.subject == "broken.jpg")
+    assert tab.count_label.text() == NO_COUNT
+    assert tab.action_btn.text() == UNCOUNTED_ACTION
+
+
+def test_a_stale_inspection_never_overwrites_a_newer_one(tab: SplitTab) -> None:
+    """The user can pick a second source before the first header read comes
+    back. The older answer must be dropped entirely."""
+    tab._inspect_token = 2
+
+    tab._apply_facts(2, pipeline.SourceFacts(4000, 1000, "4.00:1", 5), "4:5", "new.jpg")
+    tab._apply_facts(1, pipeline.SourceFacts(100, 100, "1.00:1", 2), "1:1", "old.jpg")
+
+    assert tab.facts_label.text() == "4000 × 1000 · 4.00:1"  # noqa: RUF001
+    assert tab.count_label.text() == "5 frames"
+    assert tab.action_btn.text() == "Cut 5 frames"
+    assert tab.detail == "4:5 · 5 frames"
+
+
+def test_the_band_detail_uses_the_ratio_the_facts_were_computed_for(tab: SplitTab) -> None:
+    """By the time facts arrive the combobox may have moved on. Captioning
+    one ratio's frame count with another ratio's name would be a quiet lie."""
+    tab.ratio_box.setCurrentText(pipeline.RATIOS["1:1"].display)
+    token = tab._inspect_token
+
+    tab._apply_facts(token, pipeline.SourceFacts(600, 200, "3.00:1", 5), "4:5", "pano.jpg")
+
+    assert tab.detail == "4:5 · 5 frames"
+
+
+def test_the_band_signal_fires_when_the_subject_or_detail_changes(
+    qtbot: Any, tab: SplitTab
+) -> None:
+    seen: list[tuple[str, str]] = []
+    tab.band_changed.connect(lambda subject, detail: seen.append((subject, detail)))
+
+    facts = pipeline.SourceFacts(600, 200, "3.00:1", 5)
+    tab._apply_facts(tab._inspect_token, facts, "4:5", "a.jpg")
+
+    assert seen == [("a.jpg", "4:5 · 5 frames")]
+
+
+def test_the_button_label_tracks_the_count(qtbot: Any, tab: SplitTab, tmp_path: Path) -> None:
+    source = _panorama(tmp_path)
+    assert tab.action_btn.text() == UNCOUNTED_ACTION
+
+    tab.source_row.setText(str(source))
+    qtbot.waitUntil(lambda: tab.action_btn.text() == "Cut 5 frames")
+
+    tab.folder_radio.setChecked(True)
+    assert tab.action_btn.text() == UNCOUNTED_ACTION
+
+
+def test_a_single_run_reports_every_frame_in_order_to_the_strip(
+    qtbot: Any, tab: SplitTab, tmp_path: Path
+) -> None:
+    """Progress *is* the strip: each frame appears as it lands on disk."""
+    source = _panorama(tmp_path)
+    seen: list[tuple[int, int]] = []
+    tab.frame_written.connect(lambda done, total, _path: seen.append((done, total)))
+
+    tab.source_row.setText(str(source))
+    tab.dest_row.setText(str(tmp_path / "out"))
+    tab.process_images()
+
+    qtbot.waitUntil(lambda: tab.action_btn.isEnabled())
+    expected = pipeline.inspect_source(source, pipeline.DEFAULT_RATIO).frame_count
+    assert seen == [(n, expected) for n in range(expected)]
+    assert tab.strip.frame_count == expected
+    assert tab.strip.errors == []
+    assert tab.status_label.text() == f"Cut {expected} frames at 4:5 into out"
+    assert tab.error_label.text() == ""
+
+
+def test_a_run_uses_no_modal_for_success_or_failure(
+    qtbot: Any, tab: SplitTab, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every messagebox was deleted once already. This is the guard that
+    stops one coming back unnoticed."""
+    built: list[str] = []
+    for cls in (QMessageBox, QDialog):
+        original = cls.__init__
+
+        def spy(
+            self: Any, *args: Any, _cls: Any = cls, _orig: Any = original, **kwargs: Any
+        ) -> None:
+            built.append(_cls.__name__)
+            _orig(self, *args, **kwargs)
+
+        monkeypatch.setattr(cls, "__init__", spy)
+
+    source = _panorama(tmp_path)
+    tab.source_row.setText(str(source))
+    tab.dest_row.setText(str(tmp_path / "out"))
+    tab.process_images()
+    qtbot.waitUntil(lambda: tab.action_btn.isEnabled())
+
+    # And a failure the user did not cause.
     def boom(*_args: Any, **_kwargs: Any) -> list[Path]:
         raise Image.DecompressionBombError("synthetic bomb")
 
     monkeypatch.setattr(pipeline, "process_image", boom)
+    tab.process_images()
+    qtbot.waitUntil(lambda: tab.error_label.text() == "synthetic bomb")
 
-    stub_root = StubRoot()
-    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
-    app.root = stub_root  # type: ignore[assignment]
-    finished: list[tuple[str, str | None, int | None, str | None]] = []
-    app._finish = lambda message, prefix, count, error: finished.append(  # type: ignore[method-assign]
-        (message, prefix, count, error)
-    )
-
-    app._run_single(str(tmp_path / "pano.jpg"), str(tmp_path / "out"), pipeline.DEFAULT_RATIO.name)
-
-    assert stub_root.calls, "root.after was never scheduled -- worker died silently"
-    assert finished == [("Could not cut pano.jpg — synthetic bomb", None, None, "synthetic bomb")]
+    assert tab.status_label.text() == "Could not cut pano.jpg — synthetic bomb"
+    assert built == []
 
 
-def test_run_batch_survives_non_oserror_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_the_progress_bar_is_hidden_at_rest_and_shown_during_a_run(
+    qtbot: Any, tab: SplitTab, tmp_path: Path
 ) -> None:
-    """process_folder itself already swallows per-file exceptions (see
-    test_process_folder_continues_after_a_bad_file in test_pipeline.py), so
-    to exercise _run_batch's own except clause we need process_folder to
-    raise directly -- e.g. a failure outside the per-file loop.
-    """
-    source_dir = tmp_path / "in"
-    source_dir.mkdir()
-    synthetic_panorama(600, 200).save(source_dir / "a.jpg", "JPEG", quality=95)
+    """At rest the bar was a dead grey slab saying nothing."""
+    assert tab.progress_bar.isVisibleTo(tab) is False
 
-    def boom(*_args: Any, **_kwargs: Any) -> pipeline.BatchResult:
-        raise Image.DecompressionBombError("synthetic bomb")
+    source = _panorama(tmp_path)
+    tab.source_row.setText(str(source))
+    tab.dest_row.setText(str(tmp_path / "out"))
+    tab.process_images()
+    assert tab.progress_bar.isVisibleTo(tab) is True
 
-    monkeypatch.setattr(pipeline, "process_folder", boom)
-
-    stub_root = StubRoot()
-    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
-    app.root = stub_root  # type: ignore[assignment]
-    finished: list[tuple[str, str | None, int | None, str | None]] = []
-    app._finish = lambda message, prefix, count, error: finished.append(  # type: ignore[method-assign]
-        (message, prefix, count, error)
-    )
-
-    app._run_batch(str(source_dir), str(tmp_path / "out"), pipeline.DEFAULT_RATIO.name)
-
-    assert stub_root.calls, "root.after was never scheduled -- worker died silently"
-    assert finished == [("Could not cut in — synthetic bomb", None, None, "synthetic bomb")]
+    qtbot.waitUntil(lambda: tab.action_btn.isEnabled())
+    assert tab.progress_bar.isVisibleTo(tab) is False
 
 
-def test_finish_reenables_button_even_if_update_preview_raises() -> None:
-    """A surprise exception from update_preview must not wedge the GUI.
+def test_process_images_reports_a_missing_input_inline(tab: SplitTab, tmp_path: Path) -> None:
+    tab.source_row.setText(str(tmp_path / "gone.jpg"))
+    tab.dest_row.setText(str(tmp_path / "out"))
 
-    update_preview's own except Exception only covers the image-decode step;
-    ContactStrip.set_frames and the strict zip sit outside any try. If either
-    raises, the Process button must still come back to "normal" via a
-    finally, not be left disabled forever.
-    """
+    tab.process_images()
 
-    class _StubButton:
-        def __init__(self) -> None:
-            self.last_state: str | None = None
-
-        def config(self, state: str) -> None:
-            self.last_state = state
-
-    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
-    app.progress = StubVar()  # type: ignore[assignment]
-    app.status = StubVar()  # type: ignore[assignment]
-    app.error = StubVar("")  # type: ignore[assignment]
-    app.process_btn = _StubButton()  # type: ignore[assignment]
-    app.progress_bar = StubGridded()  # type: ignore[assignment]
-
-    def boom(*_args: Any, **_kwargs: Any) -> None:
-        raise RuntimeError("synthetic preview failure")
-
-    app.update_preview = boom  # type: ignore[method-assign]
-
-    with pytest.raises(RuntimeError, match="synthetic preview failure"):
-        app._finish("Complete", "prefix", 3, None)
-
-    assert app.process_btn.last_state == "normal", "Process button was left disabled"  # type: ignore[attr-defined]
+    assert tab.error_label.text() == "That file is not there any more. Choose another source."
+    assert tab.progress_bar.isVisibleTo(tab) is False
 
 
-def test_process_images_threads_the_selected_ratio_not_the_default(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_process_images_rejects_an_empty_destination(tab: SplitTab, tmp_path: Path) -> None:
+    tab.source_row.setText(str(_panorama(tmp_path)))
+    tab.dest_row.setText("")
+
+    tab.process_images()
+
+    assert tab.error_label.text() == "Choose where the frames should go."
+
+
+def test_a_batch_run_names_every_source_and_counts_the_frames(
+    qtbot: Any, tab: SplitTab, tmp_path: Path
 ) -> None:
-    """process_images is the only code that reads self.ratio.get() and hands it
-    to the worker thread. If the combobox were bound to the wrong StringVar, or
-    process_images passed the default instead of the selection, every other
-    test would still pass while the GUI silently ignored the user's choice.
-    """
-    source = tmp_path / "pano.jpg"
-    synthetic_panorama(600, 200).save(source, "JPEG", quality=95)
-    non_default_ratio = "1.91:1"
-    non_default_label = pipeline.RATIOS[non_default_ratio].display
-    assert non_default_ratio != pipeline.DEFAULT_RATIO.name
+    folder = tmp_path / "in"
+    folder.mkdir()
+    _panorama(folder, "a.jpg")
+    _panorama(folder, "b.jpg")
 
-    captured: dict[str, Any] = {}
+    tab.folder_radio.setChecked(True)
+    tab.source_row.setText(str(folder))
+    tab.dest_row.setText(str(tmp_path / "out"))
+    tab.process_images()
 
-    class _StubThread:
-        def __init__(self, target: Any, args: tuple[Any, ...], daemon: bool) -> None:
-            captured["target"] = target
-            captured["args"] = args
-            captured["daemon"] = daemon
-
-        def start(self) -> None:
-            captured["started"] = True
-
-    monkeypatch.setattr(threading, "Thread", _StubThread)
-
-    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
-    app.input_path = StubVar(str(source))  # type: ignore[assignment]
-    app.output_path = StubVar(str(tmp_path / "out"))  # type: ignore[assignment]
-    app.is_folder_mode = StubVar(False)  # type: ignore[assignment]
-    app.progress = StubVar()  # type: ignore[assignment]
-    app.status = StubVar()  # type: ignore[assignment]
-    app.error = StubVar("")  # type: ignore[assignment]
-    app.ratio = StubVar(non_default_label)  # type: ignore[assignment]
-    app.process_btn = StubButton()  # type: ignore[assignment]
-    app.progress_bar = StubGridded()  # type: ignore[assignment]
-
-    app.process_images()
-
-    assert captured.get("started") is True
-    assert captured["args"] == (str(source), str(tmp_path / "out"), non_default_ratio)
-    assert captured["target"] == app._run_single
+    qtbot.waitUntil(lambda: tab.action_btn.isEnabled())
+    assert tab.status_label.text() == "Cut 2 sources at 4:5. 10 frames written."
+    assert tab.error_label.text() == ""
 
 
-def test_process_images_falls_back_to_default_ratio_for_an_unrecognised_label(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The label-to-ratio lookup in process_images must be total. The readonly
-    combobox can never produce a value outside pipeline.RATIOS today, but a
-    future caller setting self.ratio programmatically (a saved preference, a
-    test, a CLI-to-GUI handoff) must degrade to the documented default
-    instead of raising StopIteration/KeyError.
-    """
-    source = tmp_path / "pano.jpg"
-    synthetic_panorama(600, 200).save(source, "JPEG", quality=95)
-
-    captured: dict[str, Any] = {}
-
-    class _StubThread:
-        def __init__(self, target: Any, args: tuple[Any, ...], daemon: bool) -> None:
-            captured["target"] = target
-            captured["args"] = args
-            captured["daemon"] = daemon
-
-        def start(self) -> None:
-            captured["started"] = True
-
-    monkeypatch.setattr(threading, "Thread", _StubThread)
-
-    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
-    app.input_path = StubVar(str(source))  # type: ignore[assignment]
-    app.output_path = StubVar(str(tmp_path / "out"))  # type: ignore[assignment]
-    app.is_folder_mode = StubVar(False)  # type: ignore[assignment]
-    app.progress = StubVar()  # type: ignore[assignment]
-    app.status = StubVar()  # type: ignore[assignment]
-    app.error = StubVar("")  # type: ignore[assignment]
-    app.ratio = StubVar("Not A Real Label (9:9)")  # type: ignore[assignment]
-    app.process_btn = StubButton()  # type: ignore[assignment]
-    app.progress_bar = StubGridded()  # type: ignore[assignment]
-
-    app.process_images()
-
-    assert captured.get("started") is True
-    assert captured["args"] == (
-        str(source),
-        str(tmp_path / "out"),
-        pipeline.DEFAULT_RATIO.name,
-    )
-    assert captured["target"] == app._run_single
-
-
-def test_process_images_rejects_empty_output(tmp_path: Path) -> None:
-    """The old empty-output error was a modal titled "Error". It is now an
-    inline label, so assert on the label's variable, not on messagebox.
-    """
-    source = tmp_path / "pano.jpg"
-    synthetic_panorama(600, 200).save(source, "JPEG", quality=95)
-
-    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
-    app.input_path = StubVar(str(source))  # type: ignore[assignment]
-    app.output_path = StubVar("")  # type: ignore[assignment]
-    app.error = StubVar("")  # type: ignore[assignment]
-
-    app.process_images()
-
-    assert app.error.value == "Choose where the frames should go."  # type: ignore[attr-defined]
-
-
-def test_process_images_reports_a_missing_input_in_the_inline_error_label(
-    tmp_path: Path,
-) -> None:
-    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
-    app.input_path = StubVar(str(tmp_path / "gone.jpg"))  # type: ignore[assignment]
-    app.output_path = StubVar(str(tmp_path / "out"))  # type: ignore[assignment]
-    app.error = StubVar("stale message from the last run")  # type: ignore[assignment]
-
-    app.process_images()
-
-    expected = "That file is not there any more. Choose another source."
-    assert app.error.value == expected  # type: ignore[attr-defined]
-
-
-def test_process_images_uses_no_error_modal(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Input validation must never open a dialog: the message belongs next to
-    the control the user has to fix.
-    """
-    dialogs: list[tuple[str, str]] = []
-    monkeypatch.setattr(messagebox, "showerror", lambda title, msg: dialogs.append((title, msg)))
-
-    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
-    app.input_path = StubVar(str(tmp_path / "gone.jpg"))  # type: ignore[assignment]
-    app.output_path = StubVar("")  # type: ignore[assignment]
-    app.error = StubVar("")  # type: ignore[assignment]
-
-    app.process_images()
-
-    assert dialogs == []
-
-
-def test_finish_message_counts_every_frame_and_names_the_output(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The sentence counts all frames written, including the whole-panorama
-    frame, so it agrees with the "Cut frames" button. `update_preview` still
-    gets the detail count.
-    """
-    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
-    stub_root = StubRoot()
-    app.root = stub_root  # type: ignore[assignment]
-
-    written = [Path("/tmp/out_1_padded.jpg"), Path("/tmp/out_2_section1.jpg")]
-    monkeypatch.setattr(pipeline, "process_image", lambda *a, **k: written)
-    finished: list[tuple[str, str | None, int | None, str | None]] = []
-    app._finish = lambda message, prefix, count, error: finished.append(  # type: ignore[method-assign]
-        (message, prefix, count, error)
-    )
-
-    app._run_single("src.jpg", "out", "1.91:1")
-
-    assert finished == [("Cut 2 frames at 1.91:1 into out", "out", 1, None)]
-
-
-def test_finish_shows_no_success_modal(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The success modal covered the previews it was announcing. It is gone,
-    and this test exists so it cannot come back unnoticed.
-    """
-    modals: list[tuple[str, str]] = []
-    monkeypatch.setattr(messagebox, "showinfo", lambda title, msg: modals.append((title, msg)))
-
-    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
-    app.progress = StubVar()  # type: ignore[assignment]
-    app.status = StubVar()  # type: ignore[assignment]
-    app.error = StubVar("")  # type: ignore[assignment]
-    app.process_btn = StubButton()  # type: ignore[assignment]
-    app.progress_bar = StubGridded()  # type: ignore[assignment]
-    app.update_preview = lambda *a, **k: None  # type: ignore[method-assign]
-
-    app._finish("Cut 2 frames at 4:5 into out", "out", 1, None)
-
-    assert modals == []
-    assert app.status.value == "Cut 2 frames at 4:5 into out"  # type: ignore[attr-defined]
-
-
-def test_finish_reports_a_processing_failure_inline_and_never_in_a_dialog(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A failure the user did not cause must not be silent -- but it must not
-    be a modal either. The status line already carries the sentence, so a
-    dialog on top of it is the same message twice with a click attached."""
-    dialogs: list[tuple[str, str]] = []
-    monkeypatch.setattr(messagebox, "showerror", lambda title, msg: dialogs.append((title, msg)))
-
-    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
-    app.progress = StubVar()  # type: ignore[assignment]
-    app.status = StubVar()  # type: ignore[assignment]
-    app.error = StubVar("")  # type: ignore[assignment]
-    app.process_btn = StubButton()  # type: ignore[assignment]
-    app.progress_bar = StubGridded()  # type: ignore[assignment]
-
-    app._finish("Could not cut pano.jpg — broken", None, None, "broken")
-
-    assert dialogs == []
-    assert app.status.value == "Could not cut pano.jpg — broken"  # type: ignore[attr-defined]
-    assert app.error.value == "broken"  # type: ignore[attr-defined]
-
-
-def test_finish_batch_reports_sources_and_frames(monkeypatch: pytest.MonkeyPatch) -> None:
-    modals: list[tuple[str, str]] = []
-    monkeypatch.setattr(messagebox, "showinfo", lambda title, msg: modals.append((title, msg)))
-
-    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
-    app.progress = StubVar()  # type: ignore[assignment]
-    app.status = StubVar()  # type: ignore[assignment]
-    app.error = StubVar("")  # type: ignore[assignment]
-    app.process_btn = StubButton()  # type: ignore[assignment]
-    app.progress_bar = StubGridded()  # type: ignore[assignment]
-    app.update_preview = lambda *a, **k: None  # type: ignore[method-assign]
-
-    result = pipeline.BatchResult(
-        written=[Path("/tmp/a_1_padded.jpg"), Path("/tmp/a_2_section1.jpg")],
-        last_prefix=Path("/tmp/a"),
-        last_count=1,
-        succeeded_count=1,
-    )
-
-    app._finish_batch(result, "1.91:1")
-
-    assert app.status.value == "Cut 1 sources at 1.91:1. 2 frames written."  # type: ignore[attr-defined]
-    assert modals == []
-
-
-def test_finish_batch_names_every_failed_file_and_keeps_the_reason(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The old partial-failure warning modal is gone; the status names the
-    files and the inline error label keeps the reasons.
-    """
-    warnings: list[tuple[str, str]] = []
-    monkeypatch.setattr(messagebox, "showwarning", lambda title, msg: warnings.append((title, msg)))
-
-    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
-    app.progress = StubVar()  # type: ignore[assignment]
-    app.status = StubVar()  # type: ignore[assignment]
-    app.error = StubVar("")  # type: ignore[assignment]
-    app.process_btn = StubButton()  # type: ignore[assignment]
-    app.progress_bar = StubGridded()  # type: ignore[assignment]
-    app.update_preview = lambda *a, **k: None  # type: ignore[method-assign]
-
+def test_a_batch_never_claims_success_when_a_source_failed(tab: SplitTab) -> None:
     result = pipeline.BatchResult(
         written=[Path("/tmp/a_1_padded.jpg")],
         failed=[(Path("/tmp/b.jpg"), "portrait input")],
-        last_prefix=Path("/tmp/a"),
-        last_count=1,
+        last_prefix=None,
+        last_count=None,
         succeeded_count=1,
     )
 
-    app._finish_batch(result, "1.91:1")
+    tab._finish_batch(result, "1.91:1")
 
-    assert app.status.value == "Cut 1 of 2 sources. b.jpg could not be read."  # type: ignore[attr-defined]
-    assert app.error.value == "b.jpg: portrait input"  # type: ignore[attr-defined]
-    assert warnings == []
+    assert tab.status_label.text() == "Cut 1 of 2 sources. b.jpg could not be read."
+    assert tab.error_label.text() == "b.jpg: portrait input"
 
 
-def test_finish_batch_reports_an_empty_folder_in_the_status_line(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A JPEG-free folder gives succeeded_count=0, failed=[], total_count=0.
-    That used to be an informational modal; the status line carries it now,
-    and it must still not read as success.
-    """
-    modals: list[tuple[str, str]] = []
-    monkeypatch.setattr(messagebox, "showinfo", lambda title, msg: modals.append((title, msg)))
-
-    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
-    app.progress = StubVar()  # type: ignore[assignment]
-    app.status = StubVar()  # type: ignore[assignment]
-    app.error = StubVar("")  # type: ignore[assignment]
-    app.process_btn = StubButton()  # type: ignore[assignment]
-    app.progress_bar = StubGridded()  # type: ignore[assignment]
-
-    result = pipeline.BatchResult()
-    assert result.total_count == 0
-
-    app._finish_batch(result, pipeline.DEFAULT_RATIO.name)
+def test_an_empty_folder_says_so(tab: SplitTab) -> None:
+    tab._finish_batch(pipeline.BatchResult(), pipeline.DEFAULT_RATIO.name)
 
     expected = "No JPGs in that folder. Auto Border Pano reads .jpg and .jpeg."
-    assert app.status.value == expected  # type: ignore[attr-defined]
-    assert modals == []
-    assert app.process_btn.last_state == "normal"  # type: ignore[attr-defined]
-
-
-def test_set_progress_names_the_source(monkeypatch: pytest.MonkeyPatch) -> None:
-    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
-    app.progress = StubVar()  # type: ignore[assignment]
-    app.status = StubVar()  # type: ignore[assignment]
-
-    app._set_progress(0, 3, "horizons3-hp5-4.jpg")
-
-    assert app.status.value == "Source 1 of 3 · horizons3-hp5-4.jpg"  # type: ignore[attr-defined]
-
-
-def test_apply_facts_fills_the_readouts_and_the_button_label() -> None:
-    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
-    app._inspect_token = 7
-    app.facts = StubVar("")  # type: ignore[assignment]
-    app.frame_count = StubVar("")  # type: ignore[assignment]
-    app.action = StubVar("")  # type: ignore[assignment]
-    app.detail = StubVar("")  # type: ignore[assignment]
-
-    app._apply_facts(7, pipeline.SourceFacts(19921, 6607, "3.01:1", 4))
-
-    assert app.facts.value == "19921 × 6607 · 3.01:1"  # type: ignore[attr-defined]  # noqa: RUF001
-    assert app.frame_count.value == "4 frames"  # type: ignore[attr-defined]
-    assert app.action.value == "Cut 4 frames"  # type: ignore[attr-defined]
-
-
-def test_apply_facts_ignores_a_stale_inspection() -> None:
-    """The user can pick a second source before the first header read comes
-    back. The older answer must not overwrite the newer one -- that would leave
-    the rail describing a file that is no longer loaded.
-    """
-    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
-    app._inspect_token = 2
-    app.facts = StubVar("")  # type: ignore[assignment]
-    app.frame_count = StubVar("")  # type: ignore[assignment]
-    app.action = StubVar("")  # type: ignore[assignment]
-    app.detail = StubVar("")  # type: ignore[assignment]
-
-    # The newer request (token 2) lands first.
-    app._apply_facts(2, pipeline.SourceFacts(4000, 1000, "4.00:1", 5))
-    # The older one (token 1) arrives late and must be dropped entirely.
-    app._apply_facts(1, pipeline.SourceFacts(100, 100, "1.00:1", 2))
-
-    assert app.facts.value == "4000 × 1000 · 4.00:1"  # type: ignore[attr-defined]  # noqa: RUF001
-    assert app.frame_count.value == "5 frames"  # type: ignore[attr-defined]
-    assert app.action.value == "Cut 5 frames"  # type: ignore[attr-defined]
-
-
-def test_apply_facts_resets_the_readouts_when_the_file_cannot_be_read() -> None:
-    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
-    app._inspect_token = 1
-    app.facts = StubVar("19921 × 6607 · 3.01:1")  # type: ignore[assignment]  # noqa: RUF001
-    app.frame_count = StubVar("4 frames")  # type: ignore[assignment]
-    app.action = StubVar("Cut 4 frames")  # type: ignore[assignment]
-    app.detail = StubVar("")  # type: ignore[assignment]
-
-    app._apply_facts(1, None)
-
-    assert app.facts.value == ""  # type: ignore[attr-defined]
-    assert app.frame_count.value == split_tab.NO_COUNT  # type: ignore[attr-defined]
-    assert app.action.value == split_tab.UNCOUNTED_ACTION  # type: ignore[attr-defined]
-
-
-def test_inspect_never_touches_a_tk_object_and_returns_through_after(tmp_path: Path) -> None:
-    """The worker reads the header; every var it feeds is set on the main
-    thread, via root.after, by _apply_facts.
-    """
-    source = tmp_path / "pano.jpg"
-    synthetic_panorama(600, 200).save(source, "JPEG", quality=95)
-
-    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
-    stub_root = StubRoot()
-    app.root = stub_root  # type: ignore[assignment]
-    app._inspect_token = 3
-    app.facts = StubVar("")  # type: ignore[assignment]
-    app.frame_count = StubVar("")  # type: ignore[assignment]
-    app.action = StubVar("")  # type: ignore[assignment]
-    app.detail = StubVar("")  # type: ignore[assignment]
-
-    app._inspect(3, str(source), pipeline.DEFAULT_RATIO.name)
-
-    assert stub_root.calls, "root.after was never scheduled -- worker died silently"
-    assert app.facts.value == "600 × 200 · 3.00:1"  # type: ignore[attr-defined]  # noqa: RUF001
-
-
-def test_inspect_reports_an_unreadable_source_as_no_count(tmp_path: Path) -> None:
-    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
-    stub_root = StubRoot()
-    app.root = stub_root  # type: ignore[assignment]
-    app._inspect_token = 1
-    app.facts = StubVar("stale")  # type: ignore[assignment]
-    app.frame_count = StubVar("9 frames")  # type: ignore[assignment]
-    app.action = StubVar("Cut 9 frames")  # type: ignore[assignment]
-    app.detail = StubVar("stale")  # type: ignore[assignment]
-
-    app._inspect(1, str(tmp_path / "gone.jpg"), pipeline.DEFAULT_RATIO.name)
-
-    assert app.frame_count.value == split_tab.NO_COUNT  # type: ignore[attr-defined]
-    assert app.action.value == split_tab.UNCOUNTED_ACTION  # type: ignore[attr-defined]
-
-
-@pytest.mark.parametrize("ratio_name", list(pipeline.RATIOS))
-def test_frame_count_readout_matches_what_the_pipeline_actually_writes(
-    tmp_path: Path, ratio_name: str
-) -> None:
-    """The count in the rail is a promise about files on disk. Check it against
-    the real thing, for every ratio, rather than against a stub.
-    """
-    source = tmp_path / "pano.jpg"
-    synthetic_panorama(600, 200).save(source, "JPEG", quality=95)
-    ratio = pipeline.RATIOS[ratio_name]
-    written = pipeline.process_image(source, tmp_path / f"out-{ratio_name}", ratio)
-
-    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
-    stub_root = StubRoot()
-    app.root = stub_root  # type: ignore[assignment]
-    app._inspect_token = 1
-    app.facts = StubVar("")  # type: ignore[assignment]
-    app.frame_count = StubVar("")  # type: ignore[assignment]
-    app.action = StubVar("")  # type: ignore[assignment]
-    app.detail = StubVar("")  # type: ignore[assignment]
-
-    app._inspect(1, str(source), ratio_name)
-
-    assert app.frame_count.value == f"{len(written)} frames"  # type: ignore[attr-defined]
-    assert app.action.value == f"Cut {len(written)} frames"  # type: ignore[attr-defined]
-
-
-def test_the_readouts_reset_with_no_file_and_in_folder_mode(
-    tk_root: tkinter.Tk, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """No file, or a folder, means no frame count -- never a stale or guessed
-    one. Built under real Tk because the traces on the path and the mode are
-    what drive this.
-
-    The inspection thread runs inline here: `root.after` is only legal from a
-    worker while `mainloop` is running, and there is no mainloop in a test.
-    """
-    from tkinter import ttk
-
-    class _InlineThread:
-        def __init__(self, target: Any, args: tuple[Any, ...], daemon: bool) -> None:
-            self._target = target
-            self._args = args
-
-        def start(self) -> None:
-            self._target(*self._args)
-
-    monkeypatch.setattr(threading, "Thread", _InlineThread)
-
-    source = tmp_path / "pano.jpg"
-    synthetic_panorama(600, 200).save(source, "JPEG", quality=95)
-
-    app = gui.PanoramaSplitterGUI(ttk.Frame(tk_root))
-
-    assert app.frame_count.get() == split_tab.NO_COUNT
-    assert app.facts.get() == ""
-
-    app.input_path.set(str(source))
-    tk_root.update()
-    assert app.frame_count.get() == "5 frames"
-    assert app.facts.get() == "600 × 200 · 3.00:1"  # noqa: RUF001
-
-    app.is_folder_mode.set(True)
-    tk_root.update()
-    assert app.frame_count.get() == split_tab.NO_COUNT
-    assert app.facts.get() == ""
-
-    app.is_folder_mode.set(False)
-    tk_root.update()
-    assert app.frame_count.get() == "5 frames"
-
-    app.input_path.set("")
-    tk_root.update()
-    assert app.frame_count.get() == split_tab.NO_COUNT
-    assert app.facts.get() == ""
-
-
-def test_the_mode_radios_actually_switch_mode(tk_root: tkinter.Tk) -> None:
-    """The old `Mode:` label reported a control that did not exist. These are
-    real radios: invoking one must flip the variable, not just describe it.
-    """
-    from tkinter import ttk
-
-    app = gui.PanoramaSplitterGUI(ttk.Frame(tk_root))
-    assert not hasattr(app, "mode_label")
-
-    radios = [widget for widget in _descendants(app.root) if isinstance(widget, ttk.Radiobutton)]
-    assert [radio.cget("text") for radio in radios] == ["One frame", "Whole folder"]
-
-    radios[1].invoke()
-    assert app.is_folder_mode.get() is True
-    radios[0].invoke()
-    assert app.is_folder_mode.get() is False
-
-
-def _descendants(widget: Any) -> list[Any]:
-    found = []
-    for child in widget.winfo_children():
-        found.append(child)
-        found.extend(_descendants(child))
-    return found
-
-
-def test_split_tab_builds_under_a_notebook_page_with_working_previews(
-    tk_root: tkinter.Tk, tmp_path: Path
-) -> None:
-    """Every splitter test above builds `PanoramaSplitterGUI` via `__new__`,
-    which never runs `_build_ui` -- so a broken constructor, such as one
-    that assumes `self.root` is the Tk root rather than a notebook page,
-    would stay green forever. Build a real instance under a `ttk.Frame`
-    (as `gui.app.run` does, nesting it inside a notebook) on a withdrawn
-    root, and exercise `update_preview` against real preview panes.
-    """
-    from tkinter import ttk
-
-    from auto_border_pano import gui, pipeline
-
-    source = tmp_path / "pano.jpg"
-    synthetic_panorama(600, 200).save(source, "JPEG", quality=95)
-    written = pipeline.process_image(source, tmp_path / "out", pipeline.DEFAULT_RATIO)
-    count = len(written) - 1
-
-    page = ttk.Frame(tk_root)
-    app = gui.PanoramaSplitterGUI(page)
-
-    assert app.ratio.get() == pipeline.DEFAULT_RATIO.display
-    # The strip shows an unexposed frame from construction. It never shows
-    # an empty box: that absence was the loudest complaint in the audit.
-    assert app.previews.frame_count > 0
-    assert app.previews.errors == []
-
-    app.update_preview(str(tmp_path / "out"), count)
-
-    assert app.previews.frame_count == count + 1
-    assert app.previews.errors == [], "every written frame should have decoded"
-
-
-def test_a_single_run_reports_every_frame_as_it_lands(
-    tk_root: tkinter.Tk, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Progress *is* the preview.
-
-    `_run_single` used to report nothing at all, so on the most common
-    workflow the bar went 0 to 100 with no intermediate state. It now hands
-    every frame to the strip as the frame lands on disk. This is the wiring
-    between `pipeline.process_image`'s callback and `ContactStrip`, so it
-    exercises both ends rather than a stub of either.
-    """
-    from tkinter import ttk
-
-    source = tmp_path / "pano.jpg"
-    synthetic_panorama(600, 200).save(source, "JPEG", quality=95)
-
-    page = ttk.Frame(tk_root)
-    app = gui.PanoramaSplitterGUI(page)
-
-    # `root.after` needs a running mainloop, which pytest has not got; run
-    # the callback inline instead, exactly as StubRoot does elsewhere here.
-    monkeypatch.setattr(
-        app.root, "after", lambda _delay, callback, *args: callback(*args), raising=False
-    )
-
-    seen: list[str] = []
-    original = app._set_frame_progress
-
-    def spy(done: int, total: int, path: Path) -> None:
-        seen.append(f"{done + 1}/{total}")
-        original(done, total, path)
-
-    app._set_frame_progress = spy  # type: ignore[method-assign]
-
-    app._run_single(str(source), str(tmp_path / "out"), pipeline.DEFAULT_RATIO.name)
-
-    expected_frames = pipeline.inspect_source(source, pipeline.DEFAULT_RATIO).frame_count
-    assert seen == [f"{n}/{expected_frames}" for n in range(1, expected_frames + 1)]
-    assert app.previews.frame_count == expected_frames
-    assert app.previews.errors == []
-
-
-def test_the_band_detail_uses_the_ratio_the_facts_were_computed_for() -> None:
-    """The facts arrive from a worker; by then the combobox may have moved
-    on. Captioning one ratio's frame count with another ratio's name would
-    be a quiet lie, so the ratio travels with the answer."""
-    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
-    app._inspect_token = 1
-    app.facts = StubVar("")  # type: ignore[assignment]
-    app.frame_count = StubVar("")  # type: ignore[assignment]
-    app.action = StubVar("")  # type: ignore[assignment]
-    app.detail = StubVar("")  # type: ignore[assignment]
-    # The user has since moved the combobox to a different ratio.
-    app.ratio = StubVar(pipeline.RATIOS["1:1"].display)  # type: ignore[assignment]
-
-    facts = pipeline.SourceFacts(width=600, height=200, native_ratio="3.00:1", frame_count=5)
-    app._apply_facts(1, facts, "4:5")
-
-    assert app.detail.value == "4:5 · 5 frames"  # type: ignore[attr-defined]
-
-
-def test_the_path_fields_ride_at_their_tail_so_the_filename_shows(
-    tk_root: tkinter.Tk, tmp_path: Path
-) -> None:
-    """A path is longer than the rail, and Tk shows a field from its start,
-    so the app displayed the volume and clipped the filename -- the only
-    part of a path anybody recognises."""
-    from tkinter import ttk
-
-    source = tmp_path / "a-really-quite-long-directory-name" / "coastline-hp5-3.jpg"
-    source.parent.mkdir()
-    synthetic_panorama(600, 200).save(source, "JPEG", quality=95)
-
-    # The page has to be gridded and the root sized, or nothing is laid out
-    # and every widget reports a width of one pixel.
-    tk_root.geometry("1100x760")
-    page = ttk.Frame(tk_root)
-    page.grid(row=0, column=0, sticky="nsew")
-    tk_root.columnconfigure(0, weight=1)
-    tk_root.rowconfigure(0, weight=1)
-    app = gui.PanoramaSplitterGUI(page)
-    tk_root.update()
-    app.input_path.set(str(source))
-    tk_root.update()
-
-    # index("@0") is the index of the first character actually visible.
-    first_visible = app.input_entry.index("@0")
-
-    assert first_visible > 0, "the field is still showing the head of the path"
-    assert str(source).endswith(str(source)[first_visible:])
-
-
-def test_the_progress_bar_only_takes_space_while_a_run_is_in_flight(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The strip is the real progress indicator. At rest the bar was a dead
-    grey slab under the status line, which is what the removed Progress
-    frame used to be."""
-    source = tmp_path / "pano.jpg"
-    synthetic_panorama(600, 200).save(source, "JPEG", quality=95)
-
-    class _StubThread:
-        def __init__(self, target: Any, args: tuple[Any, ...], daemon: bool) -> None:
-            pass
-
-        def start(self) -> None:
-            pass
-
-    monkeypatch.setattr(threading, "Thread", _StubThread)
-
-    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
-    app.input_path = StubVar(str(source))  # type: ignore[assignment]
-    app.output_path = StubVar(str(tmp_path / "out"))  # type: ignore[assignment]
-    app.is_folder_mode = StubVar(False)  # type: ignore[assignment]
-    app.progress = StubVar()  # type: ignore[assignment]
-    app.status = StubVar()  # type: ignore[assignment]
-    app.error = StubVar("")  # type: ignore[assignment]
-    app.ratio = StubVar(pipeline.DEFAULT_RATIO.display)  # type: ignore[assignment]
-    app.process_btn = StubButton()  # type: ignore[assignment]
-    app.progress_bar = StubGridded()  # type: ignore[assignment]
-    app.detail = StubVar("")  # type: ignore[assignment]
-
-    app.process_images()
-    assert app.progress_bar.shown is True  # type: ignore[attr-defined]
-
-    app.update_preview = lambda *_a, **_k: None  # type: ignore[method-assign]
-    app._finish("Cut 5 frames at 4:5 into out", None, None, None)
-    assert app.progress_bar.shown is False  # type: ignore[attr-defined]
+    assert tab.status_label.text() == expected
+    assert tab.action_btn.isEnabled() is True
+
+
+def test_preview_titles_name_the_whole_panorama_first() -> None:
+    assert preview_titles(2) == [
+        "FRAME 1 · WHOLE PANORAMA",
+        "FRAME 2 · DETAIL",
+        "FRAME 3 · DETAIL",
+    ]

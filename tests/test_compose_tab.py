@@ -1,690 +1,478 @@
-"""Tests for the Diptych / Triptych tab: `ComposeTab`, its workers and buttons."""
+"""Tests for the Qt Compose tab.
 
-import threading
-import tkinter
+What these protect is everything the tab earned across the design stages and
+which nothing in the toolkit enforces on its own:
+
+* the rail carries the same sections, in the same order, as the Split tab;
+* the interface makes its rules unbreakable rather than reporting them, so
+  there is not a modal anywhere in the module;
+* the arrangement shown is always one the solver returned, never a guess or
+  a stale answer.
+
+Headless: `QT_QPA_PLATFORM=offscreen`. `work.submit` runs jobs on a
+`QThreadPool`, so anything that waits on a result uses `qtbot.waitUntil`,
+and the token tests call the apply slot directly with hand-built data --
+that is the only way to land two answers in a chosen order.
+"""
+
 from pathlib import Path
-from tkinter import filedialog, ttk
 from typing import Any
 
 import pytest
+from PIL import Image
+from pytestqt.qtbot import QtBot
 
-from auto_border_pano import pipeline
-from auto_border_pano.gui import theme
-from tests.conftest import StubButton, StubVar
+from auto_border_pano import layout, pipeline
+from auto_border_pano.gui import compose_tab
+from auto_border_pano.gui.compose_tab import ComposeTab
 
+FIXTURES = Path(__file__).parent / "fixtures"
+WIDE = str(FIXTURES / "compose_wide.jpg")
+TALL = str(FIXTURES / "compose_tall.jpg")
+SQUARE = str(FIXTURES / "compose_square.jpg")
 
-class _StubLabel:
-    """Records the style a ttk.Label would have been given."""
 
-    def __init__(self) -> None:
-        self.style: str | None = None
+@pytest.fixture
+def tab(qtbot: QtBot) -> ComposeTab:
+    built = ComposeTab()
+    qtbot.addWidget(built)
+    return built
 
-    def configure(self, style: str) -> None:
-        self.style = style
 
+def _settled(qtbot: QtBot, built: ComposeTab) -> None:
+    """Wait for the live solve to land."""
+    qtbot.waitUntil(lambda: built.layout_name != "", timeout=5000)
 
-def test_compose_tab_requires_two_or_three_images() -> None:
-    from auto_border_pano.gui import compose_tab
 
-    tab = compose_tab.ComposeTab.__new__(compose_tab.ComposeTab)
-    tab.images = ["a.jpg"]
-    assert not tab.can_compose()
-    tab.images = ["a.jpg", "b.jpg"]
-    assert tab.can_compose()
-    tab.images = ["a.jpg", "b.jpg", "c.jpg"]
-    assert tab.can_compose()
-    tab.images = ["a.jpg", "b.jpg", "c.jpg", "d.jpg"]
-    assert not tab.can_compose()
+# --- gating: the rules are unbreakable, not reported -------------------------
 
 
-def test_compose_tab_reordering_changes_the_order() -> None:
-    from auto_border_pano.gui import compose_tab
+def test_the_buttons_are_correct_at_construction(tab: ComposeTab) -> None:
+    assert tab.add_btn.isEnabled()
+    assert not tab.save_btn.isEnabled()
+    assert not tab.preview_btn.isEnabled()
+    assert not tab.up_btn.isEnabled()
+    assert not tab.down_btn.isEnabled()
+    assert not tab.remove_btn.isEnabled()
 
-    tab = compose_tab.ComposeTab.__new__(compose_tab.ComposeTab)
-    tab.images = ["a.jpg", "b.jpg", "c.jpg"]
-    tab._selection = 2
-    tab._swap(2, 1)
-    assert tab.images == ["a.jpg", "c.jpg", "b.jpg"]
 
+def test_add_stops_at_three_sources(tab: ComposeTab) -> None:
+    tab._accept([WIDE, TALL])
+    assert tab.add_btn.isEnabled()
 
-def test_compose_worker_reports_the_layout_name(tmp_path: Path) -> None:
-    # The worker runs off the main thread and must hand everything back
-    # through root.after -- the same discipline as the splitter's workers.
-    from auto_border_pano.gui import compose_tab
+    tab._accept([SQUARE])
+    assert not tab.add_btn.isEnabled()
 
-    fixtures = Path(__file__).parent / "fixtures"
-    sources = [str(fixtures / "compose_wide.jpg"), str(fixtures / "compose_square.jpg")]
 
-    calls: list[tuple[Any, ...]] = []
+def test_save_and_preview_need_at_least_two_sources(tab: ComposeTab) -> None:
+    tab._accept([WIDE])
+    assert not tab.save_btn.isEnabled()
+    assert not tab.preview_btn.isEnabled()
 
-    class StubRoot:
-        def after(self, _delay: int, func: Any, *args: Any) -> None:
-            calls.append(args)
-            func(*args)
+    tab._accept([TALL])
+    assert tab.save_btn.isEnabled()
+    assert tab.preview_btn.isEnabled()
 
-    tab = compose_tab.ComposeTab.__new__(compose_tab.ComposeTab)
-    tab.root = StubRoot()  # type: ignore[assignment]
-    tab._finish = lambda *args: calls.append(args)  # type: ignore[method-assign]
 
-    tab._run_compose(sources, str(tmp_path / "out"), "4:5")
+def test_the_reason_save_is_off_is_stated_in_the_status_line(tab: ComposeTab) -> None:
+    assert tab.status == compose_tab.EMPTY_STATE
+    tab._accept([WIDE])
+    assert tab.status == compose_tab.ONE_MORE
 
-    assert calls, "worker never reported back through root.after"
-    message, path, error, layout_name = calls[-1]
-    assert error is None
-    assert path is not None
-    assert layout_name, "worker reported no layout name"
-    assert message == f"Saved out_diptych.jpg — {layout_name}, 4:5"
-    assert (tmp_path / "out_diptych.jpg").exists()
 
+def test_the_reorder_buttons_need_a_selection(tab: ComposeTab) -> None:
+    tab._accept([WIDE, TALL, SQUARE])
+    tab.listbox.select(None)
+    assert not tab.up_btn.isEnabled()
+    assert not tab.down_btn.isEnabled()
+    assert not tab.remove_btn.isEnabled()
 
-def test_compose_worker_reports_failure_without_dying(tmp_path: Path) -> None:
-    from auto_border_pano.gui import compose_tab
 
-    calls: list[tuple[Any, ...]] = []
+def test_up_is_off_at_the_top_and_down_at_the_bottom(tab: ComposeTab) -> None:
+    tab._accept([WIDE, TALL, SQUARE])
 
-    class StubRoot:
-        def after(self, _delay: int, func: Any, *args: Any) -> None:
-            calls.append(args)
-            func(*args)
+    tab.listbox.select(0)
+    assert not tab.up_btn.isEnabled()
+    assert tab.down_btn.isEnabled()
 
-    tab = compose_tab.ComposeTab.__new__(compose_tab.ComposeTab)
-    tab.root = StubRoot()  # type: ignore[assignment]
-    tab._finish = lambda *args: calls.append(args)  # type: ignore[method-assign]
+    tab.listbox.select(2)
+    assert tab.up_btn.isEnabled()
+    assert not tab.down_btn.isEnabled()
 
-    tab._run_compose(["/does/not/exist.jpg", "/nor/this.jpg"], str(tmp_path / "out"), "4:5")
+    tab.listbox.select(1)
+    assert tab.up_btn.isEnabled()
+    assert tab.down_btn.isEnabled()
 
-    assert calls, "worker died silently instead of reporting the error"
-    message, path, error = calls[-1]
-    assert message.startswith("Could not compose — ")
-    assert error is not None, "worker reported success for images that do not exist"
-    assert path is None
 
+def test_save_names_what_it_will_write(tab: ComposeTab) -> None:
+    assert tab.save_btn.text() == "Save composite"
+    tab._accept([WIDE, TALL])
+    assert tab.save_btn.text() == "Save diptych"
+    tab._accept([SQUARE])
+    assert tab.save_btn.text() == "Save triptych"
 
-def test_compose_worker_preview_does_not_write_a_file(tmp_path: Path) -> None:
-    # Preview must reach pipeline.compose_preview with the same discipline
-    # as Save's worker (plain data in, root.after out) but never touch disk.
-    from auto_border_pano.gui import compose_tab
 
-    fixtures = Path(__file__).parent / "fixtures"
-    sources = [str(fixtures / "compose_wide.jpg"), str(fixtures / "compose_square.jpg")]
+def test_the_glyph_buttons_carry_their_only_name_in_a_tooltip(tab: ComposeTab) -> None:
+    assert tab.up_btn.toolTip() == "Move earlier"
+    assert tab.down_btn.toolTip() == "Move later"
+    assert tab.remove_btn.toolTip() == "Remove"
 
-    calls: list[tuple[Any, ...]] = []
 
-    class StubRoot:
-        def after(self, _delay: int, func: Any, *args: Any) -> None:
-            calls.append(args)
-            func(*args)
+# --- adding several files at once --------------------------------------------
 
-    tab = compose_tab.ComposeTab.__new__(compose_tab.ComposeTab)
-    tab.root = StubRoot()  # type: ignore[assignment]
-    tab._finish_preview = lambda *args: calls.append(args)  # type: ignore[method-assign]
 
-    before = set(tmp_path.iterdir())
-    tab._run_preview(sources, "4:5")
+def test_add_takes_several_files_in_one_go(tab: ComposeTab) -> None:
+    tab._accept([WIDE, TALL, SQUARE])
 
-    assert calls, "preview worker never reported back through root.after"
-    message, image, error, layout_name = calls[-1]
-    assert error is None
-    assert image is not None
-    # The status line rests on what the user has configured; the solved
-    # arrangement travels separately, for the stencil under the frame.
-    assert message == f"Diptych, {compose_tab.present_layout(layout_name, 2).lower()}, 4:5"
-    assert layout_name, "expected the solved layout name alongside the image"
-    assert set(tmp_path.iterdir()) == before, "preview must not write any file"
+    assert tab.images == [WIDE, TALL, SQUARE]
+    assert len(tab.listbox.items) == 3
 
 
-def test_compose_worker_preview_reports_failure_without_dying(tmp_path: Path) -> None:
-    from auto_border_pano.gui import compose_tab
+def test_over_the_limit_takes_the_three_that_fit_and_names_the_rest(tab: ComposeTab) -> None:
+    """Refusing the whole selection would be the modal this interface spent a
+    stage removing; dropping them silently would be worse."""
+    tab._accept([WIDE, TALL, SQUARE, WIDE, TALL])
 
-    calls: list[tuple[Any, ...]] = []
+    assert tab.images == [WIDE, TALL, SQUARE]
+    assert "Left out" in tab.hint
+    assert Path(WIDE).name in tab.hint
 
-    class StubRoot:
-        def after(self, _delay: int, func: Any, *args: Any) -> None:
-            calls.append(args)
-            func(*args)
 
-    tab = compose_tab.ComposeTab.__new__(compose_tab.ComposeTab)
-    tab.root = StubRoot()  # type: ignore[assignment]
-    tab._finish_preview = lambda *args: calls.append(args)  # type: ignore[method-assign]
+def test_a_full_list_leaves_a_further_pick_untouched(tab: ComposeTab) -> None:
+    tab._accept([WIDE, TALL, SQUARE])
+    tab._accept([TALL])
 
-    tab._run_preview(["/does/not/exist.jpg", "/nor/this.jpg"], "4:5")
+    assert tab.images == [WIDE, TALL, SQUARE]
+    assert "Left out" in tab.hint
 
-    assert calls, "preview worker died silently instead of reporting the error"
-    message, image, error = calls[-1]
-    assert message.startswith("Could not compose — ")
-    assert error is not None
-    assert image is None
 
+# --- reordering ---------------------------------------------------------------
 
-def test_preview_button_does_not_require_an_output_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
-    from auto_border_pano.gui import compose_tab
 
-    captured: dict[str, Any] = {}
-
-    class _StubThread:
-        def __init__(self, target: Any, args: tuple[Any, ...], daemon: bool) -> None:
-            captured["target"] = target
-            captured["args"] = args
-
-        def start(self) -> None:
-            captured["started"] = True
-
-    monkeypatch.setattr(threading, "Thread", _StubThread)
-
-    tab = compose_tab.ComposeTab.__new__(compose_tab.ComposeTab)
-    tab.images = ["a.jpg", "b.jpg"]
-    tab.output_path = StubVar("")  # type: ignore[assignment]
-    tab.ratio = StubVar(pipeline.DEFAULT_RATIO.display)  # type: ignore[assignment]
-    tab.status = StubVar()  # type: ignore[assignment]
-    tab.preview_btn = StubButton()  # type: ignore[assignment]
-    tab.save_btn = StubButton()  # type: ignore[assignment]
-    tab.hint = StubVar("")  # type: ignore[assignment]
-    tab.hint_label = _StubLabel()  # type: ignore[assignment]
-
-    tab.preview()
-
-    assert captured.get("started") is True
-    assert captured["target"] == tab._run_preview
-    assert captured["args"] == (["a.jpg", "b.jpg"], pipeline.DEFAULT_RATIO.name)
-
-
-def test_save_without_an_output_prefix_says_so_inline(monkeypatch: pytest.MonkeyPatch) -> None:
-    """No modal any more -- the reason and the fix go in the inline hint."""
-    from auto_border_pano.gui import compose_tab
-
-    started: list[bool] = []
-
-    class _StubThread:
-        def __init__(self, target: Any, args: tuple[Any, ...], daemon: bool) -> None:
-            pass
-
-        def start(self) -> None:
-            started.append(True)
-
-    monkeypatch.setattr(threading, "Thread", _StubThread)
-
-    tab = compose_tab.ComposeTab.__new__(compose_tab.ComposeTab)
-    tab.images = ["a.jpg", "b.jpg"]
-    tab.output_path = StubVar("")  # type: ignore[assignment]
-    hint_label = _StubLabel()
-    tab.hint = StubVar("")  # type: ignore[assignment]
-    tab.hint_label = hint_label  # type: ignore[assignment]
-
-    tab.save()
-
-    assert not started, "Save ran the worker without an output prefix"
-    assert tab.hint.get() == "Choose where the composite should go."
-    assert hint_label.style == "Error.TLabel"
-
-
-def test_compose_tab_builds_a_working_ratio_combobox_under_real_tk(tk_root: tkinter.Tk) -> None:
-    """Constructed via ``__new__`` (as above), the pure-logic tests would stay
-    green even if ``__init__``/``_build_ui`` never ran -- e.g. if the ratio
-    combobox were never wired up. Build a real ``ComposeTab`` on a withdrawn
-    root so a broken constructor actually fails a committed test.
-    """
-    from auto_border_pano import pipeline
-    from auto_border_pano.gui import compose_tab
-
-    tab = compose_tab.ComposeTab(tk_root)
-
-    assert tab.ratio.get() == pipeline.DEFAULT_RATIO.display
-    assert list(tab.ratio_combo["values"]) == [r.display for r in pipeline.RATIOS.values()]
-    assert tab.can_compose() is False
-    assert tab.preview_btn.cget("text") == "Preview"
-    assert tab.save_btn.cget("text") == "Save composite"
-    assert tab.status.get() == compose_tab.EMPTY_STATE
-    assert tab.hint.get() == ""
-
-
-def _state(button: Any) -> str:
-    return str(button.cget("state"))
-
-
-def _tk_tab(tk_root: tkinter.Tk) -> Any:
-    from auto_border_pano.gui import compose_tab
-
-    return compose_tab.ComposeTab(tk_root)
-
-
-def test_add_is_disabled_once_three_images_are_listed(tk_root: tkinter.Tk) -> None:
-    tab = _tk_tab(tk_root)
-    assert _state(tab.add_btn) == "normal"
-    tab.images = ["a.jpg", "b.jpg", "c.jpg"]
-    tab._refresh_list()
-    assert _state(tab.add_btn) == "disabled"
-    tab.images = ["a.jpg", "b.jpg"]
-    tab._refresh_list()
-    assert _state(tab.add_btn) == "normal"
-
-
-def test_save_and_preview_are_disabled_below_two_images_with_a_reason(tk_root: tkinter.Tk) -> None:
-    from auto_border_pano.gui import compose_tab
-
-    tab = _tk_tab(tk_root)
-    assert _state(tab.save_btn) == "disabled"
-    assert _state(tab.preview_btn) == "disabled"
-    # With nothing added the status line already carries the invitation, so
-    # the hint stays quiet rather than printing the same sentence twice.
-    assert tab.status.get() == compose_tab.EMPTY_STATE
-    assert tab.hint.get() == ""
-
-    tab.images = ["a.jpg"]
-    tab._refresh_list()
-    assert _state(tab.save_btn) == "disabled"
-    assert _state(tab.preview_btn) == "disabled"
-    # One voice: the reason lives in the status line, and the hint below it
-    # stays quiet rather than repeating it in different words.
-    assert tab.status.get() == compose_tab.ONE_MORE
-    assert tab.hint.get() == ""
-
-    tab.images = ["a.jpg", "b.jpg"]
-    tab._refresh_list()
-    assert _state(tab.save_btn) == "normal"
-    assert _state(tab.preview_btn) == "normal"
-    assert tab.hint.get() == ""
-
-
-def test_save_button_names_what_it_will_write(tk_root: tkinter.Tk) -> None:
-    tab = _tk_tab(tk_root)
-    assert tab.save_btn.cget("text") == "Save composite"
-    tab.images = ["a.jpg", "b.jpg"]
-    tab._refresh_list()
-    assert tab.save_btn.cget("text") == "Save diptych"
-    tab.images = ["a.jpg", "b.jpg", "c.jpg"]
-    tab._refresh_list()
-    assert tab.save_btn.cget("text") == "Save triptych"
-
-
-def test_status_names_the_composite_and_the_bare_ratio(tk_root: tkinter.Tk) -> None:
-    from auto_border_pano.gui import compose_tab
-
-    tab = _tk_tab(tk_root)
-    assert tab.status.get() == compose_tab.EMPTY_STATE
-    tab.images = ["a.jpg", "b.jpg"]
-    tab._refresh_list()
-    assert tab.status.get() == "Diptych, 4:5"
-    tab.images = ["a.jpg", "b.jpg", "c.jpg"]
-    tab._refresh_list()
-    assert tab.status.get() == "Triptych, 4:5"
-
-
-def test_the_rail_names_the_same_layout_the_composite_gets(tk_root: tkinter.Tk) -> None:
-    """The name in the rail and the name under the finished composite come
-    from one solve; if they ever disagree the rail is lying."""
-    from auto_border_pano.gui import compose_tab
-
-    fixtures = Path(__file__).parent / "fixtures"
-    sources = [
-        str(fixtures / "compose_wide.jpg"),
-        str(fixtures / "compose_square.jpg"),
-        str(fixtures / "compose_tall.jpg"),
-    ]
-    _, expected = pipeline.compose_preview(sources, pipeline.DEFAULT_RATIO)
-
-    tab = _tk_tab(tk_root)
-    tab.images = list(sources)
-    tab._run_name_layout(tab._solve_token, sources, pipeline.DEFAULT_RATIO.name)
-    tk_root.update()
-    assert tab._solved == expected
-    assert tab.layout_name.get() == compose_tab.present_layout(expected, 3)
-    assert tab.status.get() == f"Triptych, {compose_tab.present_layout(expected, 3).lower()}, 4:5"
-
-
-def test_the_layout_name_is_blank_below_two_images_and_for_unreadable_files(
-    tk_root: tkinter.Tk,
-) -> None:
-    tab = _tk_tab(tk_root)
-    tab.images = ["a.jpg"]
-    tab._refresh_list()
-    assert tab.layout_name.get() == ""
-
-    tab.images = ["/does/not/exist.jpg", "/nor/this.jpg"]
-    tab._run_name_layout(tab._solve_token, tab.images, "4:5")
-    tk_root.update()
-    assert tab.layout_name.get() == ""
-    assert tab.status.get() == "Diptych, 4:5"
-
-
-def test_changing_the_ratio_re_solves_the_layout(
-    tk_root: tkinter.Tk, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    requested: list[tuple[Any, ...]] = []
-
-    class _StubThread:
-        def __init__(self, target: Any, args: tuple[Any, ...], daemon: bool) -> None:
-            requested.append(args)
-
-        def start(self) -> None:
-            pass
-
-    tab = _tk_tab(tk_root)
-    tab.images = ["a.jpg", "b.jpg"]
-    monkeypatch.setattr(threading, "Thread", _StubThread)
-    tab.ratio.set(pipeline.RATIOS["1:1"].display)
-    tab._on_ratio_change()
-
-    assert requested, "changing the ratio did not re-solve the layout"
-    _token, sources, ratio_name = requested[-1]
-    assert sources == ["a.jpg", "b.jpg"]
-    assert ratio_name == "1:1"
-
-
-def test_a_late_solve_does_not_overwrite_a_newer_one(tk_root: tkinter.Tk) -> None:
-    """The user can add a third image before the two-image solve returns."""
-    from auto_border_pano.gui import compose_tab
-
-    tab = _tk_tab(tk_root)
-    tab.images = ["a.jpg", "b.jpg"]
-    stale_token = tab._solve_token
-    # A newer request supersedes the one in flight.
-    tab.images = ["a.jpg", "b.jpg", "c.jpg"]
-    tab._refresh_list()
-    tab._apply_layout_name(tab._solve_token, "row", 3, {})
-    assert tab.layout_name.get() == compose_tab.present_layout("row", 3)
-
-    tab._apply_layout_name(stale_token, "column", 2, {})
-    assert tab.layout_name.get() == compose_tab.present_layout("row", 3)
-    assert tab._solved == "row"
-
-
-def test_present_layout_reads_the_solver_name_as_a_sentence() -> None:
-    from auto_border_pano import layout
-    from auto_border_pano.gui import compose_tab
-
-    assert compose_tab.present_layout("row", 3) == "Row of three"
-    assert compose_tab.present_layout("", 3) == ""
-    # A split arrangement says where the panels actually are. "Row one then
-    # two" named the solver's data structure, not the picture.
-    assert compose_tab.present_layout("row-one-then-two", 3) == "One left, two stacked right"
-    assert compose_tab.present_layout("row-two-then-one", 3) == "Two stacked left, one right"
-    assert (
-        compose_tab.present_layout("column-one-then-two", 3) == "One on top, two side by side below"
-    )
-    assert (
-        compose_tab.present_layout("column-two-then-one", 3) == "Two side by side on top, one below"
-    )
-    # Two panels have an everyday name for their arrangement; three do not.
-    assert compose_tab.present_layout("row", 2) == "Side by side"
-    assert compose_tab.present_layout("column", 2) == "One above the other"
-    # Every arrangement the solver can return is presentable, so nothing has
-    # to be added here when the solver gains one.
-    for count in (2, 3):
-        for name, _node in layout.candidates(count):
-            assert compose_tab.present_layout(name, count)[0].isupper()
-
-
-def _output_row(frame: Any, variable: str) -> Any:
-    """The frame holding the output entry, found the same way on either tab.
-
-    Nothing is looked up by attribute name, so this works against the Split
-    tab without that tab having to expose anything for the test's benefit.
-    """
-    for widget in _descendants(frame):
-        if isinstance(widget, ttk.Entry) and str(widget.cget("textvariable")) == variable:
-            return widget.master
-    raise AssertionError("no output entry found in this rail")
-
-
-def _descendants(widget: Any) -> list[Any]:
-    found = []
-    for child in widget.winfo_children():
-        found.append(child)
-        found.extend(_descendants(child))
-    return found
-
-
-def _row_shape(row: Any) -> list[tuple[str, int, int, Any]]:
-    """Widget class, grid cell and left padding for each child, in order."""
-    shape = []
-    for child in row.winfo_children():
-        info = child.grid_info()
-        shape.append(
-            (child.winfo_class(), int(info["row"]), int(info["column"]), str(info["padx"]))
-        )
-    return shape
-
-
-def test_both_rails_build_the_same_destination_row(tk_root: tkinter.Tk) -> None:
-    """One product, one skeleton. The output field and its Choose button sit
-    side by side on both tabs; when they drifted apart the Compose tab put
-    the button on its own line underneath, which is the single most visible
-    way for the two rails to stop looking like one app."""
-    from auto_border_pano.gui import split_tab
-
-    compose = _tk_tab(tk_root)
-    split = split_tab.PanoramaSplitterGUI(tk_root)
-
-    compose_row = _output_row(compose.frame, str(compose.output_path))
-    split_row = _output_row(tk_root, str(split.output_path))
-
-    assert _row_shape(compose_row) == _row_shape(split_row)
-    # Not just equal to each other -- equal to the intended arrangement.
-    assert _row_shape(compose_row) == [
-        ("TEntry", 0, 0, "0"),
-        ("TButton", 0, 1, f"({theme.SPACE_S}, 0)"),
-    ]
-    assert int(compose_row.grid_size()[1]) == 1, "the Choose button is on a second line"
-    assert compose_row.grid_columnconfigure(0)["weight"] == 1
-
-
-def test_the_reorder_row_separates_add_from_the_selection_actions(tk_root: tkinter.Tk) -> None:
-    """Add grows the list; the other three act on the selected row. They are
-    different kinds of action and the row has to say so, rather than leaving
-    Add adrift at the left with a gap of nothing beside it."""
-    tab = _tk_tab(tk_root)
-    row = tab.add_btn.master
-
-    assert tab.add_btn.pack_info()["side"] == "left"
-    for button in (tab.up_btn, tab.down_btn, tab.remove_btn):
-        assert button.pack_info()["side"] == "right"
-    # The row spans the rail, or "right" would mean nothing.
-    assert "e" in str(row.grid_info()["sticky"])
-
-    # Packing right places each widget further left than the one before it,
-    # so the cluster reads up, down, remove on screen only if it was packed
-    # in the opposite order. Assert the packing order, not pixels: the tab
-    # is built on a withdrawn root and has no real geometry to measure.
-    packed = [str(widget) for widget in row.pack_slaves()]
-    assert packed.index(str(tab.remove_btn)) < packed.index(str(tab.down_btn))
-    assert packed.index(str(tab.down_btn)) < packed.index(str(tab.up_btn))
-
-
-def test_preview_is_separated_from_save(tk_root: tkinter.Tk) -> None:
-    """Hard against the primary button it read as a caption on it."""
-    tab = _tk_tab(tk_root)
-    top, _bottom = tab.preview_btn.grid_info()["pady"]
-    assert int(top) == theme.SPACE_M
-    # Still the secondary action, never a peer of Save.
-    assert str(tab.preview_btn.cget("style")) == "Link.TButton"
-    assert str(tab.save_btn.cget("style")) == "Primary.TButton"
-
-
-def test_reorder_buttons_are_disabled_without_a_selection(tk_root: tkinter.Tk) -> None:
-    tab = _tk_tab(tk_root)
-    tab.images = ["a.jpg", "b.jpg", "c.jpg"]
-    tab._refresh_list()
-    assert _state(tab.up_btn) == "disabled"
-    assert _state(tab.down_btn) == "disabled"
-    assert _state(tab.remove_btn) == "disabled"
-
-
-def test_up_is_disabled_at_the_top_and_down_at_the_bottom(tk_root: tkinter.Tk) -> None:
-    tab = _tk_tab(tk_root)
-    tab.images = ["a.jpg", "b.jpg", "c.jpg"]
-
-    tab._selection = 0
-    tab._refresh_list()
-    assert _state(tab.up_btn) == "disabled"
-    assert _state(tab.down_btn) == "normal"
-    assert _state(tab.remove_btn) == "normal"
-
-    tab._selection = 1
-    tab._refresh_list()
-    assert _state(tab.up_btn) == "normal"
-    assert _state(tab.down_btn) == "normal"
-
-    tab._selection = 2
-    tab._refresh_list()
-    assert _state(tab.up_btn) == "normal"
-    assert _state(tab.down_btn) == "disabled"
-
-
-def test_finishing_a_save_opens_no_dialog(
-    tk_root: tkinter.Tk, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The success modal is gone: the status line already said it."""
-    from tkinter import messagebox
-
-    def _explode(*_args: Any, **_kwargs: Any) -> None:
-        raise AssertionError("compose tab opened a dialog")
-
-    monkeypatch.setattr(messagebox, "showinfo", _explode)
-    monkeypatch.setattr(messagebox, "showerror", _explode)
-
-    tab = _tk_tab(tk_root)
-    tab.images = ["a.jpg", "b.jpg"]
-    tab._refresh_list()
-    tab._finish("Saved out_diptych.jpg — two up, 4:5", None, None, "two up")
-    assert tab.status.get() == "Saved out_diptych.jpg — two up, 4:5"
-
-
-def test_a_compose_failure_is_reported_inline(
-    tk_root: tkinter.Tk, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from tkinter import messagebox
-
-    def _explode(*_args: Any, **_kwargs: Any) -> None:
-        raise AssertionError("compose tab opened a dialog")
-
-    monkeypatch.setattr(messagebox, "showerror", _explode)
-
-    tab = _tk_tab(tk_root)
-    tab.images = ["a.jpg", "b.jpg"]
-    tab._refresh_list()
-    tab._finish("Could not compose — no such file", None, "no such file")
-    assert tab.hint.get() == "no such file"
-    assert str(tab.hint_label.cget("style")) == "Error.TLabel"
-
-
-def test_the_rows_gain_their_dimensions_once_the_headers_are_read(
-    tk_root: tkinter.Tk, tmp_path: Path
-) -> None:
-    """The list shows each source's pixel size, but the sizes come off a
-    worker thread. A row must render before they arrive and pick them up
-    after, without a second solve being kicked off in the process."""
-    from PIL import Image
-
-    first = tmp_path / "a.jpg"
-    second = tmp_path / "b.jpg"
-    Image.new("RGB", (4000, 1700), "grey").save(first, "JPEG")
-    Image.new("RGB", (1200, 1600), "grey").save(second, "JPEG")
-
-    tab = _tk_tab(tk_root)
-    tab.images = [str(first), str(second)]
-    tab._refresh_list()
-
-    # Before the worker reports: rows exist, sizes do not.
-    assert tab.listbox.count == 2
-    assert tab.listbox.items[0].size is None
-
-    token = tab._solve_token
-    sizes = {str(first): (4000, 1700), str(second): (1200, 1600)}
-    tab._apply_layout_name(token, "row", 2, sizes)
-
-    assert [item.size for item in tab.listbox.items] == [(4000, 1700), (1200, 1600)]
-    assert tab._solve_token == token, "applying sizes must not start another solve"
-
-
-def test_moving_a_source_keeps_it_selected(tk_root: tkinter.Tk) -> None:
-    """Order is the composite's order, so the thing you are moving has to
-    stay the thing you are moving -- otherwise a second press moves whatever
-    happened to land under it."""
-    tab = _tk_tab(tk_root)
-    tab.images = ["a.jpg", "b.jpg", "c.jpg"]
-    tab._refresh_list()
+def test_moving_a_source_keeps_it_selected(tab: ComposeTab) -> None:
+    """So a second press moves the same one, not whatever landed under it."""
+    tab._accept([WIDE, TALL, SQUARE])
     tab.listbox.select(2)
 
     tab.move_up()
-
-    assert tab.images == ["a.jpg", "c.jpg", "b.jpg"]
+    assert tab.images == [WIDE, SQUARE, TALL]
     assert tab.listbox.selected_index == 1
-    assert tab._selection == 1
 
     tab.move_up()
-
-    assert tab.images == ["c.jpg", "a.jpg", "b.jpg"]
+    assert tab.images == [SQUARE, WIDE, TALL]
     assert tab.listbox.selected_index == 0
 
 
-def test_removing_a_source_leaves_a_sane_selection(tk_root: tkinter.Tk) -> None:
-    tab = _tk_tab(tk_root)
-    tab.images = ["a.jpg", "b.jpg", "c.jpg"]
-    tab._refresh_list()
+def test_move_down_walks_the_other_way(tab: ComposeTab) -> None:
+    tab._accept([WIDE, TALL, SQUARE])
+    tab.listbox.select(0)
+
+    tab.move_down()
+
+    assert tab.images == [TALL, WIDE, SQUARE]
+    assert tab.listbox.selected_index == 1
+
+
+def test_removing_takes_whatever_selection_the_list_settles_on(tab: ComposeTab) -> None:
+    tab._accept([WIDE, TALL, SQUARE])
     tab.listbox.select(2)
 
     tab.remove()
 
-    assert tab.images == ["a.jpg", "b.jpg"]
+    assert tab.images == [WIDE, TALL]
     assert tab._selection == tab.listbox.selected_index
-    assert tab._selection is None or 0 <= tab._selection < 2
 
 
-def test_adding_takes_several_files_at_once(
-    tk_root: tkinter.Tk, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A triptych is three files; picking them one dialog at a time is three
-    times the work for no reason."""
-    monkeypatch.setattr(filedialog, "askopenfilenames", lambda **_kw: ("a.jpg", "b.jpg", "c.jpg"))
-
-    tab = _tk_tab(tk_root)
-    tab.add_image()
-
-    assert tab.images == ["a.jpg", "b.jpg", "c.jpg"]
-    assert tab.listbox.count == 3
-    assert _state(tab.save_btn) == "normal"
-    assert tab.save_btn.cget("text") == "Save triptych"
+# --- the live arrangement ------------------------------------------------------
 
 
-def test_adding_more_than_three_keeps_what_fits_and_names_the_rest(
-    tk_root: tkinter.Tk, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Refusing the whole selection because it was one too many would be the
-    modal this replaced. Take what fits, and say what did not."""
-    monkeypatch.setattr(
-        filedialog, "askopenfilenames", lambda **_kw: ("a.jpg", "b.jpg", "c.jpg", "d.jpg", "e.jpg")
+def test_the_layout_name_matches_what_compose_preview_solves(qtbot: QtBot) -> None:
+    """The rail and the finished composite can never disagree, because both
+    come out of the same solver."""
+    built = ComposeTab()
+    qtbot.addWidget(built)
+    built._accept([WIDE, TALL])
+    _settled(qtbot, built)
+
+    _image, solved = pipeline.compose_preview([WIDE, TALL], pipeline.DEFAULT_RATIO)
+
+    assert built._solved == solved
+    assert built.layout_name == compose_tab.present_layout(solved, 2)
+
+
+def test_the_arrangement_reaches_the_status_line(qtbot: QtBot) -> None:
+    built = ComposeTab()
+    qtbot.addWidget(built)
+    built._accept([WIDE, TALL])
+    _settled(qtbot, built)
+
+    assert built.status.startswith("Diptych, ")
+    assert built.status.endswith(pipeline.DEFAULT_RATIO.name)
+
+
+def test_the_name_clears_below_two_sources(qtbot: QtBot) -> None:
+    built = ComposeTab()
+    qtbot.addWidget(built)
+    built._accept([WIDE, TALL])
+    _settled(qtbot, built)
+
+    built.listbox.select(1)
+    built.remove()
+
+    assert built.layout_name == ""
+    assert built._solved == ""
+
+
+def test_an_unreadable_file_shows_no_name_rather_than_a_guess(qtbot: QtBot, tmp_path: Path) -> None:
+    broken = tmp_path / "broken.jpg"
+    broken.write_bytes(b"not a jpeg")
+
+    built = ComposeTab()
+    qtbot.addWidget(built)
+    built._accept([WIDE, str(broken)])
+    qtbot.waitUntil(lambda: built.listbox.items[0].size is not None, timeout=5000)
+
+    assert built.layout_name == ""
+    assert built._solved == ""
+    # The readable source still got its dimensions -- one bad file must not
+    # cost the others theirs.
+    assert built.listbox.items[0].size is not None
+
+
+def test_changing_the_ratio_re_solves(qtbot: QtBot) -> None:
+    built = ComposeTab()
+    qtbot.addWidget(built)
+    built._accept([WIDE, TALL])
+    _settled(qtbot, built)
+    first = built._solved
+
+    landscape = pipeline.RATIOS["1.91:1"]
+    built.ratio_combo.setCurrentText(landscape.display)
+    qtbot.waitUntil(lambda: built._solved != "", timeout=5000)
+
+    _image, expected = pipeline.compose_preview([WIDE, TALL], landscape)
+    assert built._solved == expected
+    assert built.status.endswith(landscape.name)
+    assert first  # the first solve really did land, so this is a re-solve
+
+
+def test_the_sizes_reach_the_rows(qtbot: QtBot) -> None:
+    built = ComposeTab()
+    qtbot.addWidget(built)
+    built._accept([WIDE, TALL])
+    _settled(qtbot, built)
+
+    assert all(source.size is not None for source in built.listbox.items)
+
+
+def test_a_stale_solve_does_not_overwrite_a_newer_one(tab: ComposeTab) -> None:
+    """Add a third image while a two-image solve is in flight and the older
+    reply must be dropped, not shown."""
+    tab.images = [WIDE, TALL, SQUARE]
+    tab._solve_token = 7
+
+    stale = compose_tab._Solve(token=6, name="row", count=2, sizes={})
+    tab._apply_layout_name(stale)
+    assert tab.layout_name == ""
+    assert tab._solved == ""
+
+    fresh = compose_tab._Solve(token=7, name="column", count=3, sizes={})
+    tab._apply_layout_name(fresh)
+    assert tab._solved == "column"
+    assert tab.layout_name == "Column of three"
+
+
+def test_every_solver_arrangement_has_a_name(tab: ComposeTab) -> None:
+    """Walks the solver's own candidate list, so a new arrangement cannot go
+    unnamed: `present_layout` is derived, not a lookup table."""
+    for count in (2, 3):
+        for name, _node in layout.candidates(count):
+            words = compose_tab.present_layout(name, count)
+            assert words
+            assert "-" not in words
+            assert words[0].isupper()
+
+
+def test_the_two_up_arrangements_get_their_everyday_names() -> None:
+    assert compose_tab.present_layout("row", 2) == "Side by side"
+    assert compose_tab.present_layout("column", 2) == "One above the other"
+    assert compose_tab.present_layout("row", 3) == "Row of three"
+
+
+def test_a_split_arrangement_says_which_side_each_group_is_on() -> None:
+    assert compose_tab.present_layout("row-one-then-two", 3) == "One left, two stacked right"
+    assert (
+        compose_tab.present_layout("column-two-then-one", 3) == "Two side by side on top, one below"
     )
 
-    tab = _tk_tab(tk_root)
-    tab.add_image()
 
-    assert tab.images == ["a.jpg", "b.jpg", "c.jpg"]
-    assert "d.jpg" in tab.hint.get()
-    assert "e.jpg" in tab.hint.get()
+def test_an_unparsed_name_still_reads_as_words() -> None:
+    assert compose_tab.present_layout("spiral-of-doom", 3) == "Spiral of doom"
+    assert compose_tab.present_layout("", 3) == ""
 
 
-def test_adding_fills_the_remaining_room_only(
-    tk_root: tkinter.Tk, monkeypatch: pytest.MonkeyPatch
+# --- saving and previewing -----------------------------------------------------
+
+
+def test_preview_writes_no_file(qtbot: QtBot, tmp_path: Path) -> None:
+    built = ComposeTab()
+    qtbot.addWidget(built)
+    built._accept([WIDE, TALL])
+    built.output_row.setText(str(tmp_path / "out"))
+
+    built.preview()
+    qtbot.waitUntil(lambda: built.save_btn.isEnabled(), timeout=20000)
+
+    assert list(tmp_path.iterdir()) == []
+    assert built.previews.exposed == 1
+    assert built.status.startswith("Diptych, ")
+
+
+def test_save_writes_the_composite_and_says_where(qtbot: QtBot, tmp_path: Path) -> None:
+    built = ComposeTab()
+    qtbot.addWidget(built)
+    built._accept([WIDE, TALL])
+    built.output_row.setText(str(tmp_path / "out"))
+
+    built.save()
+    qtbot.waitUntil(lambda: built.save_btn.isEnabled(), timeout=20000)
+
+    written = tmp_path / "out_diptych.jpg"
+    assert written.exists()
+    assert built.status.startswith(f"Saved {written.name} — ")
+    assert built.status.endswith(pipeline.DEFAULT_RATIO.name)
+
+
+def test_a_missing_destination_is_said_inline_not_in_a_dialog(tab: ComposeTab) -> None:
+    tab._accept([WIDE, TALL])
+    tab.output_row.setText("")
+
+    tab.save()
+
+    assert tab.hint == compose_tab.NO_PREFIX
+    assert tab.hint_label.objectName() == "Error"
+
+
+def test_a_failure_is_reported_inline(tab: ComposeTab) -> None:
+    tab._failed(OSError("cannot read source"))
+
+    assert tab.status.startswith("Could not compose — ")
+    assert tab.hint_label.objectName() == "Error"
+    assert "cannot read source" in tab.hint
+
+
+def test_a_later_success_clears_the_error_voice(qtbot: QtBot, tmp_path: Path) -> None:
+    built = ComposeTab()
+    qtbot.addWidget(built)
+    built._accept([WIDE, TALL])
+    built._failed(OSError("boom"))
+    built.output_row.setText(str(tmp_path / "out"))
+
+    built.save()
+    qtbot.waitUntil(lambda: built.save_btn.isEnabled(), timeout=20000)
+
+    assert built.hint == ""
+    assert built.hint_label.objectName() == "Help"
+
+
+def test_the_finished_frame_is_titled_with_the_arrangement(tab: ComposeTab) -> None:
+    image = Image.new("RGB", (40, 50), "white")
+    tab.images = [WIDE, TALL]
+
+    tab._finish_preview(compose_tab._Previewed(image, "row", "4:5", 2))
+
+    assert tab.previews.frame_count == 1
+    assert tab.previews.caption_at(0).lower() == "row"
+
+
+# --- the band -------------------------------------------------------------------
+
+
+def test_the_band_counts_the_sources_and_names_the_composite(qtbot: QtBot) -> None:
+    built = ComposeTab()
+    qtbot.addWidget(built)
+    seen: list[tuple[str, str]] = []
+    built.band_changed.connect(lambda subject, detail: seen.append((subject, detail)))
+
+    built._accept([WIDE, TALL])
+    _settled(qtbot, built)
+
+    assert built.subject == "2 sources"
+    assert built.detail == f"{pipeline.DEFAULT_RATIO.name} · diptych"
+    assert seen[-1] == (built.subject, built.detail)
+
+
+def test_the_band_says_nothing_when_nothing_is_loaded(tab: ComposeTab) -> None:
+    assert tab.subject == ""
+    assert tab.detail == ""
+
+
+# --- the rail matches the Split tab's -------------------------------------------
+
+
+def _rail_texts(built: ComposeTab) -> list[str]:
+    from PySide6.QtWidgets import QLabel
+
+    return [
+        child.text()
+        for child in built.columns.rail.findChildren(QLabel)
+        if child.objectName() == "Section"
+    ]
+
+
+def test_the_rail_reads_subject_then_format_then_destination(tab: ComposeTab) -> None:
+    """Split's rail is subject, FORMAT, DESTINATION, primary. These two rails
+    drifting apart is a bug that has been fixed twice."""
+    assert _rail_texts(tab) == ["SOURCES", "FORMAT", "DESTINATION"]
+
+
+def test_preview_sits_below_save_and_is_not_a_peer_of_it(tab: ComposeTab) -> None:
+    rail = tab.columns.rail_layout
+    order = []
+    for index in range(rail.count()):
+        item = rail.itemAt(index)
+        order.append(None if item is None else item.widget())
+    assert order.index(tab.preview_btn) > order.index(tab.save_btn)
+    assert tab.save_btn.objectName() == "Primary"
+    assert tab.preview_btn.objectName() == "Link"
+
+
+def test_the_strip_is_at_the_top_of_the_table_at_its_natural_height(tab: ComposeTab) -> None:
+    first = tab.columns.table_layout.itemAt(0)
+    assert first is not None
+    assert first.widget() is tab.previews
+    assert tab.previews.frame_count == 1
+
+
+# --- no modals, anywhere ---------------------------------------------------------
+
+
+def test_no_modal_dialog_is_ever_constructed(
+    tab: ComposeTab, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(filedialog, "askopenfilenames", lambda **_kw: ("b.jpg", "c.jpg", "d.jpg"))
+    """Every `messagebox` call was deleted in the tkinter build and must not
+    come back through Qt's door."""
+    import PySide6.QtWidgets as widgets
 
-    tab = _tk_tab(tk_root)
-    tab.images = ["a.jpg"]
-    tab._refresh_list()
-    tab.add_image()
+    def forbidden(*_args: Any, **_kwargs: Any) -> None:
+        raise AssertionError("a modal was constructed")
 
-    assert tab.images == ["a.jpg", "b.jpg", "c.jpg"]
-    assert "d.jpg" in tab.hint.get()
+    for name in ("information", "warning", "critical", "question", "about"):
+        monkeypatch.setattr(widgets.QMessageBox, name, staticmethod(forbidden))
+    monkeypatch.setattr(widgets.QMessageBox, "__init__", forbidden)
+
+    tab._accept([WIDE, TALL, SQUARE, WIDE])
+    tab.output_row.setText("")
+    tab.save()
+    tab._failed(OSError("boom"))
+    tab.listbox.select(0)
+    tab.move_down()
+    tab.remove()
 
 
-def test_cancelling_the_dialog_changes_nothing(
-    tk_root: tkinter.Tk, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(filedialog, "askopenfilenames", lambda **_kw: ())
-
-    tab = _tk_tab(tk_root)
-    tab.images = ["a.jpg"]
-    tab._refresh_list()
-    tab.add_image()
-
-    assert tab.images == ["a.jpg"]
+def test_the_module_never_imports_a_message_box() -> None:
+    """Not even reachable: the name is not bound in the module at all."""
+    assert not hasattr(compose_tab, "QMessageBox")
+    source = Path(compose_tab.__file__).read_text(encoding="utf-8")
+    assert "QMessageBox(" not in source
+    assert "QMessageBox." not in source
