@@ -3,6 +3,7 @@
 import threading
 import tkinter
 from pathlib import Path
+from tkinter import filedialog
 from typing import Any
 
 import pytest
@@ -528,3 +529,63 @@ def test_removing_a_source_leaves_a_sane_selection(tk_root: tkinter.Tk) -> None:
     assert tab.images == ["a.jpg", "b.jpg"]
     assert tab._selection == tab.listbox.selected_index
     assert tab._selection is None or 0 <= tab._selection < 2
+
+
+def test_adding_takes_several_files_at_once(
+    tk_root: tkinter.Tk, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A triptych is three files; picking them one dialog at a time is three
+    times the work for no reason."""
+    monkeypatch.setattr(filedialog, "askopenfilenames", lambda **_kw: ("a.jpg", "b.jpg", "c.jpg"))
+
+    tab = _tk_tab(tk_root)
+    tab.add_image()
+
+    assert tab.images == ["a.jpg", "b.jpg", "c.jpg"]
+    assert tab.listbox.count == 3
+    assert _state(tab.save_btn) == "normal"
+    assert tab.save_btn.cget("text") == "Save triptych"
+
+
+def test_adding_more_than_three_keeps_what_fits_and_names_the_rest(
+    tk_root: tkinter.Tk, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Refusing the whole selection because it was one too many would be the
+    modal this replaced. Take what fits, and say what did not."""
+    monkeypatch.setattr(
+        filedialog, "askopenfilenames", lambda **_kw: ("a.jpg", "b.jpg", "c.jpg", "d.jpg", "e.jpg")
+    )
+
+    tab = _tk_tab(tk_root)
+    tab.add_image()
+
+    assert tab.images == ["a.jpg", "b.jpg", "c.jpg"]
+    assert "d.jpg" in tab.hint.get()
+    assert "e.jpg" in tab.hint.get()
+
+
+def test_adding_fills_the_remaining_room_only(
+    tk_root: tkinter.Tk, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(filedialog, "askopenfilenames", lambda **_kw: ("b.jpg", "c.jpg", "d.jpg"))
+
+    tab = _tk_tab(tk_root)
+    tab.images = ["a.jpg"]
+    tab._refresh_list()
+    tab.add_image()
+
+    assert tab.images == ["a.jpg", "b.jpg", "c.jpg"]
+    assert "d.jpg" in tab.hint.get()
+
+
+def test_cancelling_the_dialog_changes_nothing(
+    tk_root: tkinter.Tk, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(filedialog, "askopenfilenames", lambda **_kw: ())
+
+    tab = _tk_tab(tk_root)
+    tab.images = ["a.jpg"]
+    tab._refresh_list()
+    tab.add_image()
+
+    assert tab.images == ["a.jpg"]

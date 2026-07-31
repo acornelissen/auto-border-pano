@@ -365,14 +365,29 @@ class ComposeTab:
         # net for programmatic callers, not something a user can reach.
         if len(self.images) >= MAX_IMAGES:
             return
-        filename = filedialog.askopenfilename(
-            title="Select Image",
+        chosen = filedialog.askopenfilenames(
+            title="Choose sources",
             filetypes=[("Image files", "*.jpg *.jpeg *.JPG *.JPEG"), ("All files", "*.*")],
         )
-        if not filename:
+        if not chosen:
             return
-        self.images.append(filename)
+        self._accept(list(chosen))
+
+    def _accept(self, chosen: list[str]) -> None:
+        """Take as many of the chosen files as there is room for.
+
+        The dialog lets a user pick any number, so pick five for a triptych
+        and three arrive rather than the whole selection being refused. The
+        surplus is named in the hint: silently dropping files the user
+        explicitly selected would be worse than the modal this replaced.
+        """
+        room = MAX_IMAGES - len(self.images)
+        self.images.extend(chosen[:room])
         self._refresh_list()
+        surplus = chosen[room:]
+        if surplus:
+            names = ", ".join(Path(path).name for path in surplus)
+            self._set_hint(f"A composite takes at most {MAX_IMAGES}. Left out {names}.")
 
     def _swap(self, first: int, second: int) -> None:
         self.images[first], self.images[second] = self.images[second], self.images[first]
