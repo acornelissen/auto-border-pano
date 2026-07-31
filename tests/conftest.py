@@ -1,6 +1,47 @@
-"""Shared fixtures for the auto_border_pano test suite."""
+"""Shared fixtures and stubs for the auto_border_pano test suite.
+
+The GUI stubs below let the worker-thread tests run headlessly. They do not
+create a real Tk root or display; `_run_single`/`_run_batch` are plain
+functions that only touch tk objects through `root.after`, so a stub root
+with an `.after` that runs the callback immediately is enough to exercise
+them.
+"""
+
+from typing import Any
 
 from PIL import Image
+
+
+class StubRoot:
+    """Records `after` calls and runs the callback immediately, synchronously."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[Any, ...]] = []
+
+    def after(self, _delay: int, callback: Any, *args: Any) -> None:
+        self.calls.append((callback, *args))
+        callback(*args)
+
+
+class StubVar:
+    """Stand-in for a tk.DoubleVar/StringVar that just records the last value."""
+
+    def __init__(self, value: Any = None) -> None:
+        self.value: Any = value
+
+    def set(self, value: Any) -> None:
+        self.value = value
+
+    def get(self) -> Any:
+        return self.value
+
+
+class StubButton:
+    def __init__(self) -> None:
+        self.last_state: str | None = None
+
+    def config(self, state: str) -> None:
+        self.last_state = state
 
 
 def synthetic_panorama(width: int = 3000, height: int = 800) -> Image.Image:
