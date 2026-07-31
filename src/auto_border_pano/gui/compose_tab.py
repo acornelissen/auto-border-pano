@@ -12,6 +12,7 @@ from tkinter import filedialog, messagebox, ttk
 from PIL import Image
 
 from auto_border_pano import pipeline
+from auto_border_pano.gui import theme
 from auto_border_pano.gui.preview import PreviewPanes
 
 MIN_IMAGES = 2
@@ -23,7 +24,7 @@ _RATIO_BY_DISPLAY: dict[str, str] = {r.display: r.name for r in pipeline.RATIOS.
 class ComposeTab:
     def __init__(self, parent: tk.Misc) -> None:
         self.root = parent
-        self.frame = ttk.Frame(parent, padding="10")
+        self.frame = ttk.Frame(parent, padding=theme.SPACE_L)
         self.images: list[str] = []
         self._selection: int | None = None
         # Tracks the last prefix this class itself derived from the first
@@ -45,22 +46,37 @@ class ComposeTab:
         self.frame.columnconfigure(0, weight=1)
 
         listbox_row = ttk.Frame(self.frame)
-        listbox_row.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=5)
+        listbox_row.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=theme.SPACE_M)
         listbox_row.columnconfigure(0, weight=1)
 
-        self.listbox = tk.Listbox(listbox_row, height=4)
+        # A raw Tk widget: ttk.Style cannot reach it, so the theme tokens are
+        # applied by hand until Stage 5 replaces it outright.
+        self.listbox = tk.Listbox(
+            listbox_row,
+            height=4,
+            background=theme.LIGHTBOX,
+            foreground=theme.REBATE,
+            selectbackground=theme.CHINAGRAPH,
+            selectforeground=theme.LIGHTBOX,
+            borderwidth=0,
+            highlightthickness=1,
+            highlightbackground=theme.SPROCKET,
+            highlightcolor=theme.CHINAGRAPH,
+            activestyle="none",
+            font=theme.font(listbox_row, "data"),
+        )
         self.listbox.grid(row=0, column=0, sticky=(tk.W, tk.E))
         self.listbox.bind("<<ListboxSelect>>", self._on_select)
 
         buttons = ttk.Frame(listbox_row)
-        buttons.grid(row=0, column=1, padx=5)
+        buttons.grid(row=0, column=1, padx=theme.SPACE_S)
         ttk.Button(buttons, text="Add", command=self.add_image).pack(fill="x")
         ttk.Button(buttons, text="Up", command=self.move_up).pack(fill="x")
         ttk.Button(buttons, text="Down", command=self.move_down).pack(fill="x")
         ttk.Button(buttons, text="Remove", command=self.remove).pack(fill="x")
 
         ratio_row = ttk.Frame(self.frame)
-        ratio_row.grid(row=1, column=0, sticky=tk.W, pady=5)
+        ratio_row.grid(row=1, column=0, sticky=tk.W, pady=theme.SPACE_M)
         ttk.Label(ratio_row, text="Aspect ratio:").pack(side="left")
         self.ratio_combo = ttk.Combobox(
             ratio_row,
@@ -69,28 +85,36 @@ class ComposeTab:
             state="readonly",
             width=18,
         )
-        self.ratio_combo.pack(side="left", padx=8)
+        self.ratio_combo.pack(side="left", padx=theme.SPACE_S)
 
         output_row = ttk.Frame(self.frame)
-        output_row.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=5)
+        output_row.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=theme.SPACE_M)
         output_row.columnconfigure(1, weight=1)
         ttk.Label(output_row, text="Output:").grid(row=0, column=0)
-        ttk.Entry(output_row, textvariable=self.output_path).grid(
-            row=0, column=1, sticky=(tk.W, tk.E), padx=5
+        ttk.Entry(output_row, textvariable=self.output_path, style="TEntry").grid(
+            row=0, column=1, sticky=(tk.W, tk.E), padx=theme.SPACE_S
         )
         ttk.Button(output_row, text="Browse", command=self.browse_output).grid(row=0, column=2)
 
         action_row = ttk.Frame(self.frame)
-        action_row.grid(row=3, column=0, pady=10)
-        self.preview_btn = ttk.Button(action_row, text="Preview", command=self.preview)
-        self.preview_btn.pack(side="left", padx=5)
-        self.save_btn = ttk.Button(action_row, text="Save", command=self.save)
-        self.save_btn.pack(side="left", padx=5)
+        action_row.grid(row=3, column=0, pady=theme.SPACE_L)
+        self.preview_btn = ttk.Button(
+            action_row, text="Preview", command=self.preview, style="Link.TButton"
+        )
+        self.preview_btn.pack(side="left", padx=theme.SPACE_S)
+        self.save_btn = ttk.Button(
+            action_row, text="Save", command=self.save, style="Primary.TButton"
+        )
+        self.save_btn.pack(side="left", padx=theme.SPACE_S)
 
-        ttk.Label(self.frame, textvariable=self.status).grid(row=4, column=0, sticky=tk.W)
+        ttk.Label(self.frame, textvariable=self.status, style="Help.TLabel").grid(
+            row=4, column=0, sticky=tk.W
+        )
 
         self.previews = PreviewPanes(self.frame, "Composite")
-        self.previews.frame.grid(row=5, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=10)
+        self.previews.frame.grid(
+            row=5, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=theme.SPACE_M
+        )
         self.frame.rowconfigure(5, weight=1)
 
     def _refresh_list(self) -> None:

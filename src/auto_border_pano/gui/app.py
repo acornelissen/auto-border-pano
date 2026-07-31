@@ -7,12 +7,17 @@ themselves.
 import tkinter as tk
 from tkinter import ttk
 
+from auto_border_pano.gui import theme
 from auto_border_pano.gui.compose_tab import ComposeTab
 from auto_border_pano.gui.split_tab import PanoramaSplitterGUI
 
 
 def run() -> None:
     root = tk.Tk()
+    # Before any widget is built: `theme.apply` switches ttk to `clam`, and a
+    # theme change only reliably restyles widgets created after it.
+    theme.apply(root)
+    root.configure(background=theme.LIGHTBOX)
     root.title("Panorama Splitter")
     root.geometry("900x700")
     root.columnconfigure(0, weight=1)

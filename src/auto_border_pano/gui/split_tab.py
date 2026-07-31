@@ -10,6 +10,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from auto_border_pano import pipeline
+from auto_border_pano.gui import theme
 from auto_border_pano.gui.preview import PreviewPanes
 
 # Built once so process_images can do a plain dict lookup rather than
@@ -36,32 +37,36 @@ class PanoramaSplitterGUI:
         self._build_ui()
 
     def _build_ui(self) -> None:
-        main = ttk.Frame(self.root, padding="10")
+        main = ttk.Frame(self.root, padding=theme.SPACE_L)
         main.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
         main.columnconfigure(1, weight=1)
 
-        ttk.Label(main, text="Input:").grid(row=0, column=0, sticky=tk.W, pady=5)
-        ttk.Entry(main, textvariable=self.input_path, width=50).grid(
-            row=0, column=1, sticky=(tk.W, tk.E), padx=5
+        ttk.Label(main, text="Input:").grid(row=0, column=0, sticky=tk.W, pady=theme.SPACE_S)
+        ttk.Entry(main, textvariable=self.input_path, width=50, style="TEntry").grid(
+            row=0, column=1, sticky=(tk.W, tk.E), padx=theme.SPACE_S
         )
-        ttk.Button(main, text="Browse File", command=self.browse_file).grid(row=0, column=2, padx=5)
+        ttk.Button(main, text="Browse File", command=self.browse_file).grid(
+            row=0, column=2, padx=theme.SPACE_S
+        )
         ttk.Button(main, text="Browse Folder", command=self.browse_folder).grid(
-            row=0, column=3, padx=5
+            row=0, column=3, padx=theme.SPACE_S
         )
 
-        ttk.Label(main, text="Output:").grid(row=1, column=0, sticky=tk.W, pady=5)
-        ttk.Entry(main, textvariable=self.output_path, width=50).grid(
-            row=1, column=1, sticky=(tk.W, tk.E), padx=5
+        ttk.Label(main, text="Output:").grid(row=1, column=0, sticky=tk.W, pady=theme.SPACE_S)
+        ttk.Entry(main, textvariable=self.output_path, width=50, style="TEntry").grid(
+            row=1, column=1, sticky=(tk.W, tk.E), padx=theme.SPACE_S
         )
-        ttk.Button(main, text="Browse", command=self.browse_output).grid(row=1, column=2, padx=5)
+        ttk.Button(main, text="Browse", command=self.browse_output).grid(
+            row=1, column=2, padx=theme.SPACE_S
+        )
 
         self.mode_label = ttk.Label(main, text="Mode: Single File")
-        self.mode_label.grid(row=2, column=0, columnspan=2, sticky=tk.W, pady=10)
+        self.mode_label.grid(row=2, column=0, columnspan=2, sticky=tk.W, pady=theme.SPACE_M)
 
         ratio_row = ttk.Frame(main)
-        ratio_row.grid(row=3, column=0, columnspan=4, sticky=tk.W, pady=5)
+        ratio_row.grid(row=3, column=0, columnspan=4, sticky=tk.W, pady=theme.SPACE_S)
         ttk.Label(ratio_row, text="Aspect ratio:").pack(side="left")
         ttk.Combobox(
             ratio_row,
@@ -69,27 +74,31 @@ class PanoramaSplitterGUI:
             values=[r.display for r in pipeline.RATIOS.values()],
             state="readonly",
             width=18,
-        ).pack(side="left", padx=8)
+        ).pack(side="left", padx=theme.SPACE_S)
         ttk.Label(
             ratio_row,
             text="detail frames are derived from this",
-            foreground="grey40",
+            style="Help.TLabel",
         ).pack(side="left")
 
-        self.process_btn = ttk.Button(main, text="Process Images", command=self.process_images)
-        self.process_btn.grid(row=4, column=0, columnspan=4, pady=20)
+        self.process_btn = ttk.Button(
+            main, text="Process Images", command=self.process_images, style="Primary.TButton"
+        )
+        self.process_btn.grid(row=4, column=0, columnspan=4, pady=theme.SPACE_L)
 
-        progress_frame = ttk.LabelFrame(main, text="Progress", padding="10")
-        progress_frame.grid(row=5, column=0, columnspan=4, sticky=(tk.W, tk.E), pady=10)
+        progress_frame = ttk.LabelFrame(main, text="Progress", padding=theme.SPACE_M)
+        progress_frame.grid(row=5, column=0, columnspan=4, sticky=(tk.W, tk.E), pady=theme.SPACE_M)
         progress_frame.columnconfigure(0, weight=1)
         ttk.Progressbar(progress_frame, variable=self.progress, maximum=100).grid(
-            row=0, column=0, sticky=(tk.W, tk.E), pady=5
+            row=0, column=0, sticky=(tk.W, tk.E), pady=theme.SPACE_S
         )
-        ttk.Label(progress_frame, textvariable=self.status).grid(row=1, column=0, sticky=tk.W)
+        ttk.Label(progress_frame, textvariable=self.status, style="Help.TLabel").grid(
+            row=1, column=0, sticky=tk.W
+        )
 
         self.previews = PreviewPanes(main, "Preview (Last Processed)")
         self.previews.frame.grid(
-            row=6, column=0, columnspan=4, sticky=(tk.W, tk.E, tk.N, tk.S), pady=10
+            row=6, column=0, columnspan=4, sticky=(tk.W, tk.E, tk.N, tk.S), pady=theme.SPACE_M
         )
 
         main.rowconfigure(6, weight=1)

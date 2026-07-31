@@ -13,12 +13,14 @@ from tkinter import ttk
 
 from PIL import Image, ImageTk
 
+from auto_border_pano.gui import theme
+
 PREVIEW_MAX_PX = 150
 
 
 class PreviewPanes:
     def __init__(self, parent: tk.Misc, title: str = "Preview") -> None:
-        self.frame = ttk.LabelFrame(parent, text=title, padding="10")
+        self.frame = ttk.LabelFrame(parent, text=title, padding=theme.SPACE_M)
         self.frame.rowconfigure(0, weight=1)
         self.labels: list[ttk.Label] = []
         self._images: list[ImageTk.PhotoImage] = []
@@ -33,9 +35,22 @@ class PreviewPanes:
         for column, title in enumerate(titles):
             self.frame.columnconfigure(column, weight=1)
             cell = ttk.Frame(self.frame)
-            cell.grid(row=0, column=column, padx=5, pady=5, sticky=(tk.N, tk.S, tk.E, tk.W))
-            ttk.Label(cell, text=title, font=("Arial", 10, "bold")).pack()
-            label = ttk.Label(cell, text="No preview", relief="sunken", anchor="center")
+            cell.grid(
+                row=0,
+                column=column,
+                padx=theme.SPACE_S,
+                pady=theme.SPACE_S,
+                sticky=(tk.N, tk.S, tk.E, tk.W),
+            )
+            ttk.Label(cell, text=title, style="Stencil.TLabel").pack()
+            label = ttk.Label(
+                cell,
+                text="No preview",
+                style="Help.TLabel",
+                background=theme.SLEEVE,
+                relief="flat",
+                anchor="center",
+            )
             label.pack(expand=True, fill="both")
             self.labels.append(label)
 
