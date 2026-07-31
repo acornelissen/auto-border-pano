@@ -27,10 +27,24 @@ class _StubRoot:
         callback(*args)
 
 
-def test_preview_titles_matches_output_suffixes_count() -> None:
-    # gui.update_preview zips these with strict=True; a length mismatch
-    # would raise at runtime with every other test still passing.
-    assert len(gui.PREVIEW_TITLES) == len(pipeline.OUTPUT_SUFFIXES)
+def test_preview_titles_track_the_frame_count() -> None:
+    from auto_border_pano import gui
+
+    assert gui.preview_titles(2) == ["Whole", "Detail 1", "Detail 2"]
+    assert gui.preview_titles(4) == [
+        "Whole",
+        "Detail 1",
+        "Detail 2",
+        "Detail 3",
+        "Detail 4",
+    ]
+
+
+def test_preview_titles_match_output_paths_length() -> None:
+    from auto_border_pano import gui, pipeline
+
+    for count in (2, 3, 4, 5):
+        assert len(gui.preview_titles(count)) == len(pipeline.output_paths("/tmp/x", count))
 
 
 def test_run_single_survives_non_oserror_failure(
@@ -52,13 +66,15 @@ def test_run_single_survives_non_oserror_failure(
     stub_root = _StubRoot()
     app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
     app.root = stub_root  # type: ignore[assignment]
-    finished: list[tuple[str, str | None, str | None]] = []
-    app._finish = lambda message, prefix, error: finished.append((message, prefix, error))  # type: ignore[method-assign]
+    finished: list[tuple[str, str | None, int | None, str | None]] = []
+    app._finish = lambda message, prefix, count, error: finished.append(  # type: ignore[method-assign]
+        (message, prefix, count, error)
+    )
 
-    app._run_single(str(tmp_path / "pano.jpg"), str(tmp_path / "out"))
+    app._run_single(str(tmp_path / "pano.jpg"), str(tmp_path / "out"), pipeline.DEFAULT_RATIO.name)
 
     assert stub_root.calls, "root.after was never scheduled -- worker died silently"
-    assert finished == [("Failed", None, "synthetic bomb")]
+    assert finished == [("Failed", None, None, "synthetic bomb")]
 
 
 def test_run_batch_survives_non_oserror_failure(
@@ -81,10 +97,12 @@ def test_run_batch_survives_non_oserror_failure(
     stub_root = _StubRoot()
     app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
     app.root = stub_root  # type: ignore[assignment]
-    finished: list[tuple[str, str | None, str | None]] = []
-    app._finish = lambda message, prefix, error: finished.append((message, prefix, error))  # type: ignore[method-assign]
+    finished: list[tuple[str, str | None, int | None, str | None]] = []
+    app._finish = lambda message, prefix, count, error: finished.append(  # type: ignore[method-assign]
+        (message, prefix, count, error)
+    )
 
-    app._run_batch(str(source_dir), str(tmp_path / "out"))
+    app._run_batch(str(source_dir), str(tmp_path / "out"), pipeline.DEFAULT_RATIO.name)
 
     assert stub_root.calls, "root.after was never scheduled -- worker died silently"
-    assert finished == [("Failed", None, "synthetic bomb")]
+    assert finished == [("Failed", None, None, "synthetic bomb")]

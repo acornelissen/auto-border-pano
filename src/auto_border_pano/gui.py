@@ -13,8 +13,12 @@ from PIL import Image, ImageTk
 
 from auto_border_pano import pipeline
 
-PREVIEW_TITLES = ("Padded Square", "Left Section", "Middle Section", "Right Section")
 PREVIEW_MAX_PX = 150
+
+
+def preview_titles(count: int) -> list[str]:
+    """Labels for the preview panes: the whole panorama plus each detail frame."""
+    return ["Whole"] + [f"Detail {n}" for n in range(1, count + 1)]
 
 
 class PanoramaSplitterGUI:
@@ -28,7 +32,9 @@ class PanoramaSplitterGUI:
         self.is_folder_mode = tk.BooleanVar(value=False)
         self.progress = tk.DoubleVar()
         self.status = tk.StringVar(value="Ready")
+        self.ratio = tk.StringVar(value=pipeline.DEFAULT_RATIO.name)
         self._preview_images: list[ImageTk.PhotoImage] = []
+        self.preview_labels: list[ttk.Label] = []
 
         self._build_ui()
 
@@ -57,32 +63,64 @@ class PanoramaSplitterGUI:
         self.mode_label = ttk.Label(main, text="Mode: Single File")
         self.mode_label.grid(row=2, column=0, columnspan=2, sticky=tk.W, pady=10)
 
+        ratio_row = ttk.Frame(main)
+        ratio_row.grid(row=3, column=0, columnspan=4, sticky=tk.W, pady=5)
+        ttk.Label(ratio_row, text="Aspect ratio:").pack(side="left")
+        ttk.Combobox(
+            ratio_row,
+            textvariable=self.ratio,
+            values=sorted(pipeline.RATIOS),
+            state="readonly",
+            width=10,
+        ).pack(side="left", padx=8)
+        ttk.Label(
+            ratio_row,
+            text="detail frames are derived from this",
+            foreground="grey40",
+        ).pack(side="left")
+
         self.process_btn = ttk.Button(main, text="Process Images", command=self.process_images)
-        self.process_btn.grid(row=3, column=0, columnspan=4, pady=20)
+        self.process_btn.grid(row=4, column=0, columnspan=4, pady=20)
 
         progress_frame = ttk.LabelFrame(main, text="Progress", padding="10")
-        progress_frame.grid(row=4, column=0, columnspan=4, sticky=(tk.W, tk.E), pady=10)
+        progress_frame.grid(row=5, column=0, columnspan=4, sticky=(tk.W, tk.E), pady=10)
         progress_frame.columnconfigure(0, weight=1)
         ttk.Progressbar(progress_frame, variable=self.progress, maximum=100).grid(
             row=0, column=0, sticky=(tk.W, tk.E), pady=5
         )
         ttk.Label(progress_frame, textvariable=self.status).grid(row=1, column=0, sticky=tk.W)
 
-        preview_frame = ttk.LabelFrame(main, text="Preview (Last Processed)", padding="10")
-        preview_frame.grid(row=5, column=0, columnspan=4, sticky=(tk.W, tk.E, tk.N, tk.S), pady=10)
-        preview_frame.rowconfigure(0, weight=1)
+        self.preview_frame = ttk.LabelFrame(main, text="Preview (Last Processed)", padding="10")
+        self.preview_frame.grid(
+            row=6, column=0, columnspan=4, sticky=(tk.W, tk.E, tk.N, tk.S), pady=10
+        )
+        self.preview_frame.rowconfigure(0, weight=1)
 
-        self.preview_labels: list[ttk.Label] = []
-        for column, title in enumerate(PREVIEW_TITLES):
-            preview_frame.columnconfigure(column, weight=1)
-            cell = ttk.Frame(preview_frame)
+        main.rowconfigure(6, weight=1)
+
+    def _rebuild_preview_panes(self, count: int) -> None:
+        """Recreate the preview cells for a run's frame count.
+
+        The count varies with the aspect ratio, so the panes cannot be built
+        once at construction time. Runs on the main thread only.
+        """
+        for child in self.preview_frame.winfo_children():
+            child.destroy()
+        self.preview_labels = []
+
+        titles = preview_titles(count)
+        for column, title in enumerate(titles):
+            self.preview_frame.columnconfigure(column, weight=1)
+            cell = ttk.Frame(self.preview_frame)
             cell.grid(row=0, column=column, padx=5, pady=5, sticky=(tk.N, tk.S, tk.E, tk.W))
             ttk.Label(cell, text=title, font=("Arial", 10, "bold")).pack()
             label = ttk.Label(cell, text="No preview", relief="sunken", anchor="center")
             label.pack(expand=True, fill="both")
             self.preview_labels.append(label)
 
-        main.rowconfigure(5, weight=1)
+        # Drop stale column weights from a previous, longer run.
+        for column in range(len(titles), len(titles) + 6):
+            self.preview_frame.columnconfigure(column, weight=0)
 
     def browse_file(self) -> None:
         filename = filedialog.askopenfilename(
@@ -116,10 +154,11 @@ class PanoramaSplitterGUI:
         source = self.input_path.get()
         self.output_path.set(str(Path(folder) / Path(source).stem) if source else folder)
 
-    def update_preview(self, output_prefix: str) -> None:
+    def update_preview(self, output_prefix: str, count: int) -> None:
+        self._rebuild_preview_panes(count)
         images: list[ImageTk.PhotoImage] = []
         for label, path in zip(
-            self.preview_labels, pipeline.output_paths(output_prefix), strict=True
+            self.preview_labels, pipeline.output_paths(output_prefix, count), strict=True
         ):
             if not path.exists():
                 label.config(image="", text="No preview")
@@ -128,19 +167,21 @@ class PanoramaSplitterGUI:
                 with Image.open(path) as img:
                     img.thumbnail((PREVIEW_MAX_PX, PREVIEW_MAX_PX), Image.Resampling.LANCZOS)
                     photo = ImageTk.PhotoImage(img)
-            except OSError as error:
+            except Exception as error:
                 label.config(image="", text=f"Error: {error}")
                 continue
             images.append(photo)
             label.config(image=photo, text="")
         self._preview_images = images
 
-    def _finish(self, message: str, prefix: str | None, error: str | None) -> None:
+    def _finish(
+        self, message: str, prefix: str | None, count: int | None, error: str | None
+    ) -> None:
         """Runs on the main thread. All widget mutation happens here."""
         self.progress.set(100)
         self.status.set(message)
-        if prefix is not None:
-            self.update_preview(prefix)
+        if prefix is not None and count is not None:
+            self.update_preview(prefix, count)
         self.process_btn.config(state="normal")
         if error is not None:
             messagebox.showerror("Error", error)
@@ -159,30 +200,32 @@ class PanoramaSplitterGUI:
         else:
             message = f"Processed {succeeded} of {total}"
         self.status.set(message)
-        if result.last_prefix is not None:
-            self.update_preview(str(result.last_prefix))
+        if result.last_prefix is not None and result.last_count is not None:
+            self.update_preview(str(result.last_prefix), result.last_count)
         self.process_btn.config(state="normal")
         if failed:
             messagebox.showwarning("Completed with errors", message)
         else:
             messagebox.showinfo("Success", message)
 
-    def _run_single(self, source: str, prefix: str) -> None:
+    def _run_single(self, source: str, prefix: str, ratio_name: str) -> None:
         try:
-            pipeline.process_image(source, prefix)
+            written = pipeline.process_image(source, prefix, pipeline.RATIOS[ratio_name])
         except Exception as error:
-            self.root.after(0, self._finish, "Failed", None, str(error))
+            self.root.after(0, self._finish, "Failed", None, None, str(error))
             return
-        self.root.after(0, self._finish, "Complete", prefix, None)
+        self.root.after(0, self._finish, "Complete", prefix, len(written) - 1, None)
 
-    def _run_batch(self, source: str, destination: str) -> None:
+    def _run_batch(self, source: str, destination: str, ratio_name: str) -> None:
         def report(done: int, total: int, path: Path) -> None:
             self.root.after(0, self._set_progress, done, total, path.name)
 
         try:
-            result = pipeline.process_folder(source, destination, on_progress=report)
+            result = pipeline.process_folder(
+                source, destination, pipeline.RATIOS[ratio_name], on_progress=report
+            )
         except Exception as error:
-            self.root.after(0, self._finish, "Failed", None, str(error))
+            self.root.after(0, self._finish, "Failed", None, None, str(error))
             return
         self.root.after(0, self._finish_batch, result)
 
@@ -200,7 +243,9 @@ class PanoramaSplitterGUI:
         self.progress.set(0)
         self.status.set("Working...")
         target = self._run_batch if self.is_folder_mode.get() else self._run_single
-        threading.Thread(target=target, args=(source, destination), daemon=True).start()
+        threading.Thread(
+            target=target, args=(source, destination, self.ratio.get()), daemon=True
+        ).start()
 
 
 def run() -> None:
