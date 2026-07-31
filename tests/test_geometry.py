@@ -115,3 +115,47 @@ def test_tall_section_center_crop_uses_the_computed_offset_not_zero() -> None:
     actual = geometry.make_section(panorama, 0)
 
     assert actual.getpixel((500, 500)) == expected_pixel
+
+
+def test_ratio_output_sizes_are_exact() -> None:
+    assert (geometry.SQUARE.width, geometry.SQUARE.height) == (1080, 1080)
+    assert (geometry.PORTRAIT.width, geometry.PORTRAIT.height) == (1080, 1350)
+    assert (geometry.LANDSCAPE.width, geometry.LANDSCAPE.height) == (1080, 566)
+
+
+def test_ratios_are_registered_by_name() -> None:
+    assert set(geometry.RATIOS) == {"1:1", "4:5", "1.91:1"}
+    assert geometry.RATIOS["4:5"] is geometry.PORTRAIT
+    assert geometry.DEFAULT_RATIO is geometry.PORTRAIT
+
+
+def test_typical_panorama_counts_match_real_samples() -> None:
+    # 2.40:1 is the most common aspect across the user's real scans.
+    width, height = 7205, 2997
+    assert geometry.section_count(width, height, geometry.LANDSCAPE) == 2
+    assert geometry.section_count(width, height, geometry.SQUARE) == 2
+    assert geometry.section_count(width, height, geometry.PORTRAIT) == 3
+
+
+def test_large_format_panorama_counts_match_real_samples() -> None:
+    # 3.02:1, the two 617 scans.
+    width, height = 19921, 6607
+    assert geometry.section_count(width, height, geometry.LANDSCAPE) == 2
+    assert geometry.section_count(width, height, geometry.SQUARE) == 3
+    assert geometry.section_count(width, height, geometry.PORTRAIT) == 4
+
+
+def test_count_is_floored_at_two() -> None:
+    # Tiling alone wants 1 here; the floor is what makes the frames a zoom
+    # rather than a restatement of the whole-panorama frame.
+    assert geometry.section_count(2400, 1000, geometry.LANDSCAPE) == 2
+
+
+def test_count_floors_at_two_even_when_narrower_than_one_tile() -> None:
+    assert geometry.section_count(500, 1000, geometry.PORTRAIT) == 2
+
+
+def test_count_rounds_half_up_not_bankers() -> None:
+    # tile = 1000 * 1.0 = 1000; 2500/1000 = 2.5 exactly.
+    # Python's round() would give 2 (banker's rounding); we want 3.
+    assert geometry.section_count(2500, 1000, geometry.SQUARE) == 3
