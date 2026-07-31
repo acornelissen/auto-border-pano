@@ -22,9 +22,6 @@ dev = ["pytest>=8.0", "ruff>=0.6", "mypy>=1.11", "pre-commit>=3.8"]
 [tool.ruff]
 line-length = 100
 src = ["src", "tests"]
-# Legacy pre-refactor scripts are extracted into src/ in a later task; do not
-# lint or reformat them here.
-extend-exclude = ["panorama_splitter.py", "panorama_splitter_gui.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]

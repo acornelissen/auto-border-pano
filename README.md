@@ -4,7 +4,7 @@
 
 A Python tool for automatically processing panoramic images into social media-ready formats. This tool takes panoramic JPG images and creates four outputs:
 
-1. **Padded Square**: The full panorama in a square frame with 10px side padding and 100px top/bottom padding
+1. **Padded Square**: The full panorama, centered on a white square canvas that is 200px wider than the image. For a normal wide panorama this gives exactly 100px of padding on the left and right, and a larger leftover gap top and bottom
 2. **Left Section**: A 1080x1080 square crop of the left third of the panorama
 3. **Middle Section**: A 1080x1080 square crop of the middle third of the panorama
 4. **Right Section**: A 1080x1080 square crop of the right third of the panorama
@@ -20,166 +20,80 @@ A Python tool for automatically processing panoramic images into social media-re
 
 ## Requirements
 
-- Python 3.7 or higher
-- Pillow (PIL) for image processing
-- tkinter (GUI support) - included with Python on Windows/macOS, requires separate installation on Linux
-- macOS: Homebrew package manager (recommended)
+- [mise](https://mise.jdx.dev) on macOS and Linux, or
+  [uv](https://docs.astral.sh/uv/) on Windows
 
-## Quick Installation
+Everything else, including Python itself, is installed for you.
 
-### Option 1: Automated Installation (Recommended)
+## Installation
 
-**macOS:**
+**macOS / Linux**
+
 ```bash
-chmod +x install.sh
-./install.sh
+mise install
+mise run setup
 ```
-This will:
-- Install Python 3 via Homebrew (if needed)
-- Install image processing libraries via Homebrew
-- Create a virtual environment
-- Install Pillow with proper Homebrew linking
-- tkinter is included with Homebrew Python
 
-**Linux:**
-```bash
-chmod +x install.sh
-./install.sh
-```
-This will:
-- Check and install tkinter if needed (python3-tk package)
-- Auto-detect your package manager (apt, dnf, yum, zypper, pacman)
-- Create a virtual environment
-- Install all dependencies
+**Windows**
 
-**Windows:**
 ```batch
 install.bat
 ```
 
-The installer will:
-- Set up all dependencies
-- Create a virtual environment
-- Provide instructions for running the app
-
-### Option 2: Manual Installation
-
-**macOS (using Homebrew):**
-```bash
-# Install dependencies via Homebrew
-brew install python@3 libjpeg libtiff little-cms2 openjpeg webp
-
-# Create virtual environment
-python3 -m venv venv
-
-# Activate virtual environment
-source venv/bin/activate
-
-# Install Pillow with Homebrew libraries
-export CPPFLAGS="-I$(brew --prefix)/include"
-export LDFLAGS="-L$(brew --prefix)/lib"
-pip install -r requirements.txt
-```
-
-**Linux/Windows:**
-```bash
-# Create virtual environment
-python3 -m venv venv
-
-# Activate virtual environment
-source venv/bin/activate  # Linux
-# or
-venv\Scripts\activate     # Windows
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
 ## Usage
 
-### GUI Mode (Recommended)
+**GUI:** `mise run gui` (or `run_gui.bat` on Windows)
 
-**Quick Launch (auto-activates virtual environment):**
-- **macOS/Linux:** `./run_gui.sh`
-- **Windows:** `run_gui.bat`
-
-**Or manually:**
-```bash
-# Activate virtual environment first
-source venv/bin/activate  # macOS/Linux
-# or
-venv\Scripts\activate     # Windows
-
-# Then run the GUI
-python panorama_splitter_gui.py
-```
-
-Features:
-- Visual file/folder selection
-- Real-time progress tracking
-- Preview of processed images
-- Automatic output path suggestions
-
-### Command Line Mode
-
-#### Single File Processing
-
-Process a single panoramic image:
+**CLI:**
 
 ```bash
-python panorama_splitter.py input_panorama.jpg
+mise run split -- input.jpg my_prefix      # single image
+mise run split -- ./panoramas ./output     # whole folder
 ```
 
-Process with custom output prefix:
-
-```bash
-python panorama_splitter.py input_panorama.jpg my_custom_prefix
-```
-
-#### Folder Processing
-
-Process all JPG files in a folder:
-
-```bash
-python panorama_splitter.py ./input_folder ./output_folder
-```
+Run `uv run pano-split --help` for all options. Folder mode writes to
+`./output` if you omit the output argument.
 
 ### Examples
 
 1. **GUI mode:**
    ```bash
-   python panorama_splitter_gui.py
+   mise run gui
    ```
    - Click "Browse File" to select a single panorama
    - Click "Browse Folder" to process multiple images
    - Click "Process Images" to start
    - View previews of the generated images
 
-2. **Command line - single file:**
+2. **CLI - single file:**
    ```bash
-   python panorama_splitter.py vacation_pano.jpg
+   mise run split -- vacation_pano.jpg
    ```
    Creates: `output_1_padded_square.jpg`, `output_2_section1.jpg`, `output_3_section2.jpg`, `output_4_section3.jpg`
 
-3. **Command line - custom prefix:**
+3. **CLI - custom prefix:**
    ```bash
-   python panorama_splitter.py sunset.jpg hawaii_sunset
+   mise run split -- sunset.jpg hawaii_sunset
    ```
    Creates: `hawaii_sunset_1_padded_square.jpg`, `hawaii_sunset_2_section1.jpg`, etc.
 
-4. **Command line - batch processing:**
+4. **CLI - batch processing:**
    ```bash
-   python panorama_splitter.py ~/Pictures/Panoramas ~/Pictures/Panoramas_Processed
+   mise run split -- ~/Pictures/Panoramas ~/Pictures/Panoramas_Processed
    ```
-   Processes all JPG files and organizes outputs in the specified folder
+   Processes every JPG in the folder once each and organizes outputs in the
+   specified folder. If any file fails, the CLI exits non-zero and lists the
+   failures on stderr; everything else in the batch still gets processed.
 
 ## Output Details
 
 ### Output 1: Padded Square
-- Contains the entire panorama
-- Square format with white padding
-- 100px padding on left and right sides
-- 10px padding on top and bottom
+- Contains the entire panorama, centered on a white square canvas
+- The canvas is `max(width + 200px, height + 20px)` on a side, so for any
+  normal wide panorama the width term wins
+- That gives exactly 100px of padding on the left and right, and a larger
+  leftover gap top and bottom (not 10px — this is deliberate, and locked
+  in place by tests)
 - Ideal for Instagram gallery posts
 
 ### Outputs 2-4: Three Sections

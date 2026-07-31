@@ -67,9 +67,7 @@ def process_image(input_path: Path | str, output_prefix: Path | str) -> list[Pat
 
     geometry.make_padded_square(source).save(targets[0], "JPEG", quality=JPEG_QUALITY)
     for index in range(geometry.SECTION_COUNT):
-        geometry.make_section(source, index).save(
-            targets[index + 1], "JPEG", quality=JPEG_QUALITY
-        )
+        geometry.make_section(source, index).save(targets[index + 1], "JPEG", quality=JPEG_QUALITY)
     return targets
 
 

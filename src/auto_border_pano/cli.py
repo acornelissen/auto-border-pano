@@ -37,8 +37,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.input.is_dir():
             result = pipeline.process_folder(args.input, args.output)
             print(
-                f"Wrote {result.succeeded_count} of {result.total_count} "
-                f"files to {args.output}"
+                f"Wrote {result.succeeded_count} of {result.total_count} " f"files to {args.output}"
             )
             for source, message in result.failed:
                 print(f"Error processing {source}: {message}", file=sys.stderr)
@@ -75,6 +74,7 @@ def gui_main() -> int:
         )
         return 1
     from auto_border_pano.gui import run
+
     run()
     return 0
 

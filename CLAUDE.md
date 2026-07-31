@@ -8,36 +8,48 @@ Python tool that turns a panoramic JPG into four Instagram-ready images: one whi
 
 ## Commands
 
-Setup (creates `venv/`, installs Pillow, and on macOS installs Homebrew image libs / on Linux installs `python3-tk`):
+Setup (installs Python and uv via mise, then syncs dependencies):
 
 ```bash
-./install.sh          # macOS / Linux
-install.bat           # Windows
+mise install
+mise run setup
 ```
 
 Run:
 
 ```bash
-./run_gui.sh                                              # GUI (auto-installs if venv missing)
-python panorama_splitter.py <input.jpg> [output_prefix]   # single file
-python panorama_splitter.py <input_dir> <output_dir>      # batch
+mise run gui                    # GUI
+mise run split -- <input.jpg> [output_prefix]   # single file
+mise run split -- <input_dir> [output_dir]      # batch, defaults output_dir to ./output
 ```
 
-There is no test suite, linter, or CI. Verify changes by processing a real panorama and inspecting the four outputs.
+Verify:
+
+```bash
+mise run check   # ruff lint, mypy --strict, pytest — run this before committing
+```
+
+`mise run check` is the single command that must pass. It runs `lint`, `typecheck`, and `test` (see `.mise.toml` for the individual tasks).
 
 ## Architecture
 
-Two files, one dependency direction: the GUI imports from the CLI module, never the reverse.
+Src-layout package at `src/auto_border_pano/`, four modules with one dependency direction: `geometry` <- `pipeline` <- `cli`/`gui`.
 
-- `panorama_splitter.py` — all image logic.
-  - `process_panoramic_image(input_path, output_prefix)` is the only unit of work. It writes four files derived from the prefix: `{prefix}_1_padded_square.jpg`, `{prefix}_2_section1.jpg`, `{prefix}_3_section2.jpg`, `{prefix}_4_section3.jpg`. This naming is a contract — `PanoramaSplitterGUI.update_preview()` reconstructs the same four paths to load previews, so renaming outputs breaks the GUI silently.
-  - `process_folder()` globs `*.jpg *.JPG *.jpeg *.JPEG`, derives each prefix from the input basename, and swallows per-file exceptions so one bad image doesn't abort the batch.
-- `panorama_splitter_gui.py` — tkinter front end. Guards the `import tkinter` at module load and exits with per-platform install instructions if it's missing. `process_folder_batch()` deliberately re-implements the glob-and-loop instead of calling `process_folder()`, because it needs per-file progress updates.
+- `geometry.py` — pure image transforms. Takes and returns `PIL.Image` objects, never touches the filesystem. Owns `make_padded_square()` and `make_section()`. Fast to test in memory.
+- `pipeline.py` — the only module that touches the filesystem. Owns the output-filename contract (`{prefix}_1_padded_square.jpg`, `{prefix}_2_section1.jpg`, `{prefix}_3_section2.jpg`, `{prefix}_4_section3.jpg`) via `output_paths()`, plus `process_image()`, `find_panoramas()`, and `process_folder()`. `process_folder()` reports per-file failures in the returned `BatchResult` instead of raising, so one bad image doesn't abort a batch; callers (CLI, GUI) decide how to surface them.
+- `cli.py` — argparse entry points (`pano-split`, `pano-split-gui`). Never exits on import; the tkinter-availability guard lives in `gui_main()`, not at module scope, so importing the package can never terminate the host process.
+- `gui.py` — tkinter front end. Imports `pipeline`, never `geometry`, and reuses `pipeline.output_paths()` for preview loading so the naming contract can't drift between the two.
 
 ### Padding behaviour worth knowing
 
-The "100px sides / 10px top-bottom" padding only picks the canvas size (`max(width+200, height+20)`); the panorama is then centered on that canvas. For any normal wide panorama the width term wins, so the real result is a square canvas 200px wider than the image with the panorama vertically centered — the top/bottom gap is whatever's left over, not 10px. The README describes the padding inverted relative to the code.
+The canvas size is `max(width + 200, height + 20)`; the panorama is then centered on that canvas. For any normal wide panorama the width term wins, so the real result is a square canvas 200px wider than the image with the panorama centered — the top/bottom gap is whatever's left over, not a fixed 10px. This is deliberate and is locked in place by characterisation tests in `tests/`; do not "fix" it without checking those tests first.
+
+### Behaviour changes from the pre-refactor scripts
+
+- `find_panoramas()` no longer double-counts files on case-insensitive filesystems (the old code globbed `*.jpg` and `*.JPG` separately, matching the same file twice).
+- Folder mode defaults its output to `./output` when omitted; the old CLI required it and errored otherwise.
+- Batch failures are reported rather than silently swallowed: the CLI exits non-zero and prints failures to stderr, and the GUI status reads "Processed N of M, K failed" instead of always claiming success.
 
 ### Concurrency
 
-The GUI starts a plain `threading.Thread` per run and calls `messagebox`/`ttk` methods directly from it. Only `update_preview` is marshalled back via `root.after()`. If you touch the threading code, route widget updates through `root.after()`.
+The GUI starts a plain `threading.Thread` per run and calls `messagebox`/`ttk` methods directly from it. Only widget mutation on completion (`_finish`, `_finish_batch`, `_set_progress`) is marshalled back via `root.after()`. If you touch the threading code, keep all widget updates on the main thread via `root.after()`.

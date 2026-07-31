@@ -58,9 +58,7 @@ def test_default_prefix_is_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     assert (tmp_path / "output_1_padded_square.jpg").exists()
 
 
-def test_folder_mode_default_output(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_folder_mode_default_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     source_dir = tmp_path / "in"
     source_dir.mkdir()

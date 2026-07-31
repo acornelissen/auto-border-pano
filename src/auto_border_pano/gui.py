@@ -43,9 +43,7 @@ class PanoramaSplitterGUI:
         ttk.Entry(main, textvariable=self.input_path, width=50).grid(
             row=0, column=1, sticky=(tk.W, tk.E), padx=5
         )
-        ttk.Button(main, text="Browse File", command=self.browse_file).grid(
-            row=0, column=2, padx=5
-        )
+        ttk.Button(main, text="Browse File", command=self.browse_file).grid(row=0, column=2, padx=5)
         ttk.Button(main, text="Browse Folder", command=self.browse_folder).grid(
             row=0, column=3, padx=5
         )
@@ -54,16 +52,12 @@ class PanoramaSplitterGUI:
         ttk.Entry(main, textvariable=self.output_path, width=50).grid(
             row=1, column=1, sticky=(tk.W, tk.E), padx=5
         )
-        ttk.Button(main, text="Browse", command=self.browse_output).grid(
-            row=1, column=2, padx=5
-        )
+        ttk.Button(main, text="Browse", command=self.browse_output).grid(row=1, column=2, padx=5)
 
         self.mode_label = ttk.Label(main, text="Mode: Single File")
         self.mode_label.grid(row=2, column=0, columnspan=2, sticky=tk.W, pady=10)
 
-        self.process_btn = ttk.Button(
-            main, text="Process Images", command=self.process_images
-        )
+        self.process_btn = ttk.Button(main, text="Process Images", command=self.process_images)
         self.process_btn.grid(row=3, column=0, columnspan=4, pady=20)
 
         progress_frame = ttk.LabelFrame(main, text="Progress", padding="10")
@@ -72,14 +66,10 @@ class PanoramaSplitterGUI:
         ttk.Progressbar(progress_frame, variable=self.progress, maximum=100).grid(
             row=0, column=0, sticky=(tk.W, tk.E), pady=5
         )
-        ttk.Label(progress_frame, textvariable=self.status).grid(
-            row=1, column=0, sticky=tk.W
-        )
+        ttk.Label(progress_frame, textvariable=self.status).grid(row=1, column=0, sticky=tk.W)
 
         preview_frame = ttk.LabelFrame(main, text="Preview (Last Processed)", padding="10")
-        preview_frame.grid(
-            row=5, column=0, columnspan=4, sticky=(tk.W, tk.E, tk.N, tk.S), pady=10
-        )
+        preview_frame.grid(row=5, column=0, columnspan=4, sticky=(tk.W, tk.E, tk.N, tk.S), pady=10)
         preview_frame.rowconfigure(0, weight=1)
 
         self.preview_labels: list[ttk.Label] = []

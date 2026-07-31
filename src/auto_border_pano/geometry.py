@@ -51,9 +51,7 @@ def section_bounds(width: int, index: int) -> tuple[int, int]:
     return start, start + section_width
 
 
-def make_section(
-    image: Image.Image, index: int, size: int = SECTION_SIZE
-) -> Image.Image:
+def make_section(image: Image.Image, index: int, size: int = SECTION_SIZE) -> Image.Image:
     """Crop one section of the panorama and fill a square of `size`.
 
     Scales on whichever axis keeps the square fully covered, then
@@ -66,15 +64,11 @@ def make_section(
 
     if crop_width > crop_height:
         scale = size / crop_height
-        resized = crop.resize(
-            (int(crop_width * scale), size), Image.Resampling.LANCZOS
-        )
+        resized = crop.resize((int(crop_width * scale), size), Image.Resampling.LANCZOS)
         offset = (resized.width - size) // 2
         return resized.crop((offset, 0, offset + size, size))
 
     scale = size / crop_width
-    resized = crop.resize(
-        (size, int(crop_height * scale)), Image.Resampling.LANCZOS
-    )
+    resized = crop.resize((size, int(crop_height * scale)), Image.Resampling.LANCZOS)
     offset = (resized.height - size) // 2
     return resized.crop((0, offset, size, offset + size))

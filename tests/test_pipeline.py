@@ -67,9 +67,7 @@ def test_process_folder_creates_output_dir_and_reports_progress(
     result = pipeline.process_folder(
         source_dir,
         out_dir,
-        on_progress=lambda done, total, path: seen.append(
-            (done, total, path.name)
-        ),
+        on_progress=lambda done, total, path: seen.append((done, total, path.name)),
     )
 
     assert out_dir.is_dir()
