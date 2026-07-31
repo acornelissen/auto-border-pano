@@ -324,3 +324,71 @@ def test_finish_batch_reports_no_panoramas_found_instead_of_success(
 
     assert messages == [("No panoramas found", "No JPG files found in the input folder")]
     assert app.process_btn.last_state == "normal"  # type: ignore[attr-defined]
+
+
+def test_compose_tab_requires_two_or_three_images() -> None:
+    from auto_border_pano.gui import compose_tab
+
+    tab = compose_tab.ComposeTab.__new__(compose_tab.ComposeTab)
+    tab.images = ["a.jpg"]
+    assert not tab.can_compose()
+    tab.images = ["a.jpg", "b.jpg"]
+    assert tab.can_compose()
+    tab.images = ["a.jpg", "b.jpg", "c.jpg"]
+    assert tab.can_compose()
+    tab.images = ["a.jpg", "b.jpg", "c.jpg", "d.jpg"]
+    assert not tab.can_compose()
+
+
+def test_compose_tab_reordering_changes_the_order() -> None:
+    from auto_border_pano.gui import compose_tab
+
+    tab = compose_tab.ComposeTab.__new__(compose_tab.ComposeTab)
+    tab.images = ["a.jpg", "b.jpg", "c.jpg"]
+    tab._selection = 2
+    tab._swap(2, 1)
+    assert tab.images == ["a.jpg", "c.jpg", "b.jpg"]
+
+
+def test_compose_worker_reports_the_layout_name(tmp_path: Path) -> None:
+    # The worker runs off the main thread and must hand everything back
+    # through root.after -- the same discipline as the splitter's workers.
+    from auto_border_pano.gui import compose_tab
+
+    fixtures = Path(__file__).parent / "fixtures"
+    sources = [str(fixtures / "compose_wide.jpg"), str(fixtures / "compose_square.jpg")]
+
+    calls: list[tuple[Any, ...]] = []
+
+    class StubRoot:
+        def after(self, _delay: int, func: Any, *args: Any) -> None:
+            calls.append(args)
+            func(*args)
+
+    tab = compose_tab.ComposeTab.__new__(compose_tab.ComposeTab)
+    tab.root = StubRoot()  # type: ignore[assignment]
+    tab._finish = lambda *args: calls.append(args)  # type: ignore[method-assign]
+
+    tab._run_compose(sources, str(tmp_path / "out"), "4:5")
+
+    assert calls, "worker never reported back through root.after"
+    assert (tmp_path / "out_diptych.jpg").exists()
+
+
+def test_compose_worker_reports_failure_without_dying(tmp_path: Path) -> None:
+    from auto_border_pano.gui import compose_tab
+
+    calls: list[tuple[Any, ...]] = []
+
+    class StubRoot:
+        def after(self, _delay: int, func: Any, *args: Any) -> None:
+            calls.append(args)
+            func(*args)
+
+    tab = compose_tab.ComposeTab.__new__(compose_tab.ComposeTab)
+    tab.root = StubRoot()  # type: ignore[assignment]
+    tab._finish = lambda *args: calls.append(args)  # type: ignore[method-assign]
+
+    tab._run_compose(["/does/not/exist.jpg", "/nor/this.jpg"], str(tmp_path / "out"), "4:5")
+
+    assert calls, "worker died silently instead of reporting the error"

@@ -23,7 +23,7 @@ def preview_titles(count: int) -> list[str]:
 
 
 class PanoramaSplitterGUI:
-    def __init__(self, root: tk.Tk) -> None:
+    def __init__(self, root: tk.Misc) -> None:
         self.root = root
 
         self.input_path = tk.StringVar()
