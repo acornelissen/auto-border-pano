@@ -15,6 +15,8 @@ mise install
 mise run setup
 ```
 
+`mise run setup` also installs the pre-commit hooks (`pre-commit install --hook-type pre-commit --hook-type pre-push`), so a fresh clone gets `ruff`/`ruff-format` on commit and `mypy`/`pytest` on push per `.pre-commit-config.yaml`.
+
 Run:
 
 ```bash
@@ -49,6 +51,7 @@ The canvas size is `max(width + 200, height + 20)`; the panorama is then centere
 - `find_panoramas()` no longer double-counts files on case-insensitive filesystems (the old code globbed `*.jpg` and `*.JPG` separately, matching the same file twice).
 - Folder mode defaults its output to `./output` when omitted; the old CLI required it and errored otherwise.
 - Batch failures are reported rather than silently swallowed: the CLI exits non-zero and prints failures to stderr, and the GUI status reads "Processed N of M, K failed" instead of always claiming success.
+- `process_image()` converts the source to RGB (`.convert("RGB")`) before processing, so a grayscale or RGBA/P-mode source now produces RGB sections instead of preserving its original mode. The legacy script had no such conversion and crashed with "cannot write mode RGBA as JPEG" on non-RGB inputs; the refactor fixes that but means the "byte-identical to the legacy output" guarantee is scoped to RGB inputs.
 
 ### Concurrency
 

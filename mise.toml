@@ -7,7 +7,7 @@ _.python.venv = { path = ".venv", create = true }
 
 [tasks.setup]
 description = "Install dependencies"
-run = "uv sync"
+run = ["uv sync", "uv run pre-commit install --hook-type pre-commit --hook-type pre-push"]
 
 [tasks.gui]
 description = "Launch the GUI"
