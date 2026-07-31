@@ -26,8 +26,11 @@ def test_facts_report_the_pixels_and_the_native_ratio(tmp_path: Path) -> None:
 
 
 def test_facts_round_the_native_ratio_to_two_places(tmp_path: Path) -> None:
+    """At the size of the user's real scans. A flat fill rather than the
+    gradient helper: this only reads the header, and generating 132M pixels
+    in Python to check a rounding rule cost eight seconds of every run."""
     source = tmp_path / "pano.jpg"
-    synthetic_panorama(19921, 6607).save(source, "JPEG", quality=95)
+    Image.new("RGB", (19921, 6607), "grey").save(source, "JPEG", quality=95)
 
     assert pipeline.inspect_negative(source).native_ratio == "3.02:1"
 

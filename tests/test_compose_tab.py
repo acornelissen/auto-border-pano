@@ -372,10 +372,10 @@ def test_a_late_solve_does_not_overwrite_a_newer_one(tk_root: tkinter.Tk) -> Non
     # A newer request supersedes the one in flight.
     tab.images = ["a.jpg", "b.jpg", "c.jpg"]
     tab._refresh_list()
-    tab._apply_layout_name(tab._solve_token, "row", 3)
+    tab._apply_layout_name(tab._solve_token, "row", 3, {})
     assert tab.layout_name.get() == compose_tab.present_layout("row", 3)
 
-    tab._apply_layout_name(stale_token, "column", 2)
+    tab._apply_layout_name(stale_token, "column", 2, {})
     assert tab.layout_name.get() == compose_tab.present_layout("row", 3)
     assert tab._solved == "row"
 
@@ -462,3 +462,66 @@ def test_a_compose_failure_is_reported_inline(
     tab._finish("Could not compose — no such file", None, "no such file")
     assert tab.hint.get() == "no such file"
     assert str(tab.hint_label.cget("style")) == "Error.TLabel"
+
+
+def test_the_rows_gain_their_dimensions_once_the_headers_are_read(
+    tk_root: tkinter.Tk, tmp_path: Path
+) -> None:
+    """The list shows each negative's pixel size, but the sizes come off a
+    worker thread. A row must render before they arrive and pick them up
+    after, without a second solve being kicked off in the process."""
+    from PIL import Image
+
+    first = tmp_path / "a.jpg"
+    second = tmp_path / "b.jpg"
+    Image.new("RGB", (4000, 1700), "grey").save(first, "JPEG")
+    Image.new("RGB", (1200, 1600), "grey").save(second, "JPEG")
+
+    tab = _tk_tab(tk_root)
+    tab.images = [str(first), str(second)]
+    tab._refresh_list()
+
+    # Before the worker reports: rows exist, sizes do not.
+    assert tab.listbox.count == 2
+    assert tab.listbox.items[0].size is None
+
+    token = tab._solve_token
+    sizes = {str(first): (4000, 1700), str(second): (1200, 1600)}
+    tab._apply_layout_name(token, "row", 2, sizes)
+
+    assert [item.size for item in tab.listbox.items] == [(4000, 1700), (1200, 1600)]
+    assert tab._solve_token == token, "applying sizes must not start another solve"
+
+
+def test_moving_a_negative_keeps_it_selected(tk_root: tkinter.Tk) -> None:
+    """Order is the composite's order, so the thing you are moving has to
+    stay the thing you are moving -- otherwise a second press moves whatever
+    happened to land under it."""
+    tab = _tk_tab(tk_root)
+    tab.images = ["a.jpg", "b.jpg", "c.jpg"]
+    tab._refresh_list()
+    tab.listbox.select(2)
+
+    tab.move_up()
+
+    assert tab.images == ["a.jpg", "c.jpg", "b.jpg"]
+    assert tab.listbox.selected_index == 1
+    assert tab._selection == 1
+
+    tab.move_up()
+
+    assert tab.images == ["c.jpg", "a.jpg", "b.jpg"]
+    assert tab.listbox.selected_index == 0
+
+
+def test_removing_a_negative_leaves_a_sane_selection(tk_root: tkinter.Tk) -> None:
+    tab = _tk_tab(tk_root)
+    tab.images = ["a.jpg", "b.jpg", "c.jpg"]
+    tab._refresh_list()
+    tab.listbox.select(2)
+
+    tab.remove()
+
+    assert tab.images == ["a.jpg", "b.jpg"]
+    assert tab._selection == tab.listbox.selected_index
+    assert tab._selection is None or 0 <= tab._selection < 2

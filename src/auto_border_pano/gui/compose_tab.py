@@ -13,7 +13,8 @@ from tkinter import filedialog, ttk
 from PIL import Image
 
 from auto_border_pano import pipeline
-from auto_border_pano.gui import shell, theme
+from auto_border_pano.gui import shell, theme, tooltip
+from auto_border_pano.gui.negatives import Negative, NegativesList
 from auto_border_pano.gui.strip import ContactStrip
 
 MIN_IMAGES = 2
@@ -106,6 +107,10 @@ class ComposeTab:
         # third image was added cannot overwrite the newer answer.
         self._solved: str = ""
         self._solve_token = 0
+        # Pixel sizes by path, filled in by the solve worker below. Cached
+        # because the same negative is re-listed on every add, remove and
+        # reorder, and re-reading its header each time would be wasteful.
+        self._sizes: dict[str, tuple[int, int]] = {}
 
         self._build_ui()
 
@@ -120,28 +125,13 @@ class ComposeTab:
 
         shell.section(rail, "Negatives", row=0)
 
-        listbox_row = ttk.Frame(rail)
-        listbox_row.grid(row=1, column=0, sticky=(tk.W, tk.E))
-        listbox_row.columnconfigure(0, weight=1)
-
-        # A raw Tk widget: ttk.Style cannot reach it, so the theme tokens are
-        # applied by hand until Stage 5 replaces it outright.
-        self.listbox = tk.Listbox(
-            listbox_row,
-            height=4,
-            background=theme.LIGHTBOX,
-            foreground=theme.REBATE,
-            selectbackground=theme.CHINAGRAPH,
-            selectforeground=theme.LIGHTBOX,
-            borderwidth=0,
-            highlightthickness=1,
-            highlightbackground=theme.SPROCKET,
-            highlightcolor=theme.CHINAGRAPH,
-            activestyle="none",
-            font=theme.font(listbox_row, "data"),
-        )
-        self.listbox.grid(row=0, column=0, sticky=(tk.W, tk.E))
-        self.listbox.bind("<<ListboxSelect>>", self._on_select)
+        # Numbered rows in the contact strip's own visual language, because
+        # the number *is* the arrangement: reordering here moves a numbered
+        # frame there. The tk.Listbox this replaces was a black rectangle
+        # with a sunken border among ttk widgets, and said nothing about the
+        # one thing that matters -- that the order is the composite's order.
+        self.listbox = NegativesList(rail, on_select=self._on_select)
+        self.listbox.canvas.grid(row=1, column=0, sticky=(tk.W, tk.E))
 
         # A row under the list rather than a column beside it: the list is
         # the subject, the four controls act on it.
@@ -155,6 +145,13 @@ class ComposeTab:
         self.down_btn.pack(side="left", padx=(theme.SPACE_S, 0))
         self.remove_btn = ttk.Button(buttons, text="×", width=3, command=self.remove)  # noqa: RUF001
         self.remove_btn.pack(side="left", padx=(theme.SPACE_S, 0))
+
+        # These three are glyphs, so the tooltip is their only name. It shows
+        # on focus as well as hover, which is what keeps them reachable
+        # without a pointer.
+        tooltip.attach(self.up_btn, "Move earlier")
+        tooltip.attach(self.down_btn, "Move later")
+        tooltip.attach(self.remove_btn, "Remove")
 
         ttk.Label(rail, text=ORDER_HINT, style="Help.TLabel", wraplength=shell.RAIL_WIDTH).grid(
             row=3, column=0, sticky=tk.W, pady=(theme.SPACE_S, 0)
@@ -279,7 +276,9 @@ class ComposeTab:
         self._update_status()
 
         sources = list(self.images)
-        if not self.can_compose():
+        # The sizes shown in the list are wanted whether or not the set is
+        # composable yet -- one negative still has dimensions worth showing.
+        if not sources:
             return
         threading.Thread(
             target=self._run_name_layout,
@@ -289,6 +288,13 @@ class ComposeTab:
 
     def _run_name_layout(self, token: int, sources: list[str], ratio_name: str) -> None:
         """Worker. Touches no tk object; reports back through root.after."""
+        sizes: dict[str, tuple[int, int]] = {}
+        for source in sources:
+            # Header reads only, and one unreadable file must not cost the
+            # others their dimensions.
+            with contextlib.suppress(OSError):
+                facts = pipeline.inspect_negative(source)
+                sizes[source] = (facts.width, facts.height)
         try:
             name = pipeline.name_layout(sources, pipeline.RATIOS[ratio_name])
         except (ValueError, OSError):
@@ -301,23 +307,35 @@ class ComposeTab:
         # RuntimeError as well as TclError: Tk raises the former when the
         # interpreter has no main loop left to schedule onto.
         with contextlib.suppress(tk.TclError, RuntimeError):
-            self.root.after(0, self._apply_layout_name, token, name, len(sources))
+            self.root.after(0, self._apply_layout_name, token, name, len(sources), sizes)
 
-    def _apply_layout_name(self, token: int, name: str, count: int) -> None:
+    def _apply_layout_name(
+        self, token: int, name: str, count: int, sizes: dict[str, tuple[int, int]]
+    ) -> None:
         """Runs on the main thread. Late answers are dropped, not shown."""
         if token != self._solve_token:
             return
         self._solved = name
         self.layout_name.set(present_layout(name, count))
         self._update_status()
+        if sizes and not sizes.items() <= self._sizes.items():
+            self._sizes.update(sizes)
+            # Redraw the rows now the dimensions are known. Straight to the
+            # widget, not through _refresh_list, which would start another
+            # solve and loop.
+            self.listbox.set_items(
+                [Negative(path=path, size=self._sizes.get(path)) for path in self.images]
+            )
 
     def _on_ratio_change(self, _event: object = None) -> None:
         self._request_layout_name()
 
     def _refresh_list(self) -> None:
-        self.listbox.delete(0, tk.END)
-        for path in self.images:
-            self.listbox.insert(tk.END, Path(path).name)
+        # Sizes may be unknown until the worker below reports; a row renders
+        # without them rather than waiting.
+        self.listbox.set_items(
+            [Negative(path=path, size=self._sizes.get(path)) for path in self.images]
+        )
         # The band counts what is loaded here, since no single filename
         # describes a composite.
         count = len(self.images)
@@ -335,9 +353,8 @@ class ComposeTab:
             self.output_path.set(derived)
         self._derived_prefix = derived
 
-    def _on_select(self, _event: object) -> None:
-        selection: tuple[int, ...] = self.listbox.curselection()  # type: ignore[no-untyped-call]
-        self._selection = int(selection[0]) if selection else None
+    def _on_select(self, index: int | None) -> None:
+        self._selection = index
         self._apply_button_states()
 
     def add_image(self) -> None:
@@ -362,28 +379,29 @@ class ComposeTab:
         if index is None or index == 0:
             return
         self._swap(index, index - 1)
-        self._selection = index - 1
         self._refresh_list()
-        self.listbox.selection_set(self._selection)
-        self._apply_button_states()
+        # The moved negative stays selected, so a second press keeps moving
+        # the same one rather than whatever landed under the cursor.
+        self.listbox.select(index - 1)
 
     def move_down(self) -> None:
         index = self._selection
         if index is None or index >= len(self.images) - 1:
             return
         self._swap(index, index + 1)
-        self._selection = index + 1
         self._refresh_list()
-        self.listbox.selection_set(self._selection)
-        self._apply_button_states()
+        self.listbox.select(index + 1)
 
     def remove(self) -> None:
         index = self._selection
         if index is None or index >= len(self.images):
             return
         del self.images[index]
-        self._selection = None
         self._refresh_list()
+        # `set_items` clamps or clears the selection for us; take whatever it
+        # settled on rather than second-guessing it.
+        self._selection = self.listbox.selected_index
+        self._apply_button_states()
 
     def browse_output(self) -> None:
         folder = filedialog.askdirectory(title="Select Output Folder")

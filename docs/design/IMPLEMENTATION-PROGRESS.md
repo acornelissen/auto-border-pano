@@ -8,8 +8,10 @@ every iteration, before `mise run check` and the commit.
 | 1 | Theme, palette, type (`gui/theme.py`, clam, 6/12/24 spacing) | done |
 | 2 | Copy rewrite and modal removal | done |
 | 3 | Two-column layout, radio pair, live readouts, file facts | done |
-| 4 | Contact strip Canvas replacing `PreviewPanes` | in progress |
-| 5 | Numbered negatives list replacing `tk.Listbox` | not started |
+| 4 | Contact strip Canvas replacing `PreviewPanes` | done |
+| 5 | Numbered negatives list replacing `tk.Listbox` | done |
+
+All five stages are in.
 
 ## Stop-and-reassess after Stage 3
 
