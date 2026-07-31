@@ -46,7 +46,6 @@ class Layout:
 @dataclass(frozen=True)
 class Leaf:
     index: int
-    aspect: float
 
 
 @dataclass(frozen=True)
@@ -68,12 +67,12 @@ def candidates(count: int) -> Iterator[tuple[str, Node]]:
     Order is fixed and never permuted -- panel 0 always holds image 0.
     """
     if count == 2:
-        a, b = Leaf(0, 0.0), Leaf(1, 0.0)
+        a, b = Leaf(0), Leaf(1)
         yield "row", Row((a, b))
         yield "column", Column((a, b))
         return
     if count == 3:
-        a, b, c = Leaf(0, 0.0), Leaf(1, 0.0), Leaf(2, 0.0)
+        a, b, c = Leaf(0), Leaf(1), Leaf(2)
         yield "row", Row((a, b, c))
         yield "column", Column((a, b, c))
         yield "row-one-then-two", Row((a, Column((b, c))))
@@ -112,32 +111,41 @@ def _place(
     aspects: Sequence[float],
     gutter: int,
     out: dict[int, Box],
-) -> None:
-    """Assign a concrete rectangle to every leaf under this node."""
+) -> bool:
+    """Assign a concrete rectangle to every leaf under this node.
+
+    Returns False, without mutating `out` further, if any leaf would round
+    to less than 1px on either axis. A clamp there would silently distort
+    that image (its box aspect would no longer match its source aspect),
+    which breaks the no-crop guarantee the whole feature rests on -- so a
+    candidate that can't place every leaf at >=1px loses instead.
+    """
     if isinstance(node, Leaf):
-        out[node.index] = Box(
-            math.floor(x + 0.5),
-            math.floor(y + 0.5),
-            max(1, math.floor(width + 0.5)),
-            max(1, math.floor(height + 0.5)),
-        )
-        return
+        w = math.floor(width + 0.5)
+        h = math.floor(height + 0.5)
+        if w < 1 or h < 1:
+            return False
+        out[node.index] = Box(math.floor(x + 0.5), math.floor(y + 0.5), w, h)
+        return True
 
     if isinstance(node, Row):
         offset = x
         for child in node.children:
             a, b = _coefficients(child, aspects, gutter)
             child_width = a * height + b
-            _place(child, offset, y, child_width, height, aspects, gutter, out)
+            if not _place(child, offset, y, child_width, height, aspects, gutter, out):
+                return False
             offset += child_width + gutter
-        return
+        return True
 
     offset = y
     for child in node.children:
         a, b = _coefficients(child, aspects, gutter)
         child_height = (width - b) / a
-        _place(child, x, offset, width, child_height, aspects, gutter, out)
+        if not _place(child, x, offset, width, child_height, aspects, gutter, out):
+            return False
         offset += child_height + gutter
+    return True
 
 
 def evaluate(
@@ -154,9 +162,13 @@ def evaluate(
     if available_width <= 0 or available_height <= 0:
         return None
 
+    # `a` is a sum (or reciprocal-sum) of the leaves' aspects, so it is
+    # positive as long as every aspect is positive and finite -- a
+    # precondition `solve` enforces before calling here. A non-positive or
+    # non-finite leaf aspect fails earlier, inside `_coefficients`, with a
+    # ZeroDivisionError or a garbage float rather than reaching this point,
+    # so there is no honest `a <= 0` case left to guard against here.
     a, b = _coefficients(node, aspects, gutter)
-    if a <= 0:
-        return None
 
     height = min(available_height, (available_width - b) / a)
     if height <= 0:
@@ -170,7 +182,8 @@ def evaluate(
     y = padding + (available_height - height) / 2
 
     placed: dict[int, Box] = {}
-    _place(node, x, y, width, height, aspects, gutter, placed)
+    if not _place(node, x, y, width, height, aspects, gutter, placed):
+        return None
     boxes = tuple(placed[i] for i in range(len(aspects)))
 
     covered = sum(box.width * box.height for box in boxes)
@@ -189,6 +202,10 @@ def solve(
     Every candidate keeps each panel at its own aspect ratio, so the choice
     is purely about which one wastes the least white space.
     """
+    for index, aspect in enumerate(aspects):
+        if not math.isfinite(aspect) or aspect <= 0:
+            raise ValueError(f"aspect at index {index} must be finite and positive, got {aspect!r}")
+
     best: Layout | None = None
     for name, node in candidates(len(aspects)):
         solved = evaluate(node, name, aspects, ratio, padding, gutter)

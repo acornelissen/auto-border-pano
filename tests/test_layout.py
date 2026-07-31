@@ -81,16 +81,74 @@ def test_order_is_never_permuted() -> None:
 
 
 def test_extreme_aspects_still_produce_valid_boxes() -> None:
+    # A box that's only 1-2px on its short axis has an unavoidable rounding
+    # error (half-up rounding can move a dimension by up to 0.5px, which is
+    # a large fraction of a 1px box). What must never happen is the old
+    # clamp bug: a box forced up from below 1px, silently landing far from
+    # its source aspect no matter how big the box is. So each surviving box
+    # must match its source aspect within a tolerance derived from that
+    # rounding bound; a candidate that cannot place every leaf at >=1px
+    # should be rejected, and if every candidate is rejected `solve` must
+    # raise rather than return a distorted layout.
     for aspects in ([20.0, 20.0], [0.05, 0.05], [20.0, 0.05, 1.0]):
         for ratio in geometry.RATIOS.values():
-            for box in layout.solve(aspects, ratio, PADDING).boxes:
+            try:
+                solved = layout.solve(aspects, ratio, PADDING)
+            except ValueError:
+                continue
+            for aspect, box in zip(aspects, solved.boxes, strict=True):
                 assert box.width >= 1, (aspects, ratio.name, box)
                 assert box.height >= 1, (aspects, ratio.name, box)
+                # Twice the theoretical 0.5px-per-dimension rounding bound,
+                # as a safety margin -- not an arbitrary loosening.
+                tolerance = (1.0 / box.width + 1.0 / box.height) * aspect
+                assert abs(_box_aspect(box) - aspect) <= tolerance, (
+                    aspects,
+                    ratio.name,
+                    aspect,
+                    box,
+                )
+
+
+def test_no_usable_layout_raises() -> None:
+    # Two extremely thin panels at a wide landscape frame: every candidate
+    # (row and column) would need a leaf dimension under 0.5px, so every
+    # candidate is rejected and evaluate() returns None for each. solve()
+    # must surface that as a ValueError rather than degrading a box.
+    with pytest.raises(ValueError):
+        layout.solve([0.001, 0.001], geometry.LANDSCAPE, PADDING)
+
+    for name, node in layout.candidates(2):
+        thin = [0.001, 0.001]
+        other = layout.evaluate(node, name, thin, geometry.LANDSCAPE, PADDING, layout.GUTTER)
+        assert other is None
+
+
+def test_gutter_default_is_forty_pixels() -> None:
+    assert layout.GUTTER == 40
+
+
+def test_nested_candidates_preserve_order() -> None:
+    # Only the two-image winner is exercised by test_order_is_never_permuted.
+    # The three-image nested shapes (a panel beside a stacked pair) have
+    # their own leaf-to-index wiring, so check each one directly rather
+    # than trusting that the simple row/column cases generalise.
+    aspects = [3.0, 0.2, 1.5]
+    for name, node in layout.candidates(3):
+        solved = layout.evaluate(node, name, aspects, geometry.PORTRAIT, PADDING, layout.GUTTER)
+        assert solved is not None, name
+        for index, (aspect, box) in enumerate(zip(aspects, solved.boxes, strict=True)):
+            assert abs(_box_aspect(box) - aspect) < 0.02, (name, index, aspect, box)
 
 
 def test_score_is_a_fraction_of_the_available_box() -> None:
     solved = layout.solve([2.33, 2.33], geometry.PORTRAIT, PADDING)
     assert 0.0 < solved.score <= 1.0
+    # Pinned regression value: two equal 2.33:1 panels stacked in a column
+    # inside a 1080x1350 frame with 100px padding and a 40px gutter. If this
+    # drifts, the scoring formula (or the coefficient maths feeding it)
+    # changed -- not just the "somewhere between 0 and 1" shape of it.
+    assert solved.score == pytest.approx(0.6573913043478261)
 
 
 def test_winning_candidate_fills_at_least_as_much_as_the_alternatives() -> None:
