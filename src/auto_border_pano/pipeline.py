@@ -12,15 +12,22 @@ from PIL import Image
 
 from auto_border_pano import geometry
 
+# These are the user's own large-format scans, not hostile downloads; the
+# largest sample is 132MP against Pillow's ~178MP default. Lifting the guard
+# stops a legitimate scan being reported as a corrupt file. Malformed input
+# is still caught by the per-file exception handling in process_folder.
+Image.MAX_IMAGE_PIXELS = None
+
+# Re-exported so cli.py and gui.py can offer ratio selection without
+# importing geometry directly -- they depend on pipeline only.
+AspectRatio = geometry.AspectRatio
+RATIOS = geometry.RATIOS
+DEFAULT_RATIO = geometry.DEFAULT_RATIO
+
 JPEG_QUALITY = 95
 JPEG_EXTENSIONS = (".jpg", ".jpeg")
 
-OUTPUT_SUFFIXES = (
-    "_1_padded_square.jpg",
-    "_2_section1.jpg",
-    "_3_section2.jpg",
-    "_4_section3.jpg",
-)
+PADDED_SUFFIX = "_1_padded.jpg"
 
 ProgressCallback = Callable[[int, int, Path], None]
 
@@ -31,43 +38,60 @@ class BatchResult:
 
     `written` holds every output file from every successfully processed
     source, in source order. `failed` holds one (source_path, error_message)
-    entry per source that could not be processed. `last_prefix` is the
-    output prefix (as passed to `output_paths`) of the last successfully
-    processed source, or `None` if nothing succeeded; callers that want a
-    preview of the batch's result should use this rather than re-deriving
-    the naming convention themselves.
+    entry per source that could not be processed. `last_prefix` and
+    `last_count` describe the last successfully processed source, so callers
+    can preview it without re-deriving the naming convention.
     """
 
     written: list[Path] = field(default_factory=list)
     failed: list[tuple[Path, str]] = field(default_factory=list)
     last_prefix: Path | None = None
-
-    @property
-    def succeeded_count(self) -> int:
-        return len(self.written) // len(OUTPUT_SUFFIXES)
+    last_count: int | None = None
+    succeeded_count: int = 0
 
     @property
     def total_count(self) -> int:
         return self.succeeded_count + len(self.failed)
 
 
-def output_paths(prefix: Path | str) -> list[Path]:
-    """Return the four output paths produced for a given prefix."""
+def output_paths(prefix: Path | str, count: int) -> list[Path]:
+    """Return every output path for a prefix and detail-frame count.
+
+    Frame 1 is the whole panorama; frames 2..count+1 are the detail frames.
+    """
     prefix = Path(prefix)
-    return [prefix.with_name(prefix.name + suffix) for suffix in OUTPUT_SUFFIXES]
+    names = [PADDED_SUFFIX]
+    names += [f"_{n + 1}_section{n}.jpg" for n in range(1, count + 1)]
+    return [prefix.with_name(prefix.name + name) for name in names]
 
 
-def process_image(input_path: Path | str, output_prefix: Path | str) -> list[Path]:
-    """Split one panorama into its four outputs and return their paths."""
-    targets = output_paths(output_prefix)
-    targets[0].parent.mkdir(parents=True, exist_ok=True)
-
+def process_image(
+    input_path: Path | str,
+    output_prefix: Path | str,
+    ratio: AspectRatio = DEFAULT_RATIO,
+) -> list[Path]:
+    """Split one panorama into a whole-panorama frame plus detail frames."""
     with Image.open(input_path) as opened:
         source = opened.convert("RGB")
 
-    geometry.make_padded_square(source).save(targets[0], "JPEG", quality=JPEG_QUALITY)
-    for index in range(geometry.SECTION_COUNT):
-        geometry.make_section(source, index).save(targets[index + 1], "JPEG", quality=JPEG_QUALITY)
+    width, height = source.size
+    if width < height:
+        raise ValueError(
+            f"{input_path} is portrait ({width}x{height}); "
+            "auto-border-pano expects a landscape panorama"
+        )
+
+    count = geometry.section_count(width, height, ratio)
+    targets = output_paths(output_prefix, count)
+    targets[0].parent.mkdir(parents=True, exist_ok=True)
+
+    geometry.make_padded_frame(source, ratio).save(
+        targets[0], "JPEG", quality=JPEG_QUALITY
+    )
+    for index in range(count):
+        geometry.make_section(source, index, count, ratio).save(
+            targets[index + 1], "JPEG", quality=JPEG_QUALITY
+        )
     return targets
 
 
@@ -83,15 +107,15 @@ def find_panoramas(folder: Path | str) -> list[Path]:
 def process_folder(
     input_folder: Path | str,
     output_folder: Path | str,
+    ratio: AspectRatio = DEFAULT_RATIO,
     on_progress: ProgressCallback | None = None,
 ) -> BatchResult:
     """Split every panorama in a folder.
 
-    Individual failures are skipped so one unreadable file cannot abort a
-    long batch. `on_progress` is called before each file with
-    (completed_count, total_count, path). Failures are reported to the
-    caller via the returned `BatchResult.failed` rather than printed here;
-    the caller (CLI, GUI, ...) owns how failures are surfaced.
+    Individual failures are skipped so one unreadable or non-landscape file
+    cannot abort a long batch. `on_progress` is called before each file with
+    (completed_count, total_count, path). Failures are reported via the
+    returned `BatchResult.failed`; the caller owns how they are surfaced.
     """
     output_folder = Path(output_folder)
     output_folder.mkdir(parents=True, exist_ok=True)
@@ -104,9 +128,12 @@ def process_folder(
             on_progress(done, len(sources), source)
         prefix = output_folder / source.stem
         try:
-            result.written.extend(process_image(source, prefix))
+            written = process_image(source, prefix, ratio)
         except Exception as error:
             result.failed.append((source, str(error)))
         else:
+            result.written.extend(written)
             result.last_prefix = prefix
+            result.last_count = len(written) - 1
+            result.succeeded_count += 1
     return result
