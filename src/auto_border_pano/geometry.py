@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from PIL import Image
 
 SIDE_PADDING = 100
-VERTICAL_PADDING = 10
 BACKGROUND = "white"
 
 
@@ -61,43 +60,37 @@ def section_count(pano_width: int, pano_height: int, ratio: AspectRatio) -> int:
     return max(MIN_SECTIONS, math.floor(pano_width / tile + 0.5))
 
 
-def padded_frame_size(pano_width: int, pano_height: int, ratio: AspectRatio) -> tuple[int, int]:
-    """Canvas size for the whole-panorama frame at a given ratio.
-
-    Sized from the width so the panorama keeps SIDE_PADDING left and right.
-    If the ratio would then make the canvas too short to hold the panorama
-    with its minimum vertical padding, size from the height instead. Either
-    way the ratio is exact to within a pixel of rounding (e.g. a 1x1
-    panorama at 1.91:1 gives 201x105, not a perfectly exact ratio).
-    """
-    width = pano_width + 2 * SIDE_PADDING
-    height = math.floor(width / ratio.value + 0.5)
-
-    minimum_height = pano_height + 2 * VERTICAL_PADDING
-    if height < minimum_height:
-        height = minimum_height
-        width = math.floor(height * ratio.value + 0.5)
-    return width, height
-
-
 def make_padded_frame(image: Image.Image, ratio: AspectRatio) -> Image.Image:
-    """Center a panorama on a white canvas of the target ratio.
+    """Fit a panorama inside a white canvas of the target ratio, inset by SIDE_PADDING.
 
-    The panorama is centered, so at a tall ratio most of the frame is white
-    border. That is the intended aesthetic, not a bug.
+    SIDE_PADDING describes the finished frame, in output pixels, on
+    whichever axis binds -- not the source image. The panorama is scaled
+    (preserving its own aspect ratio) to fit inside a box inset by
+    SIDE_PADDING on all four sides, then centered on the full-size white
+    canvas.
 
-    The canvas is composed at panorama scale (so the padding maths above
-    stays exact), then downscaled to exactly (ratio.width, ratio.height) --
-    the same size as the detail frames. Without this, frame 1 for a
-    large-format scan is written at full source resolution: tens of
-    megabytes next to sub-megabyte detail frames, and a size Instagram
-    rejects or heavily recompresses.
+    For a normal wide panorama the width binds, so the left and right
+    margins are exactly SIDE_PADDING and the vertical gap is whatever is
+    left over -- usually much larger. That asymmetry is inherent: the
+    panorama's aspect ratio does not match the frame's, and frame 1 must
+    show the whole panorama uncropped, so the border cannot be made even
+    without cropping content away.
+
+    Scaling straight to the fitted size (rather than compositing at source
+    scale and downscaling) also avoids building a huge intermediate canvas,
+    which matters on multi-hundred-megapixel scans.
     """
     pano_width, pano_height = image.size
-    width, height = padded_frame_size(pano_width, pano_height, ratio)
-    canvas = Image.new("RGB", (width, height), BACKGROUND)
-    canvas.paste(image, ((width - pano_width) // 2, (height - pano_height) // 2))
-    return canvas.resize((ratio.width, ratio.height), Image.Resampling.LANCZOS)
+    box_width = ratio.width - 2 * SIDE_PADDING
+    box_height = ratio.height - 2 * SIDE_PADDING
+    scale = min(box_width / pano_width, box_height / pano_height)
+    fitted_width = max(1, math.floor(pano_width * scale + 0.5))
+    fitted_height = max(1, math.floor(pano_height * scale + 0.5))
+
+    fitted = image.resize((fitted_width, fitted_height), Image.Resampling.LANCZOS)
+    canvas = Image.new("RGB", (ratio.width, ratio.height), BACKGROUND)
+    canvas.paste(fitted, ((ratio.width - fitted_width) // 2, (ratio.height - fitted_height) // 2))
+    return canvas
 
 
 def section_bounds(width: int, index: int, count: int) -> tuple[int, int]:

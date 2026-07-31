@@ -44,11 +44,11 @@ Src-layout package at `src/auto_border_pano/`, four modules with one dependency 
 
 ### Padding behaviour worth knowing
 
-`make_padded_frame()` centers the panorama on a white canvas sized to the target ratio. At `1:1` the canvas size is `max(width + 200, height + 20)`; for any normal wide panorama the width term wins, so the real result is a square canvas 200px wider than the image with the panorama centered — the top/bottom gap is whatever's left over, not a fixed 10px. This is deliberate and is locked in place by characterisation tests in `tests/`; do not "fix" it without checking those tests first.
+`make_padded_frame()` fits the panorama inside the target output frame, inset by `SIDE_PADDING` (100px) on all four sides, preserving the panorama's own aspect ratio, then centers it on a full-size white canvas. `SIDE_PADDING` describes the finished output frame, not the source image — a wide panorama binds on width, so the left and right margins come out to exactly 100px and the top/bottom gap is whatever's left over, usually much larger. That asymmetry is inherent: the panorama's aspect doesn't match the frame's, and frame 1 must show the whole panorama uncropped, so the border can't be made even without cropping content away.
 
 At a tall ratio like `4:5`, most of the padded frame is white border — that is the intended aesthetic, not a bug.
 
-The composed canvas is built at panorama scale (so the padding maths above stays exact) and then downscaled with `Image.Resampling.LANCZOS` to exactly `(ratio.width, ratio.height)` — the same pixel size as every detail frame. Before this, frame 1 was written at full source resolution; for a large-format scan that meant a many-megabyte first frame beside sub-megabyte detail frames, which Instagram rejects or heavily recompresses. `padded_frame_size()` itself is unchanged — it still governs the pre-downscale composition.
+`make_padded_frame()` scales the panorama directly to its fitted size with `Image.Resampling.LANCZOS` and pastes it onto a white canvas already sized to `(ratio.width, ratio.height)` — the same pixel size as every detail frame — rather than compositing at source scale and downscaling. That keeps a large-format scan from briefly allocating a huge intermediate canvas as well as avoiding a many-megabyte first frame beside sub-megabyte detail frames.
 
 ### Behaviour changes from the pre-refactor scripts
 

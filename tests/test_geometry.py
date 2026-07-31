@@ -7,58 +7,30 @@ offsets on both axes, and exact output size) across all registered ratios.
 """
 
 import pytest
+from PIL import Image, ImageChops
 
 from auto_border_pano import geometry
 from tests.conftest import synthetic_panorama
+
+# LANCZOS resampling blurs a few pixels at the panorama's edge into a
+# not-quite-pure-white gradient, so bounding-box measurements against a
+# white reference need slack; this tolerance absorbs that blur without
+# hiding a real off-by-many-pixels regression.
+_BBOX_TOLERANCE = 4
+
+
+def _non_white_bbox(frame: Image.Image) -> tuple[int, int, int, int]:
+    white = Image.new("RGB", frame.size, geometry.BACKGROUND)
+    diff = ImageChops.difference(frame, white)
+    bbox = diff.getbbox()
+    assert bbox is not None, "frame is entirely white"
+    return bbox
 
 
 def test_padded_frame_is_exactly_the_target_ratio() -> None:
     for ratio in geometry.RATIOS.values():
         frame = geometry.make_padded_frame(synthetic_panorama(3000, 800), ratio)
         assert abs(frame.width / frame.height - ratio.value) < 0.01, ratio.name
-
-
-def test_padded_frame_size_keeps_side_padding() -> None:
-    # padded_frame_size (the pre-downscale composition maths) is unchanged
-    # by the resize in make_padded_frame; this pins that directly rather
-    # than reading it off the (now downscaled) output pixels.
-    width, _ = geometry.padded_frame_size(3000, 800, geometry.SQUARE)
-    assert width == 3000 + 2 * geometry.SIDE_PADDING
-
-
-def _is_white(pixel: object) -> bool:
-    assert isinstance(pixel, tuple)
-    return all(channel > 250 for channel in pixel)
-
-
-def test_padded_frame_pastes_at_side_padding_not_zero() -> None:
-    # Kills a mutation that pastes at (0, 0) or at (SIDE_PADDING, VERTICAL_PADDING)
-    # instead of centering. Coordinates are scaled: make_padded_frame downscales
-    # the composed canvas to the output size, so the padding boundary in output
-    # pixels is proportional, not literally SIDE_PADDING. Margins are generous
-    # to stay clear of LANCZOS edge blur at the boundary.
-    pano_width, pano_height = 3000, 800
-    frame = geometry.make_padded_frame(synthetic_panorama(pano_width, pano_height), geometry.SQUARE)
-    canvas_width, _ = geometry.padded_frame_size(pano_width, pano_height, geometry.SQUARE)
-    scale = geometry.SQUARE.width / canvas_width
-    boundary = geometry.SIDE_PADDING * scale
-    mid_y = frame.height // 2
-    assert _is_white(frame.getpixel((max(0, int(boundary) - 20), mid_y)))
-    assert not _is_white(frame.getpixel((int(boundary) + 20, mid_y)))
-
-
-def test_padded_frame_centers_vertically() -> None:
-    pano_width, pano_height = 3000, 800
-    frame = geometry.make_padded_frame(synthetic_panorama(pano_width, pano_height), geometry.SQUARE)
-    _canvas_width, canvas_height = geometry.padded_frame_size(
-        pano_width, pano_height, geometry.SQUARE
-    )
-    scale = geometry.SQUARE.height / canvas_height
-    top_gap = (canvas_height - pano_height) // 2
-    boundary = top_gap * scale
-    mid_x = frame.width // 2
-    assert _is_white(frame.getpixel((mid_x, max(0, int(boundary) - 20))))
-    assert not _is_white(frame.getpixel((mid_x, int(boundary) + 20)))
 
 
 def test_padded_frame_is_exactly_the_target_size() -> None:
@@ -70,15 +42,40 @@ def test_padded_frame_is_exactly_the_target_size() -> None:
         assert frame.size == (ratio.width, ratio.height), ratio.name
 
 
-def test_padded_frame_grows_when_ratio_would_clip_the_panorama() -> None:
-    # A tall-ish input at 1.91:1: deriving height from width would leave the
-    # panorama taller than the canvas, so the canvas is sized from height.
-    # Tested against padded_frame_size directly -- the pre-downscale
-    # composition maths that make_padded_frame's output no longer exposes,
-    # since the final image is always exactly ratio.width x ratio.height.
-    width, height = geometry.padded_frame_size(400, 2000, geometry.LANDSCAPE)
-    assert height >= 2000 + 2 * geometry.VERTICAL_PADDING
-    assert abs(width / height - geometry.LANDSCAPE.value) < 0.01
+def test_padded_frame_keeps_exact_side_padding_for_a_wide_panorama() -> None:
+    # A wide panorama binds on width, so the left/right margin must be
+    # exactly SIDE_PADDING output pixels -- the whole point of the fix.
+    # Kills a mutation that pastes at (0, 0) instead of insetting/centering.
+    for ratio in geometry.RATIOS.values():
+        frame = geometry.make_padded_frame(synthetic_panorama(3000, 800), ratio)
+        left, _top, right, _bottom = _non_white_bbox(frame)
+        assert abs(left - geometry.SIDE_PADDING) <= _BBOX_TOLERANCE, ratio.name
+        assert abs((frame.width - right) - geometry.SIDE_PADDING) <= _BBOX_TOLERANCE, ratio.name
+
+
+def test_padded_frame_centers_the_panorama() -> None:
+    # Kills a mutation that skips centring (e.g. pastes at a fixed corner):
+    # left gap must equal right gap and top gap must equal bottom gap.
+    for ratio in geometry.RATIOS.values():
+        frame = geometry.make_padded_frame(synthetic_panorama(3000, 800), ratio)
+        left, top, right, bottom = _non_white_bbox(frame)
+        right_gap = frame.width - right
+        bottom_gap = frame.height - bottom
+        assert abs(left - right_gap) <= _BBOX_TOLERANCE, ratio.name
+        assert abs(top - bottom_gap) <= _BBOX_TOLERANCE, ratio.name
+
+
+def test_padded_frame_preserves_the_whole_panorama_uncropped() -> None:
+    # The panorama must be fitted, never cropped: its aspect ratio in the
+    # output frame must match the source aspect ratio.
+    pano_width, pano_height = 3000, 800
+    source_ratio = pano_width / pano_height
+    for ratio in geometry.RATIOS.values():
+        frame = geometry.make_padded_frame(synthetic_panorama(pano_width, pano_height), ratio)
+        left, top, right, bottom = _non_white_bbox(frame)
+        out_width = right - left
+        out_height = bottom - top
+        assert abs(out_width / out_height - source_ratio) < 0.02, ratio.name
 
 
 def test_section_bounds_split_on_integer_division() -> None:

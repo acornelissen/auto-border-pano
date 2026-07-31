@@ -4,7 +4,7 @@
 
 A Python tool for automatically processing panoramic images into social media-ready formats. This tool takes a panoramic JPG image and creates:
 
-1. **Padded frame**: The full panorama, centered on a white canvas sized to the target aspect ratio. For a normal wide panorama at the default ratio this gives exactly 100px of padding on the left and right, and a larger leftover gap top and bottom
+1. **Padded frame**: The full panorama, fitted inside the target output frame with a 100px inset on all sides and centered on a white canvas. For a normal wide panorama, the width binds so the left/right margin is exactly 100px, with a larger leftover gap top and bottom
 2. **Detail frames**: A zoomed, cropped-and-resized view of a horizontal slice of the panorama, at the target aspect ratio. How many of these there are depends on the ratio and the panorama's shape — see [Aspect ratio](#aspect-ratio) below
 
 ## Features
@@ -118,16 +118,17 @@ batch the rejected file is reported and the rest continue.
 
 ### Output 1: Padded frame
 
-- Contains the entire panorama, centered on a white canvas sized to the
-  target ratio, then scaled down to exactly the target output size (same
-  pixel dimensions as the detail frames) — a large-format scan no longer
-  produces a multi-megabyte first frame beside sub-megabyte detail frames
+- Contains the entire panorama, fitted (never cropped) inside the target
+  output frame with a 100px inset on all sides and centered on a white
+  canvas already sized to the target output size (same pixel dimensions as
+  the detail frames) — a large-format scan doesn't produce a multi-megabyte
+  first frame beside sub-megabyte detail frames
 - At the default `4:5` ratio, most of the canvas is white border by design —
   that's the intended aesthetic, not a bug
-- At `1:1` the canvas is `max(width + 200px, height + 20px)` on a side, so
-  for any normal wide panorama the width term wins, giving exactly 100px of
-  padding on the left and right and a larger leftover gap top and bottom
-  (not 10px — this is deliberate, and locked in place by tests)
+- For any normal wide panorama, the width binds so the left/right margin is
+  exactly 100px, and whatever's left over goes top and bottom — usually much
+  more than 100px, since the panorama's aspect ratio and the frame's rarely
+  match (this is deliberate, and locked in place by tests)
 - Only square when you ask for `1:1`
 - Ideal for Instagram gallery posts
 
