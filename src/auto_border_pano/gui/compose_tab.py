@@ -57,13 +57,14 @@ class ComposeTab:
         ratio_row = ttk.Frame(self.frame)
         ratio_row.grid(row=1, column=0, sticky=tk.W, pady=5)
         ttk.Label(ratio_row, text="Aspect ratio:").pack(side="left")
-        ttk.Combobox(
+        self.ratio_combo = ttk.Combobox(
             ratio_row,
             textvariable=self.ratio,
             values=[r.display for r in pipeline.RATIOS.values()],
             state="readonly",
             width=18,
-        ).pack(side="left", padx=8)
+        )
+        self.ratio_combo.pack(side="left", padx=8)
 
         output_row = ttk.Frame(self.frame)
         output_row.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=5)

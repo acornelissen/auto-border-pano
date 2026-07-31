@@ -372,6 +372,10 @@ def test_compose_worker_reports_the_layout_name(tmp_path: Path) -> None:
     tab._run_compose(sources, str(tmp_path / "out"), "4:5")
 
     assert calls, "worker never reported back through root.after"
+    message, path, error = calls[-1]
+    assert error is None
+    assert path is not None
+    assert "layout" in message, f"expected the layout name in the message, got: {message!r}"
     assert (tmp_path / "out_diptych.jpg").exists()
 
 
@@ -392,3 +396,52 @@ def test_compose_worker_reports_failure_without_dying(tmp_path: Path) -> None:
     tab._run_compose(["/does/not/exist.jpg", "/nor/this.jpg"], str(tmp_path / "out"), "4:5")
 
     assert calls, "worker died silently instead of reporting the error"
+    _message, path, error = calls[-1]
+    assert error is not None, "worker reported success for images that do not exist"
+    assert path is None
+
+
+def test_compose_tab_builds_a_working_ratio_combobox_under_real_tk() -> None:
+    """Constructed via ``__new__`` (as above), the pure-logic tests would stay
+    green even if ``__init__``/``_build_ui`` never ran -- e.g. if the ratio
+    combobox were never wired up. Build a real ``ComposeTab`` on a withdrawn
+    root so a broken constructor actually fails a committed test.
+    """
+    import tkinter
+
+    from auto_border_pano import pipeline
+    from auto_border_pano.gui import compose_tab
+
+    root = tkinter.Tk()
+    root.withdraw()
+    try:
+        tab = compose_tab.ComposeTab(root)
+
+        assert tab.ratio.get() == pipeline.DEFAULT_RATIO.display
+        assert list(tab.ratio_combo["values"]) == [r.display for r in pipeline.RATIOS.values()]
+        assert tab.can_compose() is False
+    finally:
+        root.destroy()
+
+
+def test_preview_panes_show_images_displays_a_pil_image_directly() -> None:
+    """ComposeTab._finish is the only production caller of ``show_images``;
+    give it a direct test too so the method is covered without depending on
+    the full compose pipeline.
+    """
+    import tkinter
+
+    from PIL import Image
+
+    from auto_border_pano.gui.preview import PreviewPanes
+
+    root = tkinter.Tk()
+    root.withdraw()
+    try:
+        panes = PreviewPanes(root, "Composite")
+        panes.rebuild(["Composite"])
+        image = Image.new("RGB", (10, 10), color="red")
+
+        panes.show_images([image])
+    finally:
+        root.destroy()
