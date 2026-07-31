@@ -44,7 +44,7 @@ Src-layout package at `src/auto_border_pano/`, four modules with one dependency 
 
 ### Padding behaviour worth knowing
 
-`make_padded_frame()` fits the panorama inside the target output frame, inset by `SIDE_PADDING` (100px) on all four sides, preserving the panorama's own aspect ratio, then centers it on a full-size white canvas. `SIDE_PADDING` describes the finished output frame, not the source image — a wide panorama binds on width, so the left and right margins come out to exactly 100px and the top/bottom gap is whatever's left over, usually much larger. That asymmetry is inherent: the panorama's aspect doesn't match the frame's, and frame 1 must show the whole panorama uncropped, so the border can't be made even without cropping content away.
+`make_padded_frame()` fits the panorama inside the target output frame, inset by `SIDE_PADDING` (100px) on all four sides, preserving the panorama's own aspect ratio, then centers it on a full-size white canvas. `SIDE_PADDING` describes the finished output frame, not the source image — whichever axis binds gets exactly 100px, and the other axis gets whatever's left over. For a wide panorama at `1:1` or `4:5` that's normally the width; at `1.91:1` (inset box ratio 2.4:1) a panorama flatter than 2.4:1 — including this project's own 2.33:1 samples — binds on height instead, so watch which axis you're measuring before assuming 100px means "left and right". That asymmetry is inherent: the panorama's aspect doesn't match the frame's, and frame 1 must show the whole panorama uncropped, so the border can't be made even without cropping content away.
 
 At a tall ratio like `4:5`, most of the padded frame is white border — that is the intended aesthetic, not a bug.
 

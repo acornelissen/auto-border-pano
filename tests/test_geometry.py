@@ -1,9 +1,11 @@
 """Behavioural tests for the pure geometry transforms.
 
-Covers padded-frame sizing at any target ratio (including the fallback that
-grows the canvas from height when width-derived sizing would clip the
-panorama), and section cropping/scaling (bounds, cover-scale, center-crop
-offsets on both axes, and exact output size) across all registered ratios.
+Covers the padded whole-panorama frame (exact output size and ratio, exact
+SIDE_PADDING on whichever axis binds -- width for a wide panorama, height
+for a near-square one at a wide target ratio -- centring, and that the
+panorama survives uncropped), and section cropping/scaling (bounds,
+cover-scale, center-crop offsets on both axes, and exact output size) across
+all registered ratios.
 """
 
 import pytest
@@ -56,26 +58,64 @@ def test_padded_frame_keeps_exact_side_padding_for_a_wide_panorama() -> None:
 def test_padded_frame_centers_the_panorama() -> None:
     # Kills a mutation that skips centring (e.g. pastes at a fixed corner):
     # left gap must equal right gap and top gap must equal bottom gap.
-    for ratio in geometry.RATIOS.values():
-        frame = geometry.make_padded_frame(synthetic_panorama(3000, 800), ratio)
-        left, top, right, bottom = _non_white_bbox(frame)
-        right_gap = frame.width - right
-        bottom_gap = frame.height - bottom
-        assert abs(left - right_gap) <= _BBOX_TOLERANCE, ratio.name
-        assert abs(top - bottom_gap) <= _BBOX_TOLERANCE, ratio.name
+    #
+    # Two panoramas: 3000x800 binds on width at every ratio; 1200x1000 is
+    # nearly square (1.2:1) so at 1.91:1 -- whose inset box is 2.4:1 -- it
+    # binds on HEIGHT instead. Without the second case a mutation that drops
+    # the height term from the fit-scale calculation still passes here, since
+    # a width-binding case can't exercise the height branch at all.
+    for pano_width, pano_height in ((3000, 800), (1200, 1000)):
+        for ratio in geometry.RATIOS.values():
+            frame = geometry.make_padded_frame(synthetic_panorama(pano_width, pano_height), ratio)
+            left, top, right, bottom = _non_white_bbox(frame)
+            right_gap = frame.width - right
+            bottom_gap = frame.height - bottom
+            assert abs(left - right_gap) <= _BBOX_TOLERANCE, (pano_width, pano_height, ratio.name)
+            assert abs(top - bottom_gap) <= _BBOX_TOLERANCE, (pano_width, pano_height, ratio.name)
 
 
 def test_padded_frame_preserves_the_whole_panorama_uncropped() -> None:
     # The panorama must be fitted, never cropped: its aspect ratio in the
     # output frame must match the source aspect ratio.
-    pano_width, pano_height = 3000, 800
-    source_ratio = pano_width / pano_height
-    for ratio in geometry.RATIOS.values():
-        frame = geometry.make_padded_frame(synthetic_panorama(pano_width, pano_height), ratio)
-        left, top, right, bottom = _non_white_bbox(frame)
-        out_width = right - left
-        out_height = bottom - top
-        assert abs(out_width / out_height - source_ratio) < 0.02, ratio.name
+    #
+    # Same two panoramas as the centring test, and for the same reason: a
+    # near-square source is needed to exercise the height-binding branch at
+    # 1.91:1, which a purely wide source never reaches.
+    for pano_width, pano_height in ((3000, 800), (1200, 1000)):
+        source_ratio = pano_width / pano_height
+        for ratio in geometry.RATIOS.values():
+            frame = geometry.make_padded_frame(synthetic_panorama(pano_width, pano_height), ratio)
+            left, top, right, bottom = _non_white_bbox(frame)
+            out_width = right - left
+            out_height = bottom - top
+            assert abs(out_width / out_height - source_ratio) < 0.02, (
+                pano_width,
+                pano_height,
+                ratio.name,
+            )
+
+
+def test_padded_frame_keeps_exact_top_padding_when_height_binds() -> None:
+    # 1200x1000 is nearly square (1.2:1). At 1.91:1 the inset box is
+    # 880x366 (2.4:1), flatter than the panorama, so height binds: the
+    # top/bottom margin comes out to exactly SIDE_PADDING and the side
+    # margins are larger. This is the mirror image of the width-binding
+    # case exercised elsewhere in this file, and it's the only case in the
+    # suite that would catch a fit-scale calculation that silently drops
+    # the height term (e.g. `scale = box_width / pano_width`) -- do not
+    # "simplify" this back to a width-binding input.
+    pano_width, pano_height = 1200, 1000
+    panorama = synthetic_panorama(pano_width, pano_height)
+    frame = geometry.make_padded_frame(panorama, geometry.LANDSCAPE)
+    left, top, right, bottom = _non_white_bbox(frame)
+    side_margin = left
+    other_side_margin = frame.width - right
+    top_margin = top
+    bottom_margin = frame.height - bottom
+    assert abs(top_margin - geometry.SIDE_PADDING) <= _BBOX_TOLERANCE
+    assert abs(bottom_margin - geometry.SIDE_PADDING) <= _BBOX_TOLERANCE
+    assert side_margin > geometry.SIDE_PADDING + _BBOX_TOLERANCE
+    assert other_side_margin > geometry.SIDE_PADDING + _BBOX_TOLERANCE
 
 
 def test_section_bounds_split_on_integer_division() -> None:
