@@ -1,8 +1,13 @@
 """The contact strip: one Canvas holding every frame of a run.
 
 This replaces the four disconnected sunken boxes of `PreviewPanes` with a
-single object -- frames butted together on a shared rebate, each carrying
-its frame number in chinagraph and its role stencilled beneath.
+single object -- frames butted together on a shared sleeve, each carrying
+its frame number in chinagraph above and its role stencilled beneath.
+
+The sleeve is pale, not black. A black slab the size of this widget reads
+as a hole cut in the light table; what should be dark is the photograph,
+so each frame sits in an aperture with a one-pixel film-base hairline and
+nothing heavier.
 
 Three rules from the design plan's feasibility table are load-bearing here
 and are not preferences:
@@ -43,13 +48,22 @@ STENCIL_ROW = 20
 TOP = theme.SPACE_S
 BOTTOM = theme.SPACE_S
 
+CHROME_PX = TOP + NUMBER_ROW + STENCIL_ROW + BOTTOM
+"""Everything in a frame's column that is not the photograph."""
+
 MIN_FRAME_PX = 72
-MAX_FRAME_PX = 420
-"""Frames size from the available width, between these bounds.
+MAX_FRAME_PX = 260
+"""Frames size from the space actually available, between these bounds.
 
 The old `PREVIEW_MAX_PX = 150` was a constant, which is why a working run
-showed postage stamps floating in a pane 540pt tall.
+showed postage stamps floating in a pane 540pt tall. The opposite failure
+is just as bad: sizing a single frame from a wide column made one frame
+the size of the column. A frame is a thumbnail of a run, not the run.
 """
+
+APERTURE = 1
+"""Hairline around a frame's image. The photograph needs separating from
+the sleeve, and one pixel of film base does it without a heavy border."""
 
 DEFAULT_FRAME_COUNT = 4
 """What an unexposed strip shows before anything is loaded.
@@ -65,6 +79,8 @@ thumbnails that often would make the drag crawl."""
 EMPTY_CAPTION = "NOTHING ON THE STRIP YET"
 UNREADABLE_CAPTION = "UNREADABLE"
 
+ELLIPSIS = "…"
+
 
 @dataclass
 class _Frame:
@@ -77,12 +93,18 @@ class _Frame:
 
 @dataclass
 class _Metrics:
-    """Where everything sits, once the available width is known."""
+    """Where everything sits, once the available space is known."""
 
     frame_size: int = MIN_FRAME_PX
     height: int = 0
     origin: int = EDGE
     step: int = field(default=0)
+    band: int = 0
+    """Height of the sleeve the strip is drawn on. At least `height`; more
+    when the geometry manager has stretched the canvas past its content, so
+    the strip fills its cell instead of leaving a slab of bare table."""
+    top: int = 0
+    """Where the content starts inside the band, so it sits centred."""
 
 
 class ContactStrip:
@@ -105,6 +127,7 @@ class ContactStrip:
         # Reasons for any UNREADABLE frame, for a caller's status line.
         self.errors: list[str] = []
         self._width = 0
+        self._height = 0
         self._metrics = _Metrics()
         self._resize_job: str | None = None
 
@@ -168,12 +191,21 @@ class ContactStrip:
 
     def set_available_width(self, width: int) -> None:
         """Resize to a known width. Frames size from this, not a constant."""
+        self.set_available_space(width, self._height)
+
+    def set_available_space(self, width: int, height: int) -> None:
+        """Resize to a known cell. Frames are bounded by both dimensions.
+
+        Width alone is not enough: in a tall column a single frame sized
+        from the width alone becomes a square the size of the column.
+        """
         if width <= 1:
             # `<Configure>` fires once before the geometry manager has any
             # real size to report. Laying out against that would divide the
             # strip into slivers and then thrash back.
             return
         self._width = width
+        self._height = max(height, 0)
         self._redraw()
 
     # --- loading ------------------------------------------------------------
@@ -196,6 +228,16 @@ class ContactStrip:
     # --- geometry -----------------------------------------------------------
 
     def _on_configure(self, event: "tk.Event[tk.Canvas]") -> None:
+        """Only the width comes from the widget itself.
+
+        The canvas asks for its own height (`configure(height=...)`), so the
+        height it is then given back is the height it just requested. Feeding
+        that into the size calculation is a loop: each redraw bounds the
+        frames by the height the previous redraw asked for, and the strip
+        walks itself down to the minimum frame size over a few resizes. The
+        height bound only means anything when a caller states a real cell
+        height through `set_available_space`.
+        """
         if self._resize_job is not None:
             self.canvas.after_cancel(self._resize_job)
         width = int(event.width)
@@ -208,9 +250,26 @@ class ContactStrip:
         width = self._width or self.canvas.winfo_width()
         usable = width - 2 * EDGE - GUTTER * (count - 1)
         size = MIN_FRAME_PX if usable <= 0 else usable // count
+        if self._height > 1:
+            # The other bound. Without it the strip only knows how wide it
+            # may be, which is how one frame in a tall column became one
+            # enormous square.
+            size = min(size, self._height - CHROME_PX)
         size = max(MIN_FRAME_PX, min(MAX_FRAME_PX, int(size)))
-        height = TOP + NUMBER_ROW + size + STENCIL_ROW + BOTTOM
-        return _Metrics(frame_size=size, height=height, origin=EDGE, step=size + GUTTER)
+        height = size + CHROME_PX
+        # The band is the strip's own height, never the whole cell. Painting
+        # the full cell turned a five-frame strip into a large pale panel
+        # with a thin row of pictures floating in the middle of it -- the
+        # same "big box mostly containing nothing" the strip exists to fix.
+        # Everything below the strip is light table, and should look like it.
+        return _Metrics(
+            frame_size=size,
+            height=height,
+            origin=EDGE,
+            step=size + GUTTER,
+            band=height,
+            top=0,
+        )
 
     # --- drawing ------------------------------------------------------------
 
@@ -223,15 +282,22 @@ class ContactStrip:
         self._metrics = self._measure()
         metrics = self._metrics
 
+        # The sleeve is as long as the film in it. Running it to the full
+        # width of the column left a wide pale tail beyond the last frame,
+        # which reads as an unfinished panel rather than as a strip.
         span = 2 * EDGE + metrics.step * len(self._frames) - GUTTER
         self.canvas.configure(height=metrics.height)
+        # The sleeve, not the film base. A black slab this size reads as a
+        # hole in the light table; the strip is a negative sleeve lying on
+        # it, and the frames are what is dark.
         self.canvas.create_rectangle(
-            0, 0, span, metrics.height, fill=theme.REBATE, outline="", tags=("rebate",)
+            0, 0, span, metrics.band, fill=theme.SLEEVE, outline="", tags=("rebate",)
         )
         # The strip sits on the table with a rule, not a shadow: Tk Canvas
-        # has no alpha to blend one against.
+        # has no alpha to blend one against. Sleeve on lightbox is a
+        # low-contrast edge, so the rule is doing real work here.
         self.canvas.create_line(
-            0, metrics.height - 1, span, metrics.height - 1, fill=theme.SPROCKET, tags=("rule",)
+            0, metrics.band - 1, span, metrics.band - 1, fill=theme.SPROCKET, tags=("rule",)
         )
 
         for index, frame in enumerate(self._frames):
@@ -242,9 +308,11 @@ class ContactStrip:
             # unexposed strip into a wall of repeated text.
             self.canvas.create_text(
                 span / 2,
-                TOP + NUMBER_ROW + metrics.frame_size / 2,
+                metrics.top + TOP + NUMBER_ROW + metrics.frame_size / 2,
                 text=EMPTY_CAPTION,
-                fill=theme.SPROCKET,
+                # Not sprocket: sprocket is specified against the lightbox
+                # and is borderline even there. On the paler sleeve it fails.
+                fill=theme.INK_SECONDARY,
                 font=self._font,
                 anchor="center",
                 tags=("caption",),
@@ -252,17 +320,30 @@ class ContactStrip:
 
     def _draw_frame(self, index: int, frame: _Frame, metrics: _Metrics) -> None:
         left = metrics.origin + index * metrics.step
-        top = TOP + NUMBER_ROW
+        top = metrics.top + TOP + NUMBER_ROW
         size = metrics.frame_size
 
         self.canvas.create_text(
             left,
-            TOP + NUMBER_ROW / 2,
+            metrics.top + TOP + NUMBER_ROW / 2,
             text=str(index + 1),
             fill=theme.CHINAGRAPH,
             font=self._font,
             anchor="w",
             tags=("number",),
+        )
+
+        # The aperture. An empty frame is still a frame, so this is drawn
+        # whether or not there is a photograph in it yet.
+        self.canvas.create_rectangle(
+            left - APERTURE,
+            top - APERTURE,
+            left + size + APERTURE - 1,
+            top + size + APERTURE - 1,
+            fill="",
+            outline=theme.REBATE,
+            width=APERTURE,
+            tags=("aperture", f"aperture{index}"),
         )
 
         if frame.image is not None:
@@ -292,12 +373,30 @@ class ContactStrip:
             self.canvas.create_text(
                 left,
                 top + size + STENCIL_ROW / 2,
-                text=frame.title,
-                fill=theme.SPROCKET,
+                # Clipped to its own frame. Unclipped, "FRAME 1 · WHOLE
+                # PANORAMA" ran straight through frame 2's caption.
+                text=self._fit(frame.title, size),
+                fill=theme.INK_SECONDARY,
                 font=self._font,
                 anchor="w",
                 tags=("stencil",),
             )
+
+    def _fit(self, text: str, available: int) -> str:
+        """`text`, shortened from the end until it fits `available` points.
+
+        From the end, unlike the file list: these read "FRAME 3 · DETAIL",
+        so the front is what identifies the frame.
+        """
+        if available <= 0:
+            return ""
+        if self._font.measure(text) <= available:
+            return text
+        for end in range(len(text) - 1, 0, -1):
+            candidate = text[:end] + ELLIPSIS
+            if self._font.measure(candidate) <= available:
+                return candidate
+        return ELLIPSIS if self._font.measure(ELLIPSIS) <= available else ""
 
 
 def _bounded(image: Image.Image) -> Image.Image:

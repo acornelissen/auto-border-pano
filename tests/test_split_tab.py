@@ -11,7 +11,7 @@ from PIL import Image
 
 from auto_border_pano import gui, pipeline
 from auto_border_pano.gui import split_tab
-from tests.conftest import StubButton, StubRoot, StubVar, synthetic_panorama
+from tests.conftest import StubButton, StubGridded, StubRoot, StubVar, synthetic_panorama
 
 
 def test_run_single_survives_non_oserror_failure(
@@ -96,6 +96,7 @@ def test_finish_reenables_button_even_if_update_preview_raises() -> None:
     app.status = StubVar()  # type: ignore[assignment]
     app.error = StubVar("")  # type: ignore[assignment]
     app.process_btn = _StubButton()  # type: ignore[assignment]
+    app.progress_bar = StubGridded()  # type: ignore[assignment]
 
     def boom(*_args: Any, **_kwargs: Any) -> None:
         raise RuntimeError("synthetic preview failure")
@@ -144,6 +145,7 @@ def test_process_images_threads_the_selected_ratio_not_the_default(
     app.error = StubVar("")  # type: ignore[assignment]
     app.ratio = StubVar(non_default_label)  # type: ignore[assignment]
     app.process_btn = StubButton()  # type: ignore[assignment]
+    app.progress_bar = StubGridded()  # type: ignore[assignment]
 
     app.process_images()
 
@@ -186,6 +188,7 @@ def test_process_images_falls_back_to_default_ratio_for_an_unrecognised_label(
     app.error = StubVar("")  # type: ignore[assignment]
     app.ratio = StubVar("Not A Real Label (9:9)")  # type: ignore[assignment]
     app.process_btn = StubButton()  # type: ignore[assignment]
+    app.progress_bar = StubGridded()  # type: ignore[assignment]
 
     app.process_images()
 
@@ -283,6 +286,7 @@ def test_finish_shows_no_success_modal(monkeypatch: pytest.MonkeyPatch) -> None:
     app.status = StubVar()  # type: ignore[assignment]
     app.error = StubVar("")  # type: ignore[assignment]
     app.process_btn = StubButton()  # type: ignore[assignment]
+    app.progress_bar = StubGridded()  # type: ignore[assignment]
     app.update_preview = lambda *a, **k: None  # type: ignore[method-assign]
 
     app._finish("Cut 2 frames at 4:5 into out", "out", 1, None)
@@ -305,6 +309,7 @@ def test_finish_reports_a_processing_failure_inline_and_never_in_a_dialog(
     app.status = StubVar()  # type: ignore[assignment]
     app.error = StubVar("")  # type: ignore[assignment]
     app.process_btn = StubButton()  # type: ignore[assignment]
+    app.progress_bar = StubGridded()  # type: ignore[assignment]
 
     app._finish("Could not cut pano.jpg — broken", None, None, "broken")
 
@@ -322,6 +327,7 @@ def test_finish_batch_reports_sources_and_frames(monkeypatch: pytest.MonkeyPatch
     app.status = StubVar()  # type: ignore[assignment]
     app.error = StubVar("")  # type: ignore[assignment]
     app.process_btn = StubButton()  # type: ignore[assignment]
+    app.progress_bar = StubGridded()  # type: ignore[assignment]
     app.update_preview = lambda *a, **k: None  # type: ignore[method-assign]
 
     result = pipeline.BatchResult(
@@ -351,6 +357,7 @@ def test_finish_batch_names_every_failed_file_and_keeps_the_reason(
     app.status = StubVar()  # type: ignore[assignment]
     app.error = StubVar("")  # type: ignore[assignment]
     app.process_btn = StubButton()  # type: ignore[assignment]
+    app.progress_bar = StubGridded()  # type: ignore[assignment]
     app.update_preview = lambda *a, **k: None  # type: ignore[method-assign]
 
     result = pipeline.BatchResult(
@@ -383,6 +390,7 @@ def test_finish_batch_reports_an_empty_folder_in_the_status_line(
     app.status = StubVar()  # type: ignore[assignment]
     app.error = StubVar("")  # type: ignore[assignment]
     app.process_btn = StubButton()  # type: ignore[assignment]
+    app.progress_bar = StubGridded()  # type: ignore[assignment]
 
     result = pipeline.BatchResult()
     assert result.total_count == 0
@@ -411,6 +419,7 @@ def test_apply_facts_fills_the_readouts_and_the_button_label() -> None:
     app.facts = StubVar("")  # type: ignore[assignment]
     app.frame_count = StubVar("")  # type: ignore[assignment]
     app.action = StubVar("")  # type: ignore[assignment]
+    app.detail = StubVar("")  # type: ignore[assignment]
 
     app._apply_facts(7, pipeline.SourceFacts(19921, 6607, "3.01:1", 4))
 
@@ -429,6 +438,7 @@ def test_apply_facts_ignores_a_stale_inspection() -> None:
     app.facts = StubVar("")  # type: ignore[assignment]
     app.frame_count = StubVar("")  # type: ignore[assignment]
     app.action = StubVar("")  # type: ignore[assignment]
+    app.detail = StubVar("")  # type: ignore[assignment]
 
     # The newer request (token 2) lands first.
     app._apply_facts(2, pipeline.SourceFacts(4000, 1000, "4.00:1", 5))
@@ -446,6 +456,7 @@ def test_apply_facts_resets_the_readouts_when_the_file_cannot_be_read() -> None:
     app.facts = StubVar("19921 × 6607 · 3.01:1")  # type: ignore[assignment]  # noqa: RUF001
     app.frame_count = StubVar("4 frames")  # type: ignore[assignment]
     app.action = StubVar("Cut 4 frames")  # type: ignore[assignment]
+    app.detail = StubVar("")  # type: ignore[assignment]
 
     app._apply_facts(1, None)
 
@@ -468,6 +479,7 @@ def test_inspect_never_touches_a_tk_object_and_returns_through_after(tmp_path: P
     app.facts = StubVar("")  # type: ignore[assignment]
     app.frame_count = StubVar("")  # type: ignore[assignment]
     app.action = StubVar("")  # type: ignore[assignment]
+    app.detail = StubVar("")  # type: ignore[assignment]
 
     app._inspect(3, str(source), pipeline.DEFAULT_RATIO.name)
 
@@ -483,6 +495,7 @@ def test_inspect_reports_an_unreadable_source_as_no_count(tmp_path: Path) -> Non
     app.facts = StubVar("stale")  # type: ignore[assignment]
     app.frame_count = StubVar("9 frames")  # type: ignore[assignment]
     app.action = StubVar("Cut 9 frames")  # type: ignore[assignment]
+    app.detail = StubVar("stale")  # type: ignore[assignment]
 
     app._inspect(1, str(tmp_path / "gone.jpg"), pipeline.DEFAULT_RATIO.name)
 
@@ -509,6 +522,7 @@ def test_frame_count_readout_matches_what_the_pipeline_actually_writes(
     app.facts = StubVar("")  # type: ignore[assignment]
     app.frame_count = StubVar("")  # type: ignore[assignment]
     app.action = StubVar("")  # type: ignore[assignment]
+    app.detail = StubVar("")  # type: ignore[assignment]
 
     app._inspect(1, str(source), ratio_name)
 
@@ -666,3 +680,91 @@ def test_a_single_run_reports_every_frame_as_it_lands(
     assert seen == [f"{n}/{expected_frames}" for n in range(1, expected_frames + 1)]
     assert app.previews.frame_count == expected_frames
     assert app.previews.errors == []
+
+
+def test_the_band_detail_uses_the_ratio_the_facts_were_computed_for() -> None:
+    """The facts arrive from a worker; by then the combobox may have moved
+    on. Captioning one ratio's frame count with another ratio's name would
+    be a quiet lie, so the ratio travels with the answer."""
+    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
+    app._inspect_token = 1
+    app.facts = StubVar("")  # type: ignore[assignment]
+    app.frame_count = StubVar("")  # type: ignore[assignment]
+    app.action = StubVar("")  # type: ignore[assignment]
+    app.detail = StubVar("")  # type: ignore[assignment]
+    # The user has since moved the combobox to a different ratio.
+    app.ratio = StubVar(pipeline.RATIOS["1:1"].display)  # type: ignore[assignment]
+
+    facts = pipeline.SourceFacts(width=600, height=200, native_ratio="3.00:1", frame_count=5)
+    app._apply_facts(1, facts, "4:5")
+
+    assert app.detail.value == "4:5 · 5 frames"  # type: ignore[attr-defined]
+
+
+def test_the_path_fields_ride_at_their_tail_so_the_filename_shows(
+    tk_root: tkinter.Tk, tmp_path: Path
+) -> None:
+    """A path is longer than the rail, and Tk shows a field from its start,
+    so the app displayed the volume and clipped the filename -- the only
+    part of a path anybody recognises."""
+    from tkinter import ttk
+
+    source = tmp_path / "a-really-quite-long-directory-name" / "coastline-hp5-3.jpg"
+    source.parent.mkdir()
+    synthetic_panorama(600, 200).save(source, "JPEG", quality=95)
+
+    # The page has to be gridded and the root sized, or nothing is laid out
+    # and every widget reports a width of one pixel.
+    tk_root.geometry("1100x760")
+    page = ttk.Frame(tk_root)
+    page.grid(row=0, column=0, sticky="nsew")
+    tk_root.columnconfigure(0, weight=1)
+    tk_root.rowconfigure(0, weight=1)
+    app = gui.PanoramaSplitterGUI(page)
+    tk_root.update()
+    app.input_path.set(str(source))
+    tk_root.update()
+
+    # index("@0") is the index of the first character actually visible.
+    first_visible = app.input_entry.index("@0")
+
+    assert first_visible > 0, "the field is still showing the head of the path"
+    assert str(source).endswith(str(source)[first_visible:])
+
+
+def test_the_progress_bar_only_takes_space_while_a_run_is_in_flight(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The strip is the real progress indicator. At rest the bar was a dead
+    grey slab under the status line, which is what the removed Progress
+    frame used to be."""
+    source = tmp_path / "pano.jpg"
+    synthetic_panorama(600, 200).save(source, "JPEG", quality=95)
+
+    class _StubThread:
+        def __init__(self, target: Any, args: tuple[Any, ...], daemon: bool) -> None:
+            pass
+
+        def start(self) -> None:
+            pass
+
+    monkeypatch.setattr(threading, "Thread", _StubThread)
+
+    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
+    app.input_path = StubVar(str(source))  # type: ignore[assignment]
+    app.output_path = StubVar(str(tmp_path / "out"))  # type: ignore[assignment]
+    app.is_folder_mode = StubVar(False)  # type: ignore[assignment]
+    app.progress = StubVar()  # type: ignore[assignment]
+    app.status = StubVar()  # type: ignore[assignment]
+    app.error = StubVar("")  # type: ignore[assignment]
+    app.ratio = StubVar(pipeline.DEFAULT_RATIO.display)  # type: ignore[assignment]
+    app.process_btn = StubButton()  # type: ignore[assignment]
+    app.progress_bar = StubGridded()  # type: ignore[assignment]
+    app.detail = StubVar("")  # type: ignore[assignment]
+
+    app.process_images()
+    assert app.progress_bar.shown is True  # type: ignore[attr-defined]
+
+    app.update_preview = lambda *_a, **_k: None  # type: ignore[method-assign]
+    app._finish("Cut 5 frames at 4:5 into out", None, None, None)
+    assert app.progress_bar.shown is False  # type: ignore[attr-defined]

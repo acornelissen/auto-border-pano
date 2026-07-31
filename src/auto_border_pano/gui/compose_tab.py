@@ -46,26 +46,58 @@ _NUMBER_WORDS = {2: "two", 3: "three"}
 # solver cannot go unnamed here.
 _TWO_UP_PHRASING = {"row": "side by side", "column": "one above the other"}
 
+# Everything the axis word alone decides. A `row` runs left to right and the
+# pair inside it is stacked; a `column` runs top to bottom and the pair
+# inside it is side by side. Both facts follow from the axis, which is why
+# the split names below need no table of their own.
+_AXIS: dict[str, tuple[tuple[str, str], str]] = {
+    "row": (("left", "right"), "stacked"),
+    "column": (("on top", "below"), "side by side"),
+}
+
+
+def _split_arrangement(axis: str, groups: list[str]) -> str:
+    """Name a `<axis>-<n>-then-<n>` arrangement the way a photographer would.
+
+    `Row one then two` says nothing about where the panels are; this says
+    which side each group is on and how the group of two is arranged, both
+    read off the axis rather than off a table of arrangements.
+    """
+    positions, pairing = _AXIS[axis]
+    parts = []
+    for group, position in zip(groups, positions, strict=False):
+        pairing_words = "" if group == "one" else f" {pairing}"
+        parts.append(f"{group}{pairing_words} {position}")
+    return ", ".join(parts)
+
 
 def present_layout(name: str, count: int) -> str:
     """Turn the solver's own name for an arrangement into human copy.
 
-    Derived mechanically from whatever `layout.candidates` yields -- the
-    names are already words (`row`, `column`, `row-one-then-two`), so the
-    work is un-hyphenating them and, for the bare names, saying how many
-    panels are in the row or column. Deliberately not a lookup table of
-    every arrangement: such a table rots silently the day the solver gains
-    one, whereas this only ever fails to *improve* on a name it has not
-    seen. `test_every_solver_name_is_presentable` walks the solver's own
-    candidate list, so an unnamed arrangement fails the suite.
+    Derived mechanically from whatever `layout.candidates` yields. A bare
+    axis name (`row`, `column`) gets the count of panels in it, or the
+    everyday two-up phrasing; a split name (`row-one-then-two`) is read as
+    axis plus the two groups, and the axis alone says which side each group
+    sits on. Deliberately not a lookup table of every arrangement: such a
+    table rots silently the day the solver gains one, whereas this only ever
+    fails to *improve* on a name it has not seen.
+    `test_present_layout_reads_the_solver_name_as_a_sentence` walks the
+    solver's own candidate list, so an unnamed arrangement fails the suite.
     """
     if not name:
         return ""
-    words = name.replace("-", " ")
-    if " " not in words:
-        if count == MIN_IMAGES and words in _TWO_UP_PHRASING:
-            return _TWO_UP_PHRASING[words].capitalize()
-        words = f"{words} of {_NUMBER_WORDS.get(count, str(count))}"
+    axis, _, tail = name.partition("-")
+    if not tail:
+        if count == MIN_IMAGES and axis in _TWO_UP_PHRASING:
+            words = _TWO_UP_PHRASING[axis]
+        else:
+            words = f"{axis} of {_NUMBER_WORDS.get(count, str(count))}"
+    elif axis in _AXIS and tail.count("-then-") == 1:
+        words = _split_arrangement(axis, tail.split("-then-"))
+    else:
+        # An arrangement whose name does not parse still reads as words
+        # rather than as a slug.
+        words = name.replace("-", " ")
     return words[0].upper() + words[1:]
 
 
@@ -94,12 +126,14 @@ class ComposeTab:
         self.output_path = tk.StringVar()
         self.ratio = tk.StringVar(value=pipeline.DEFAULT_RATIO.display)
         self.status = tk.StringVar(value=EMPTY_STATE)
-        self.hint = tk.StringVar(value=EMPTY_STATE)
+        self.hint = tk.StringVar(value="")
         self.layout_name = tk.StringVar(value="")
-        # What the rebate band should stencil while this tab is in front.
-        # The band belongs to the shell, not to either tab, so each tab just
-        # states its subject and the shell decides whose to show.
+        # What the rebate band should stencil while this tab is in front:
+        # what is loaded, and what this tab will make of it. The band belongs
+        # to the shell, not to either tab, so each tab just states these and
+        # the shell decides whose to show.
         self.subject = tk.StringVar()
+        self.detail = tk.StringVar()
 
         # The arrangement the solver last returned for the current list and
         # ratio, and the token of the request that produced it. Every solve
@@ -134,17 +168,22 @@ class ComposeTab:
         self.listbox.canvas.grid(row=1, column=0, sticky=(tk.W, tk.E))
 
         # A row under the list rather than a column beside it: the list is
-        # the subject, the four controls act on it.
+        # the subject, the four controls act on it. Add is a different kind
+        # of action from the other three -- it grows the list, they act on
+        # whichever row is selected -- so it sits alone at the left edge and
+        # they cluster at the right, and the gap between them says so.
         buttons = ttk.Frame(rail)
-        buttons.grid(row=2, column=0, sticky=tk.W, pady=(theme.SPACE_S, 0))
+        buttons.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(theme.SPACE_S, 0))
         self.add_btn = ttk.Button(buttons, text="+ Add", command=self.add_image)
         self.add_btn.pack(side="left")
-        self.up_btn = ttk.Button(buttons, text="↑", width=3, command=self.move_up)
-        self.up_btn.pack(side="left", padx=(theme.SPACE_S, 0))
-        self.down_btn = ttk.Button(buttons, text="↓", width=3, command=self.move_down)
-        self.down_btn.pack(side="left", padx=(theme.SPACE_S, 0))
+        # Packed right to left so the three read, left to right, as up, down
+        # and remove while staying flush with the rail's right edge.
         self.remove_btn = ttk.Button(buttons, text="×", width=3, command=self.remove)  # noqa: RUF001
-        self.remove_btn.pack(side="left", padx=(theme.SPACE_S, 0))
+        self.remove_btn.pack(side="right")
+        self.down_btn = ttk.Button(buttons, text="↓", width=3, command=self.move_down)
+        self.down_btn.pack(side="right", padx=(0, theme.SPACE_S))
+        self.up_btn = ttk.Button(buttons, text="↑", width=3, command=self.move_up)
+        self.up_btn.pack(side="right", padx=(0, theme.SPACE_S))
 
         # These three are glyphs, so the tooltip is their only name. It shows
         # on focus as well as hover, which is what keeps them reachable
@@ -176,11 +215,13 @@ class ComposeTab:
         output_row = ttk.Frame(rail)
         output_row.grid(row=8, column=0, sticky=(tk.W, tk.E))
         output_row.columnconfigure(0, weight=1)
-        ttk.Entry(output_row, textvariable=self.output_path, style="TEntry").grid(
-            row=0, column=0, sticky=(tk.W, tk.E)
-        )
+        # Field and button side by side, exactly as the Split tab builds its
+        # own output row. The two rails are one product; a destination that
+        # is laid out one way here and another way there is the most visible
+        # way for them to drift apart.
+        self.output_entry = shell.path_entry(output_row, self.output_path)
         ttk.Button(output_row, text="Choose folder", command=self.browse_output).grid(
-            row=1, column=0, sticky=tk.W, pady=(theme.SPACE_S, 0)
+            row=0, column=1, padx=(theme.SPACE_S, 0)
         )
 
         self.save_btn = ttk.Button(
@@ -190,26 +231,35 @@ class ComposeTab:
 
         # Preview is free and reversible, so it sits below the action that
         # writes to disk at text weight rather than beside it as a peer.
+        # Hard against Save it read as a caption on the button; the same
+        # step the Split tab puts between its primary button and the line
+        # under it separates the two actions.
         self.preview_btn = ttk.Button(
             rail, text="Preview", command=self.preview, style="Link.TButton"
         )
-        self.preview_btn.grid(row=10, column=0, sticky=tk.W)
+        self.preview_btn.grid(row=10, column=0, sticky=tk.W, pady=(theme.SPACE_M, 0))
 
-        # Why the disabled buttons are disabled, and what to do about it.
+        # The resting sentence: what this makes, how it is arranged, at what
+        # ratio -- the same slot the Split tab gives its status line.
+        ttk.Label(
+            rail, textvariable=self.status, style="Help.TLabel", wraplength=shell.RAIL_WIDTH
+        ).grid(row=11, column=0, sticky=tk.W, pady=(theme.SPACE_M, 0))
+
+        # Only ever a reason to act on: a file that would not compose, a
+        # missing prefix, sources left out. The status line above carries
+        # everything else, so the two can never read as competing sentences.
         self.hint_label = ttk.Label(
             rail, textvariable=self.hint, style="Help.TLabel", wraplength=shell.RAIL_WIDTH
         )
-        self.hint_label.grid(row=11, column=0, sticky=tk.W, pady=(theme.SPACE_M, 0))
-
-        ttk.Label(
-            rail, textvariable=self.status, style="Help.TLabel", wraplength=shell.RAIL_WIDTH
-        ).grid(row=12, column=0, sticky=tk.W, pady=(theme.SPACE_S, 0))
+        self.hint_label.grid(row=12, column=0, sticky=tk.W, pady=(theme.SPACE_S, 0))
         rail.rowconfigure(13, weight=1)
 
         # One frame, not four: a composite is a single image. The strip
         # still renders its unexposed state before anything is composed.
         self.previews = ContactStrip(self.columns.table, frames=1)
-        self.previews.canvas.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        # Top of the table, at its natural height: the strip is an object
+        # lying on the light table, not a panel filling it.
+        self.previews.canvas.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N))
 
         self._refresh_list()
 
@@ -238,16 +288,13 @@ class ComposeTab:
         self.up_btn.config(state="normal" if has_selection and index != 0 else "disabled")
         self.down_btn.config(state="normal" if has_selection and index != count - 1 else "disabled")
 
-        ready = self.can_compose()
-        self._set_buttons_state("normal" if ready else "disabled")
+        self._set_buttons_state("normal" if self.can_compose() else "disabled")
         self.save_btn.config(text=_save_label(count))
-        # The hint says why Save is disabled. With nothing added yet the
-        # status line is already saying exactly that, and printing the same
-        # sentence twice under one button reads as a rendering fault.
-        if ready or count == 0:
-            self._set_hint("")
-        else:
-            self._set_hint(ONE_MORE)
+        # Why Save is disabled belongs to the status line, which is already
+        # the sentence describing what the current set makes. Saying it in
+        # the hint as well printed two near-identical sentences one above
+        # the other, which reads as a rendering fault rather than as help.
+        self._set_hint("")
 
     def _update_status(self) -> None:
         """State the consequence: what this makes, how it is arranged, at
@@ -256,13 +303,17 @@ class ComposeTab:
         count = len(self.images)
         noun = _composite_noun(count)
         if not noun:
-            self.status.set(EMPTY_STATE)
+            # One voice: the status line says what is missing, so the hint
+            # under it stays free for things the user has to act on.
+            self.status.set(ONE_MORE if count == 1 else EMPTY_STATE)
+            self.detail.set("")
             return
         arrangement = present_layout(self._solved, count).lower()
         parts = (
             [noun, arrangement, self._bare_ratio()] if arrangement else [noun, self._bare_ratio()]
         )
         self.status.set(", ".join(parts))
+        self.detail.set(f"{self._bare_ratio()} · {noun.lower()}")
 
     def _request_layout_name(self) -> None:
         """Ask, off the main thread, how these sources will be arranged.

@@ -20,7 +20,11 @@ def run() -> None:
     root.configure(background=theme.LIGHTBOX)
     # Not "Panorama Splitter": the second tab splits nothing.
     root.title("Auto Border Pano")
-    root.geometry("1100x760")
+    root.geometry("1180x860")
+    # The Compose rail is the taller of the two, and at the old 760 its
+    # status line fell off the bottom edge. A minimum stops the window being
+    # dragged back down to where the rail is clipped again.
+    root.minsize(960, 800)
     root.columnconfigure(0, weight=1)
     root.rowconfigure(1, weight=1)
 
@@ -41,19 +45,21 @@ def run() -> None:
     # the result for you, so the slash was doing a single verb's work.
     notebook.add(compose.frame, text="Compose")
 
-    # The band is the shell's, not either tab's: each tab states its own
-    # subject in a StringVar and the shell stencils whichever tab is in
-    # front. That keeps the tabs from having to know about each other, or
-    # about the band.
-    subjects = [split.subject, compose.subject]
+    # The band is the shell's, not either tab's: each tab states what it is
+    # working on and what it will make of it, and the shell stencils
+    # whichever tab is in front. That keeps the tabs from having to know
+    # about each other, or about the band.
+    tabs: list[shell.BandSubject] = [split, compose]
 
-    def show_current_subject(*_args: object) -> None:
-        current = int(notebook.index("current"))  # type: ignore[no-untyped-call]
-        band.set_subject(subjects[current].get(), strip_suffix=True)
+    def show_current(*_args: object) -> None:
+        current = tabs[int(notebook.index("current"))]  # type: ignore[no-untyped-call]
+        band.set_subject(current.subject.get(), strip_suffix=True)
+        band.set_detail(current.detail.get())
 
-    for subject in subjects:
-        subject.trace_add("write", show_current_subject)
-    notebook.bind("<<NotebookTabChanged>>", show_current_subject)
-    show_current_subject()
+    for tab in tabs:
+        tab.subject.trace_add("write", show_current)
+        tab.detail.trace_add("write", show_current)
+    notebook.bind("<<NotebookTabChanged>>", show_current)
+    show_current()
 
     root.mainloop()

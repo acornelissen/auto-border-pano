@@ -193,6 +193,10 @@ def apply(root: tk.Misc) -> None:
         "TButton",
         background=[("pressed", SPROCKET), ("active", "#CDD3D7"), ("disabled", LIGHTBOX)],
         foreground=[("disabled", SPROCKET)],
+        # A disabled button keeps its edge. Filled with the panel colour and
+        # borderless it stops reading as a button at all -- grey text floating
+        # on the rail looks like a rendering fault rather than "not yet".
+        bordercolor=[("disabled", "#C3C9CD")],
     )
 
     style.configure(
@@ -263,7 +267,10 @@ def apply(root: tk.Misc) -> None:
         background=[("active", LIGHTBOX)],
     )
 
-    style.configure("TNotebook", background=LIGHTBOX, borderwidth=0, tabmargins=(0, 0, 0, 0))
+    # The tabs start at the same gutter as the control rail below them.
+    # Flush against the window edge they read as a rendering fault, and
+    # nothing else in the app touches the edge.
+    style.configure("TNotebook", background=LIGHTBOX, borderwidth=0, tabmargins=(SPACE_L, 0, 0, 0))
     style.configure(
         "TNotebook.Tab",
         background=SLEEVE,

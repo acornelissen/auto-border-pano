@@ -3,6 +3,8 @@
 import tkinter
 from tkinter import ttk
 
+import pytest
+
 from auto_border_pano.gui import shell, theme
 
 
@@ -76,6 +78,49 @@ def test_the_rebate_band_says_nothing_when_nothing_is_loaded(tk_root: tkinter.Tk
     band = shell.RebateBand(tk_root)
 
     assert band.subject == ""
+    assert band.detail == ""
+
+
+def test_the_empty_band_states_that_rather_than_going_blank(tk_root: tkinter.Tk) -> None:
+    """A blank black bar reads as a rendering fault. It says what is missing."""
+    band = shell.RebateBand(tk_root)
+
+    drawn = "".join(
+        band.canvas.itemcget(item, "text")  # type: ignore[no-untyped-call]
+        for item in band.canvas.find_withtag("subject")
+    )
+
+    assert drawn == shell.RebateBand.NOTHING_LOADED
+
+
+def test_the_band_does_not_repeat_the_window_title(tk_root: tkinter.Tk) -> None:
+    """The title bar sits directly above the band already saying the app's
+    name; the band's most prominent position must not spend itself on a
+    duplicate of it."""
+    band = shell.RebateBand(tk_root)
+    band.set_subject("coastline-hp5-3.jpg", strip_suffix=True)
+    band.set_detail("4:5 · 5 frames")
+
+    drawn = "".join(
+        band.canvas.itemcget(item, "text")  # type: ignore[no-untyped-call]
+        for item in band.canvas.find_all()
+    )
+
+    assert "AUTO BORDER PANO" not in drawn
+    assert "COASTLINE-HP5-3" in drawn
+
+
+def test_the_band_carries_what_the_front_tab_will_produce(tk_root: tkinter.Tk) -> None:
+    band = shell.RebateBand(tk_root)
+
+    band.set_detail("4:5 · 5 frames")
+
+    drawn = "".join(
+        band.canvas.itemcget(item, "text")  # type: ignore[no-untyped-call]
+        for item in band.canvas.find_withtag("detail")
+    )
+
+    assert drawn == "4:5 · 5 FRAMES"
 
 
 def test_tracked_text_draws_one_canvas_item_per_character(tk_root: tkinter.Tk) -> None:
@@ -107,3 +152,102 @@ def test_redrawing_the_band_does_not_accumulate_stale_items(tk_root: tkinter.Tk)
         band.set_subject("ABC")
 
     assert len(band.canvas.find_all()) == after_first
+
+
+def test_the_real_app_wiring_builds_and_feeds_the_band(tk_root: tkinter.Tk) -> None:
+    """`app.run` is the one path no test exercised, because it ends in
+    `mainloop`. It reaches into both tabs for the vars that drive the band,
+    so a tab that grows or loses one crashes at launch while every other
+    test stays green. This builds exactly what `run` builds, minus the loop.
+    """
+    from auto_border_pano.gui.compose_tab import ComposeTab
+    from auto_border_pano.gui.split_tab import PanoramaSplitterGUI
+
+    band = shell.RebateBand(tk_root)
+    band.canvas.grid(row=0, column=0, sticky=(tkinter.W, tkinter.E))
+
+    notebook = ttk.Notebook(tk_root)
+    notebook.grid(row=1, column=0, sticky=(tkinter.W, tkinter.E, tkinter.N, tkinter.S))
+    page = ttk.Frame(notebook)
+    page.columnconfigure(0, weight=1)
+    page.rowconfigure(0, weight=1)
+    split = PanoramaSplitterGUI(page)
+    notebook.add(page, text="Split")
+    compose = ComposeTab(notebook)
+    notebook.add(compose.frame, text="Compose")
+
+    tabs: list[shell.BandSubject] = [split, compose]
+
+    def show_current(*_args: object) -> None:
+        current = tabs[int(notebook.index("current"))]  # type: ignore[no-untyped-call]
+        band.set_subject(current.subject.get(), strip_suffix=True)
+        band.set_detail(current.detail.get())
+
+    for tab in tabs:
+        tab.subject.trace_add("write", show_current)
+        tab.detail.trace_add("write", show_current)
+    notebook.bind("<<NotebookTabChanged>>", show_current)
+    show_current()
+
+    # Both tabs must carry both vars, or the band cannot be fed from either.
+    for tab in tabs:
+        assert isinstance(tab.subject, tkinter.StringVar)
+        assert isinstance(tab.detail, tkinter.StringVar)
+
+    split.subject.set("coastline-hp5-3.jpg")
+    split.detail.set("4:5 · 5 frames")
+
+    assert band.subject == "COASTLINE-HP5-3"
+    assert band.detail == "4:5 · 5 FRAMES"
+
+
+def test_a_path_field_rides_at_its_tail_on_both_rails(tk_root: tkinter.Tk) -> None:
+    """The filename is the only part of a path anybody recognises, and it is
+    the part Tk clips. `shell.path_entry` is what stops the two rails
+    solving that differently, or one of them not solving it at all."""
+    tk_root.geometry("600x200")
+    frame = ttk.Frame(tk_root)
+    frame.grid(row=0, column=0, sticky="ew")
+    frame.columnconfigure(0, weight=1)
+    tk_root.columnconfigure(0, weight=1)
+
+    variable = tkinter.StringVar()
+    entry = shell.path_entry(frame, variable)
+    tk_root.update()
+
+    variable.set("/Users/albert/Pictures/a-long-directory-name/coastline-hp5-3.jpg")
+    tk_root.update()
+
+    assert entry.index("@0") > 0, "the field is still showing the head of the path"
+
+
+def test_a_path_field_leaves_the_view_alone_while_it_has_focus(
+    tk_root: tkinter.Tk, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Yanking the view to the end under someone typing, or with the caret
+    mid-path, would be the interface fighting them.
+
+    A withdrawn window cannot hold keyboard focus -- `focus_get()` is always
+    None here -- so the guard is driven directly rather than through a real
+    focus that this environment will not grant.
+    """
+    tk_root.geometry("600x200")
+    frame = ttk.Frame(tk_root)
+    frame.grid(row=0, column=0, sticky="ew")
+    frame.columnconfigure(0, weight=1)
+    tk_root.columnconfigure(0, weight=1)
+
+    variable = tkinter.StringVar()
+    entry = shell.path_entry(frame, variable)
+    tk_root.update()
+
+    variable.set("/Users/albert/Pictures/a-long-directory-name/coastline-hp5-3.jpg")
+    tk_root.update()
+    assert entry.index("@0") > 0, "precondition: an unfocused field rides at its tail"
+
+    monkeypatch.setattr(type(entry), "focus_get", lambda self: entry)
+    entry.xview_moveto(0.0)
+    shell.show_tail(entry)
+    tk_root.update()
+
+    assert entry.index("@0") == 0, "the view was moved under a focused field"

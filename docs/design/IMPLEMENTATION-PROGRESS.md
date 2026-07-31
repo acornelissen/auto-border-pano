@@ -39,3 +39,50 @@ the first run. So Stage 4 is worth it, and the Qt question stays closed.
   children before collecting garbage. That is load-bearing, not tidiness:
   without it a `tk.Variable` finaliser runs after its interpreter is gone and
   surfaces as an unraisable-exception warning against an unrelated test.
+
+## Polish pass
+
+Done after looking at the running app rather than at the plan. What the
+screenshots showed, and what changed:
+
+- **The strip was a black slab.** Lightened to the sleeve grey with a 1px
+  rebate aperture per frame. Black at that size read as a hole in the light
+  table rather than as film lying on it. `SPROCKET` is now nowhere on the
+  sleeve as text — it is borderline against `LIGHTBOX` and fails against the
+  paler sleeve, so stencils use `INK_SECONDARY`.
+- **Stencil captions overlapped.** They were not clipped to their own frame,
+  so "FRAME 1 · WHOLE PANORAMA" ran straight through frame 2's caption.
+- **The strip stretched and then shrank.** Painting the whole cell made a
+  five-frame strip into a large pale panel with a thin row of pictures in
+  the middle of it. Sizing to content exposed a second bug: the canvas asks
+  for its own height, so feeding the height it is given back into the frame
+  size is a loop that walks the strip down to the minimum over a few
+  resizes. Only the width comes from the widget now.
+- **The sleeve ran the full column width** past the last frame. It ends
+  where the film ends.
+- **Paths showed their head and clipped the filename** — the only part of a
+  path anybody recognises. `shell.path_entry` rides at the tail, and leaves
+  the view alone while the field has focus.
+- **The two rails had drifted apart again** in DESTINATION. There is now a
+  test that walks both widget trees and fails if their shapes differ.
+- **The progress bar was a dead grey slab at rest.** It only takes space
+  while a run is in flight; the strip is the real indicator.
+- **The band repeated the window title** directly below it. It leads with
+  the subject now and carries what the front tab will produce on the right.
+- The tabs sat flush against the window edge; they start at the rail gutter.
+- The Compose rail overflowed an 860pt window, clipping its status line, so
+  the window has a minimum size.
+
+Two things found while polishing that were not cosmetic:
+
+- `split_tab`'s workers called `root.after` unguarded. Closing the window
+  mid-run killed the worker thread with an unhandled exception. Every
+  crossing goes through one guarded `_report` now, as Compose already did.
+- `_apply_facts` re-read the ratio combobox when the worker reported back,
+  so a ratio changed mid-inspection would caption one ratio's frame count
+  with another ratio's name. The ratio travels with the answer.
+
+`shell.BandSubject` is a Protocol naming what the shell needs from a tab.
+`app.run` is the only code that reads those variables and it ends in
+`mainloop`, so a tab dropping one was a crash at launch with a green suite —
+which nearly shipped. There is now a test that builds what `run` builds.

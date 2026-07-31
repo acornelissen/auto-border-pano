@@ -44,24 +44,52 @@ def test_the_empty_caption_appears_once_not_once_per_frame(tk_root: tkinter.Tk) 
     assert len(built.canvas.find_withtag("caption")) == 1
 
 
-def test_the_strip_is_film_base_black_on_the_light_table(tk_root: tkinter.Tk) -> None:
+def test_the_strip_is_a_pale_sleeve_on_the_light_table(tk_root: tkinter.Tk) -> None:
+    """Not a black slab. Black at this size reads as a hole in the table."""
     built = strip.ContactStrip(tk_root)
 
     rebate = built.canvas.find_withtag("rebate")[0]
 
     assert built.canvas.cget("background") == theme.LIGHTBOX
-    assert built.canvas.itemcget(rebate, "fill") == theme.REBATE  # type: ignore[no-untyped-call]
+    assert built.canvas.itemcget(rebate, "fill") == theme.SLEEVE  # type: ignore[no-untyped-call]
+    rule = built.canvas.find_withtag("rule")[0]
+    assert built.canvas.itemcget(rule, "fill") == theme.SPROCKET  # type: ignore[no-untyped-call]
+
+
+def test_every_frame_has_a_hairline_aperture_even_when_empty(tk_root: tkinter.Tk) -> None:
+    built = strip.ContactStrip(tk_root)
+
+    built.set_frames(["a", "b", "c"])
+
+    apertures = built.canvas.find_withtag("aperture")
+    assert len(apertures) == 3
+    assert built.canvas.itemcget(apertures[0], "outline") == theme.REBATE  # type: ignore[no-untyped-call]
+    assert int(float(built.canvas.itemcget(apertures[0], "width"))) == strip.APERTURE  # type: ignore[no-untyped-call]
+
+
+def test_text_on_the_sleeve_never_uses_sprocket(tk_root: tkinter.Tk) -> None:
+    """`sprocket` is specified against the lightbox and is borderline even
+    there; on the paler sleeve it fails AA. Secondary ink passes."""
+    built = strip.ContactStrip(tk_root)
+    built.set_frames(["frame 1 . whole panorama"])
+
+    caption = built.canvas.find_withtag("caption")[0]
+    stencil = built.canvas.find_withtag("stencil")[0]
+    number = built.canvas.find_withtag("number")[0]
+
+    assert built.canvas.itemcget(caption, "fill") == theme.INK_SECONDARY  # type: ignore[no-untyped-call]
+    assert built.canvas.itemcget(stencil, "fill") == theme.INK_SECONDARY  # type: ignore[no-untyped-call]
+    assert built.canvas.itemcget(number, "fill") == theme.CHINAGRAPH  # type: ignore[no-untyped-call]
 
 
 def test_stencils_are_stamped_in_caps_like_a_lab_would(tk_root: tkinter.Tk) -> None:
     built = strip.ContactStrip(tk_root)
 
-    built.set_frames(["frame 1 . whole panorama"])
+    built.set_available_space(900, 400)
+    built.set_frames(["frame 1"])
 
     stencils = built.canvas.find_withtag("stencil")
-    assert [built.canvas.itemcget(item, "text") for item in stencils] == [  # type: ignore[no-untyped-call]
-        "FRAME 1 . WHOLE PANORAMA"
-    ]
+    assert [built.canvas.itemcget(item, "text") for item in stencils] == ["FRAME 1"]  # type: ignore[no-untyped-call]
 
 
 def test_rebuilding_at_a_new_frame_count_does_not_accumulate_items(
@@ -215,6 +243,67 @@ def test_the_strip_never_collapses_below_a_legible_frame(tk_root: tkinter.Tk) ->
     built.set_available_width(400)
 
     assert built.frame_size == strip.MIN_FRAME_PX
+
+
+def test_a_long_stencil_is_clipped_to_its_own_frame(tk_root: tkinter.Tk) -> None:
+    """Unclipped, frame 1's caption ran straight through frame 2's:
+    "FRAME 1 . WHOLE PANORAM|RAME 2 . DETAIL"."""
+    built = strip.ContactStrip(tk_root)
+    long_title = "frame 1 . the whole panorama end to end with nothing cropped away"
+    built.set_frames([long_title, "frame 2 . detail"])
+    built.set_available_space(700, 400)
+
+    stencils = built.canvas.find_withtag("stencil")
+    drawn = [built.canvas.itemcget(item, "text") for item in stencils]  # type: ignore[no-untyped-call]
+    font = theme.font(tk_root, "stencil")
+
+    assert len(drawn[0]) < len(long_title.upper())
+    assert drawn[0].startswith("FRAME 1")
+    # No caption can reach its neighbour's frame, whatever the string was.
+    for text in drawn:
+        assert font.measure(text) <= built.frame_size
+
+
+def test_a_single_frame_is_a_frame_not_a_column_sized_square(tk_root: tkinter.Tk) -> None:
+    """Compose builds the strip with `frames=1` in a tall narrow column.
+    Sized from the width alone that produced one enormous square."""
+    built = strip.ContactStrip(tk_root)
+    built.set_frames(["diptych"])
+
+    built.set_available_space(560, 1200)
+
+    assert built.frame_size <= strip.MAX_FRAME_PX
+    assert built.frame_size < 560 - 2 * strip.EDGE
+
+
+def test_a_short_cell_bounds_the_frame_by_height_too(tk_root: tkinter.Tk) -> None:
+    built = strip.ContactStrip(tk_root)
+    built.set_frames(["a"])
+
+    built.set_available_space(1200, 160)
+
+    assert built.frame_size == 160 - strip.CHROME_PX
+
+
+def test_a_tall_cell_does_not_stretch_the_strip_into_a_panel(
+    tk_root: tkinter.Tk,
+) -> None:
+    """The strip is an object lying on the light table, not a panel filling
+    it. Painting the whole cell turned five frames in a 1200pt column into a
+    large pale box with a thin row of pictures floating in the middle -- the
+    same "big box mostly containing nothing" the strip exists to replace.
+    Everything below the strip is table, and should look like table."""
+    built = strip.ContactStrip(tk_root)
+    built.set_frames(["a", "b", "c", "d", "e"])
+
+    built.set_available_space(900, 1200)
+
+    rebate = built.canvas.find_withtag("rebate")[0]
+    _, top, _, bottom = built.canvas.bbox(rebate)
+    assert bottom - top < 1200 / 2, "the strip stretched to fill the column"
+    # Its frames start at the top of it, with no dead band above them.
+    number = built.canvas.find_withtag("number")[0]
+    assert built.canvas.bbox(number)[1] < 100
 
 
 def test_a_resize_rescales_the_thumbnails_it_already_holds(

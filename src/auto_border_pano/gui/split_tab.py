@@ -4,6 +4,7 @@ Importing this module raises ImportError when tkinter is missing; the
 friendly message lives in cli.gui_main.
 """
 
+import contextlib
 import threading
 import tkinter as tk
 from pathlib import Path
@@ -55,10 +56,12 @@ class PanoramaSplitterGUI:
         self.facts = tk.StringVar()
         self.frame_count = tk.StringVar(value=NO_COUNT)
         self.action = tk.StringVar(value=UNCOUNTED_ACTION)
-        # What the rebate band should stencil while this tab is in front.
-        # The band belongs to the shell, not to either tab, so each tab just
-        # states its subject and the shell decides whose to show.
+        # What the rebate band should stencil while this tab is in front:
+        # what is loaded, and what this tab will make of it. The band belongs
+        # to the shell, not to either tab, so each tab just states these and
+        # the shell decides whose to show.
         self.subject = tk.StringVar()
+        self.detail = tk.StringVar()
         # Monotonic; only the newest inspection may write to the vars above.
         # The user can pick a second file before the first header read comes
         # back, and the older answer must not overwrite the newer one.
@@ -82,9 +85,7 @@ class PanoramaSplitterGUI:
         input_row = ttk.Frame(rail)
         input_row.grid(row=1, column=0, sticky=(tk.W, tk.E))
         input_row.columnconfigure(0, weight=1)
-        ttk.Entry(input_row, textvariable=self.input_path, style="TEntry").grid(
-            row=0, column=0, sticky=(tk.W, tk.E)
-        )
+        self.input_entry = shell.path_entry(input_row, self.input_path)
         ttk.Button(input_row, text="Choose…", command=self.browse_input).grid(
             row=0, column=1, padx=(theme.SPACE_S, 0)
         )
@@ -125,9 +126,7 @@ class PanoramaSplitterGUI:
         output_row = ttk.Frame(rail)
         output_row.grid(row=8, column=0, sticky=(tk.W, tk.E))
         output_row.columnconfigure(0, weight=1)
-        ttk.Entry(output_row, textvariable=self.output_path, style="TEntry").grid(
-            row=0, column=0, sticky=(tk.W, tk.E)
-        )
+        self.output_entry = shell.path_entry(output_row, self.output_path)
         ttk.Button(output_row, text="Choose folder", command=self.browse_output).grid(
             row=0, column=1, padx=(theme.SPACE_S, 0)
         )
@@ -140,12 +139,13 @@ class PanoramaSplitterGUI:
         ttk.Label(rail, textvariable=self.status, style="Help.TLabel").grid(
             row=10, column=0, sticky=tk.W, pady=(theme.SPACE_M, 0)
         )
-        # Stage 4 makes the strip itself the progress indicator and this goes
-        # away; until then the bar lives under the status line rather than in
-        # a LabelFrame of its own.
-        ttk.Progressbar(rail, variable=self.progress, maximum=100).grid(
-            row=11, column=0, sticky=(tk.W, tk.E), pady=(theme.SPACE_S, 0)
-        )
+        # The strip is the real progress indicator now -- frames appear as
+        # they are written -- so the bar only earns its space while a run is
+        # in flight. At rest it was a dead grey slab under the status line
+        # saying nothing, which is what the removed Progress frame used to do.
+        self.progress_bar = ttk.Progressbar(rail, variable=self.progress, maximum=100)
+        self.progress_bar.grid(row=11, column=0, sticky=(tk.W, tk.E), pady=(theme.SPACE_S, 0))
+        self.progress_bar.grid_remove()
         self.error_label = ttk.Label(rail, textvariable=self.error, style="Error.TLabel")
         self.error_label.grid(row=12, column=0, sticky=tk.W, pady=(theme.SPACE_S, 0))
         # Everything above is fixed height; the slack goes below the rail so
@@ -155,7 +155,21 @@ class PanoramaSplitterGUI:
         # The strip renders its unexposed empty state from construction, so
         # the largest thing on screen says something before the first run.
         self.previews = ContactStrip(columns.table)
-        self.previews.canvas.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        # Top of the table, at its natural height: the strip is an object
+        # lying on the light table, not a panel filling it.
+        self.previews.canvas.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N))
+
+    def _report(self, callback: object, *args: object) -> None:
+        """Cross back to the main thread from a worker. The only crossing.
+
+        Guarded because the window can close while a worker is still in
+        flight: `after` then raises TclError, or RuntimeError when the
+        interpreter has no main loop left to schedule onto, and an unguarded
+        call kills the worker thread with an unhandled exception. There is
+        nothing left to tell by then, so dropping the report is correct.
+        """
+        with contextlib.suppress(tk.TclError, RuntimeError):
+            self.root.after(0, callback, *args)  # type: ignore[arg-type]
 
     # --- The live readouts --------------------------------------------------
 
@@ -191,10 +205,18 @@ class PanoramaSplitterGUI:
             # An unreadable file is not an error the user has to act on yet;
             # process_images reports it properly if they press the button.
             facts = None
-        self.root.after(0, self._apply_facts, token, facts)
+        self._report(self._apply_facts, token, facts, ratio_name)
 
-    def _apply_facts(self, token: int, facts: pipeline.SourceFacts | None) -> None:
-        """Runs on the main thread. All widget mutation happens here."""
+    def _apply_facts(
+        self, token: int, facts: pipeline.SourceFacts | None, ratio_name: str = ""
+    ) -> None:
+        """Runs on the main thread. All widget mutation happens here.
+
+        The ratio arrives with the answer rather than being re-read here:
+        these facts were computed for THAT ratio, and the combobox may have
+        moved on since. Reading it again would caption one ratio's frame
+        count with another ratio's name.
+        """
         if token != self._inspect_token:
             return
         if facts is None:
@@ -203,11 +225,13 @@ class PanoramaSplitterGUI:
         self.facts.set(f"{facts.width} × {facts.height} · {facts.native_ratio}")  # noqa: RUF001
         self.frame_count.set(f"{facts.frame_count} frames")
         self.action.set(f"Cut {facts.frame_count} frames")
+        self.detail.set(f"{ratio_name} · {facts.frame_count} frames" if ratio_name else "")
 
     def _clear_facts(self) -> None:
         self.facts.set("")
         self.frame_count.set(NO_COUNT)
         self.action.set(UNCOUNTED_ACTION)
+        self.detail.set("")
 
     def browse_input(self) -> None:
         """One button, because the radio pair already says what is wanted."""
@@ -255,6 +279,7 @@ class PanoramaSplitterGUI:
     ) -> None:
         """Runs on the main thread. All widget mutation happens here."""
         self.progress.set(100)
+        self.progress_bar.grid_remove()
         self.status.set(message)
         try:
             if prefix is not None and count is not None:
@@ -272,6 +297,7 @@ class PanoramaSplitterGUI:
     def _finish_batch(self, result: pipeline.BatchResult, ratio_name: str) -> None:
         """Runs on the main thread. All widget mutation happens here."""
         self.progress.set(100)
+        self.progress_bar.grid_remove()
         succeeded = result.succeeded_count
         total = result.total_count
         failed = result.failed
@@ -300,7 +326,7 @@ class PanoramaSplitterGUI:
     def _run_single(self, source: str, prefix: str, ratio_name: str) -> None:
         def report(done: int, total: int, path: Path) -> None:
             # Worker thread. Hands plain data back and touches nothing tk.
-            self.root.after(0, self._set_frame_progress, done, total, path)
+            self._report(self._set_frame_progress, done, total, path)
 
         try:
             written = pipeline.process_image(
@@ -308,7 +334,7 @@ class PanoramaSplitterGUI:
             )
         except Exception as error:
             message = f"Could not cut {Path(source).name} — {error}"
-            self.root.after(0, self._finish, message, None, None, str(error))
+            self._report(self._finish, message, None, None, str(error))
             return
         # `count` is the detail-frame count update_preview expects; the
         # sentence counts every frame written, so the button's verb and the
@@ -316,11 +342,11 @@ class PanoramaSplitterGUI:
         count = len(written) - 1
         ratio = pipeline.RATIOS[ratio_name].name
         message = f"Cut {len(written)} frames at {ratio} into {Path(prefix).name}"
-        self.root.after(0, self._finish, message, prefix, count, None)
+        self._report(self._finish, message, prefix, count, None)
 
     def _run_batch(self, source: str, destination: str, ratio_name: str) -> None:
         def report(done: int, total: int, path: Path) -> None:
-            self.root.after(0, self._set_progress, done, total, path.name)
+            self._report(self._set_progress, done, total, path.name)
 
         try:
             result = pipeline.process_folder(
@@ -328,9 +354,9 @@ class PanoramaSplitterGUI:
             )
         except Exception as error:
             message = f"Could not cut {Path(source).name} — {error}"
-            self.root.after(0, self._finish, message, None, None, str(error))
+            self._report(self._finish, message, None, None, str(error))
             return
-        self.root.after(0, self._finish_batch, result, ratio_name)
+        self._report(self._finish_batch, result, ratio_name)
 
     def _set_frame_progress(self, done: int, total: int, path: Path) -> None:
         """Runs on the main thread. Progress *is* the preview.
@@ -362,6 +388,7 @@ class PanoramaSplitterGUI:
             return
         self.process_btn.config(state="disabled")
         self.progress.set(0)
+        self.progress_bar.grid()
         self.status.set("Cutting frames")
         # Map the displayed label back to the bare ratio name here, on the
         # main thread -- the worker thread must never touch a tkinter

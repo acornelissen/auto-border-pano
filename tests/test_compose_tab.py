@@ -3,12 +3,13 @@
 import threading
 import tkinter
 from pathlib import Path
-from tkinter import filedialog
+from tkinter import filedialog, ttk
 from typing import Any
 
 import pytest
 
 from auto_border_pano import pipeline
+from auto_border_pano.gui import theme
 from tests.conftest import StubButton, StubVar
 
 
@@ -272,7 +273,10 @@ def test_save_and_preview_are_disabled_below_two_images_with_a_reason(tk_root: t
     tab._refresh_list()
     assert _state(tab.save_btn) == "disabled"
     assert _state(tab.preview_btn) == "disabled"
-    assert tab.hint.get() == compose_tab.ONE_MORE
+    # One voice: the reason lives in the status line, and the hint below it
+    # stays quiet rather than repeating it in different words.
+    assert tab.status.get() == compose_tab.ONE_MORE
+    assert tab.hint.get() == ""
 
     tab.images = ["a.jpg", "b.jpg"]
     tab._refresh_list()
@@ -389,8 +393,17 @@ def test_present_layout_reads_the_solver_name_as_a_sentence() -> None:
     from auto_border_pano.gui import compose_tab
 
     assert compose_tab.present_layout("row", 3) == "Row of three"
-    assert compose_tab.present_layout("row-one-then-two", 3) == "Row one then two"
     assert compose_tab.present_layout("", 3) == ""
+    # A split arrangement says where the panels actually are. "Row one then
+    # two" named the solver's data structure, not the picture.
+    assert compose_tab.present_layout("row-one-then-two", 3) == "One left, two stacked right"
+    assert compose_tab.present_layout("row-two-then-one", 3) == "Two stacked left, one right"
+    assert (
+        compose_tab.present_layout("column-one-then-two", 3) == "One on top, two side by side below"
+    )
+    assert (
+        compose_tab.present_layout("column-two-then-one", 3) == "Two side by side on top, one below"
+    )
     # Two panels have an everyday name for their arrangement; three do not.
     assert compose_tab.present_layout("row", 2) == "Side by side"
     assert compose_tab.present_layout("column", 2) == "One above the other"
@@ -399,6 +412,92 @@ def test_present_layout_reads_the_solver_name_as_a_sentence() -> None:
     for count in (2, 3):
         for name, _node in layout.candidates(count):
             assert compose_tab.present_layout(name, count)[0].isupper()
+
+
+def _output_row(frame: Any, variable: str) -> Any:
+    """The frame holding the output entry, found the same way on either tab.
+
+    Nothing is looked up by attribute name, so this works against the Split
+    tab without that tab having to expose anything for the test's benefit.
+    """
+    for widget in _descendants(frame):
+        if isinstance(widget, ttk.Entry) and str(widget.cget("textvariable")) == variable:
+            return widget.master
+    raise AssertionError("no output entry found in this rail")
+
+
+def _descendants(widget: Any) -> list[Any]:
+    found = []
+    for child in widget.winfo_children():
+        found.append(child)
+        found.extend(_descendants(child))
+    return found
+
+
+def _row_shape(row: Any) -> list[tuple[str, int, int, Any]]:
+    """Widget class, grid cell and left padding for each child, in order."""
+    shape = []
+    for child in row.winfo_children():
+        info = child.grid_info()
+        shape.append(
+            (child.winfo_class(), int(info["row"]), int(info["column"]), str(info["padx"]))
+        )
+    return shape
+
+
+def test_both_rails_build_the_same_destination_row(tk_root: tkinter.Tk) -> None:
+    """One product, one skeleton. The output field and its Choose button sit
+    side by side on both tabs; when they drifted apart the Compose tab put
+    the button on its own line underneath, which is the single most visible
+    way for the two rails to stop looking like one app."""
+    from auto_border_pano.gui import split_tab
+
+    compose = _tk_tab(tk_root)
+    split = split_tab.PanoramaSplitterGUI(tk_root)
+
+    compose_row = _output_row(compose.frame, str(compose.output_path))
+    split_row = _output_row(tk_root, str(split.output_path))
+
+    assert _row_shape(compose_row) == _row_shape(split_row)
+    # Not just equal to each other -- equal to the intended arrangement.
+    assert _row_shape(compose_row) == [
+        ("TEntry", 0, 0, "0"),
+        ("TButton", 0, 1, f"({theme.SPACE_S}, 0)"),
+    ]
+    assert int(compose_row.grid_size()[1]) == 1, "the Choose button is on a second line"
+    assert compose_row.grid_columnconfigure(0)["weight"] == 1
+
+
+def test_the_reorder_row_separates_add_from_the_selection_actions(tk_root: tkinter.Tk) -> None:
+    """Add grows the list; the other three act on the selected row. They are
+    different kinds of action and the row has to say so, rather than leaving
+    Add adrift at the left with a gap of nothing beside it."""
+    tab = _tk_tab(tk_root)
+    row = tab.add_btn.master
+
+    assert tab.add_btn.pack_info()["side"] == "left"
+    for button in (tab.up_btn, tab.down_btn, tab.remove_btn):
+        assert button.pack_info()["side"] == "right"
+    # The row spans the rail, or "right" would mean nothing.
+    assert "e" in str(row.grid_info()["sticky"])
+
+    # Packing right places each widget further left than the one before it,
+    # so the cluster reads up, down, remove on screen only if it was packed
+    # in the opposite order. Assert the packing order, not pixels: the tab
+    # is built on a withdrawn root and has no real geometry to measure.
+    packed = [str(widget) for widget in row.pack_slaves()]
+    assert packed.index(str(tab.remove_btn)) < packed.index(str(tab.down_btn))
+    assert packed.index(str(tab.down_btn)) < packed.index(str(tab.up_btn))
+
+
+def test_preview_is_separated_from_save(tk_root: tkinter.Tk) -> None:
+    """Hard against the primary button it read as a caption on it."""
+    tab = _tk_tab(tk_root)
+    top, _bottom = tab.preview_btn.grid_info()["pady"]
+    assert int(top) == theme.SPACE_M
+    # Still the secondary action, never a peer of Save.
+    assert str(tab.preview_btn.cget("style")) == "Link.TButton"
+    assert str(tab.save_btn.cget("style")) == "Primary.TButton"
 
 
 def test_reorder_buttons_are_disabled_without_a_selection(tk_root: tkinter.Tk) -> None:

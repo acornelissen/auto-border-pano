@@ -9,10 +9,33 @@ in here exists so that stops being true.
 Presentation only, like `theme`. Nothing here knows what a panorama is.
 """
 
+import contextlib
 import tkinter as tk
 from tkinter import ttk
+from typing import Protocol
 
 from auto_border_pano.gui import theme
+
+
+class BandSubject(Protocol):
+    """What the shell needs from a tab in order to stencil the band.
+
+    The band belongs to the shell rather than to either tab, so the tabs do
+    not know about it or about each other -- they only state what they are
+    working on and what they will make of it. Naming that contract here is
+    what stops a tab quietly dropping one of the two variables: `app.run`
+    is the only place that reads them and it ends in `mainloop`, so without
+    this the failure would be a crash at launch with a green test suite.
+    """
+
+    @property
+    def subject(self) -> tk.StringVar:
+        """What is loaded: a filename, or how many sources."""
+
+    @property
+    def detail(self) -> tk.StringVar:
+        """What this tab will make of it: `4:5 · 5 frames`."""
+
 
 RAIL_WIDTH = 340
 """Points. The control rail is fixed; the light table takes what is left.
@@ -67,6 +90,43 @@ def section(parent: tk.Misc, title: str, row: int) -> ttk.Label:
     return label
 
 
+def show_tail(entry: ttk.Entry) -> None:
+    """Keep the end of a path in view: the filename, not the volume.
+
+    A path is longer than the 340pt rail and Tk shows a field from its
+    start, so the rails displayed "/Users/albert/Pictures/coastline-hp" and
+    clipped the only part of a path anybody recognises.
+
+    Deferred to idle because a variable trace fires the instant the value is
+    set, which on a first selection is before the field has been laid out --
+    and a field one pixel wide has nothing to scroll. Callers also bind it
+    to `<Configure>`, because Tk resets the view when a field is resized.
+
+    Skipped while the field has focus: yanking the view to the end under
+    someone who is typing, or who has put the caret mid-path, would be the
+    interface fighting them.
+    """
+    if entry.focus_get() is entry:
+        return
+
+    def scroll() -> None:
+        # The window can close between scheduling this and running it.
+        with contextlib.suppress(tk.TclError):
+            entry.xview_moveto(1.0)
+
+    with contextlib.suppress(tk.TclError):
+        entry.after_idle(scroll)
+
+
+def path_entry(parent: tk.Misc, variable: tk.StringVar) -> ttk.Entry:
+    """A rail's path field: mono, expanding, and riding at its tail."""
+    entry = ttk.Entry(parent, textvariable=variable, style="TEntry")
+    entry.grid(row=0, column=0, sticky=(tk.W, tk.E))
+    entry.bind("<Configure>", lambda _event: show_tail(entry))
+    variable.trace_add("write", lambda *_a: show_tail(entry))
+    return entry
+
+
 class RebateBand:
     """The black band a lab prints the frame's name onto.
 
@@ -77,6 +137,8 @@ class RebateBand:
     have bought a frame number and cost all three.
     """
 
+    NOTHING_LOADED = "NO SOURCE LOADED"
+
     def __init__(self, parent: tk.Misc) -> None:
         self.canvas = tk.Canvas(
             parent,
@@ -86,8 +148,10 @@ class RebateBand:
             borderwidth=0,
         )
         self.subject = ""
+        self.detail = ""
         self._font = theme.font(parent, "stencil")
         self.canvas.bind("<Configure>", lambda _event: self._draw())
+        self._draw()
 
     def set_subject(self, text: str, *, strip_suffix: bool = False) -> None:
         """Name what is loaded. Caps because a lab stencils in caps."""
@@ -96,18 +160,29 @@ class RebateBand:
         self.subject = text.upper()
         self._draw()
 
+    def set_detail(self, text: str) -> None:
+        """What the front tab will produce from it -- `4:5 · 5 FRAMES`."""
+        self.detail = text.upper()
+        self._draw()
+
     def _draw(self) -> None:
         # Every redraw clears first. The band redraws on each file selection
         # and each resize, so leaving items behind would pile up thousands.
         self.canvas.delete("all")
-        self._tracked_text(theme.SPACE_M, "AUTO BORDER PANO", theme.SPROCKET, "identity")
-        if not self.subject:
+        # The subject leads, because the band exists to say what you are
+        # working on. It used to open with the app's own name, which the
+        # window's title bar is already saying two centimetres above -- the
+        # band was spending its most prominent position on a duplicate.
+        subject = self.subject or self.NOTHING_LOADED
+        fill = theme.LIGHTBOX if self.subject else theme.SPROCKET
+        self._tracked_text(theme.SPACE_L, subject, fill, "subject")
+        if not self.detail:
             return
         width = self.canvas.winfo_width()
         # Right-aligned, so measure the run before placing the first glyph.
-        run = self._tracked_width(self.subject)
+        run = self._tracked_width(self.detail)
         self._tracked_text(
-            max(width - run - theme.SPACE_M, 0), self.subject, theme.LIGHTBOX, "subject"
+            max(width - run - theme.SPACE_L, 0), self.detail, theme.SPROCKET, "detail"
         )
 
     def _tracked_width(self, text: str) -> float:

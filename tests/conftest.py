@@ -82,6 +82,24 @@ class StubButton:
         self.last_state = state
 
 
+class StubGridded:
+    """A widget the code only ever shows and hides.
+
+    The progress bar earns its space only while a run is in flight, so the
+    partial-instance tests need something that records grid()/grid_remove()
+    without a real Tk widget behind it.
+    """
+
+    def __init__(self) -> None:
+        self.shown: bool | None = None
+
+    def grid(self) -> None:
+        self.shown = True
+
+    def grid_remove(self) -> None:
+        self.shown = False
+
+
 def synthetic_panorama(width: int = 3000, height: int = 800) -> Image.Image:
     """Build a deterministic gradient panorama for tests.
 
