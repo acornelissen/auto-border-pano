@@ -4,13 +4,13 @@ This is the only module that touches the filesystem. It also owns the
 output-filename contract, which the GUI depends on for previews.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from PIL import Image
 
-from auto_border_pano import geometry
+from auto_border_pano import compose, geometry, layout
 
 # These are the user's own large-format scans, not hostile downloads; the
 # largest sample is 132MP against Pillow's ~178MP default. Lifting the guard
@@ -85,14 +85,53 @@ def process_image(
     targets = output_paths(output_prefix, count)
     targets[0].parent.mkdir(parents=True, exist_ok=True)
 
-    geometry.make_padded_frame(source, ratio).save(
-        targets[0], "JPEG", quality=JPEG_QUALITY
-    )
+    geometry.make_padded_frame(source, ratio).save(targets[0], "JPEG", quality=JPEG_QUALITY)
     for index in range(count):
         geometry.make_section(source, index, count, ratio).save(
             targets[index + 1], "JPEG", quality=JPEG_QUALITY
         )
     return targets
+
+
+COMPOSITE_SUFFIXES = {2: "_diptych.jpg", 3: "_triptych.jpg"}
+
+
+@dataclass(frozen=True)
+class CompositeResult:
+    """Where a composite was written, and which arrangement won.
+
+    The layout name is carried back so the GUI can show the automatic
+    decision rather than leaving it mysterious.
+    """
+
+    path: Path
+    layout_name: str
+
+
+def compose_images(
+    input_paths: Sequence[Path | str],
+    output_prefix: Path | str,
+    ratio: AspectRatio = DEFAULT_RATIO,
+) -> CompositeResult:
+    """Compose two or three images into one frame at the target ratio."""
+    paths = [Path(p) for p in input_paths]
+    if len(paths) not in COMPOSITE_SUFFIXES:
+        raise ValueError(f"expected 2 or 3 images, got {len(paths)}")
+
+    images = []
+    for path in paths:
+        with Image.open(path) as opened:
+            images.append(opened.convert("RGB"))
+
+    aspects = [image.width / image.height for image in images]
+    solved = layout.solve(aspects, ratio, geometry.SIDE_PADDING, layout.GUTTER)
+    canvas = compose.render(images, solved, ratio)
+
+    prefix = Path(output_prefix)
+    target = prefix.with_name(prefix.name + COMPOSITE_SUFFIXES[len(paths)])
+    target.parent.mkdir(parents=True, exist_ok=True)
+    canvas.save(target, "JPEG", quality=JPEG_QUALITY)
+    return CompositeResult(target, solved.name)
 
 
 def find_panoramas(folder: Path | str) -> list[Path]:

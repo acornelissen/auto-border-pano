@@ -242,3 +242,72 @@ def test_golden_outputs_are_byte_identical(tmp_path: Path) -> None:
         }
         expected_by_suffix = {k.split("_", 1)[1]: v for k, v in expected.items()}
         assert actual == expected_by_suffix, f"output changed at {name}"
+
+
+COMPOSE_FIXTURES = [
+    Path(__file__).parent / "fixtures" / name
+    for name in ("compose_wide.jpg", "compose_square.jpg", "compose_tall.jpg")
+]
+
+
+def test_compose_two_images_writes_a_diptych(tmp_path: Path) -> None:
+    result = pipeline.compose_images(COMPOSE_FIXTURES[:2], tmp_path / "out")
+    assert result.path.name == "out_diptych.jpg"
+    assert result.path.exists()
+    assert result.layout_name
+
+
+def test_compose_three_images_writes_a_triptych(tmp_path: Path) -> None:
+    result = pipeline.compose_images(COMPOSE_FIXTURES, tmp_path / "out")
+    assert result.path.name == "out_triptych.jpg"
+    assert result.path.exists()
+
+
+def test_composite_is_exactly_the_target_size(tmp_path: Path) -> None:
+    for ratio in pipeline.RATIOS.values():
+        result = pipeline.compose_images(
+            COMPOSE_FIXTURES, tmp_path / ratio.name.replace(":", "-"), ratio
+        )
+        with Image.open(result.path) as img:
+            assert img.size == (ratio.width, ratio.height), ratio.name
+
+
+def test_compose_rejects_wrong_image_counts(tmp_path: Path) -> None:
+    with pytest.raises(ValueError):
+        pipeline.compose_images(COMPOSE_FIXTURES[:1], tmp_path / "out")
+    with pytest.raises(ValueError):
+        pipeline.compose_images(COMPOSE_FIXTURES * 2, tmp_path / "out")
+
+
+def test_compose_accepts_portrait_images(tmp_path: Path) -> None:
+    # Unlike the splitter, a composite has no notion of a panorama and
+    # mixing orientations is the point of the feature.
+    tall = COMPOSE_FIXTURES[2]
+    result = pipeline.compose_images([tall, tall], tmp_path / "out")
+    assert result.path.exists()
+
+
+def test_compose_creates_the_output_directory(tmp_path: Path) -> None:
+    result = pipeline.compose_images(COMPOSE_FIXTURES[:2], tmp_path / "nested" / "deeper" / "out")
+    assert result.path.exists()
+
+
+# Byte-identity guard for composites, matching the splitter's convention.
+# Tied to the installed Pillow version's JPEG encoder; regenerate with the
+# command in the plan if a deliberate Pillow upgrade changes encoding.
+COMPOSITE_GOLDEN_HASHES: dict[str, str] = {
+    "4:5": "b7be8e252cbca29afd49ae081258b3fa5bc62659f33f26821405900ac2c7d1bf",
+    "1:1": "ecd4ccdc3bc210725400a05d87a0c647321ad27d4cf398be61890427dd539708",
+    "1.91:1": "db881ac7f735c97b3b40d8f6ef1cb023b93369c3d0769ed3393f0550d7043403",
+}
+
+
+def test_composite_outputs_are_byte_identical(tmp_path: Path) -> None:
+    import hashlib
+
+    for name, expected in COMPOSITE_GOLDEN_HASHES.items():
+        result = pipeline.compose_images(
+            COMPOSE_FIXTURES, tmp_path / name.replace(":", "-"), pipeline.RATIOS[name]
+        )
+        actual = hashlib.sha256(result.path.read_bytes()).hexdigest()
+        assert actual == expected, f"composite changed at {name}"
