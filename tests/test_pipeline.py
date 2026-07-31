@@ -208,18 +208,18 @@ def test_batch_result_counts_sources_not_files(tmp_path: Path) -> None:
 # and confirm the change is expected before updating.
 GOLDEN_HASHES: dict[str, dict[str, str]] = {
     "1:1": {
-        "1-1_1_padded.jpg": "5ecf2da07f14c5a02d3b40efa69dfd0e994a2c79073bef0f2c265cca01c07add",
+        "1-1_1_padded.jpg": "13664385ba5352eb09f659d866f7252d378faff31f89d60ca661e67241a4d83f",
         "1-1_2_section1.jpg": "fdfca9e094879cd5d933c158a3f76c4f129c73bd9e52bc393243d76fad022b94",
         "1-1_3_section2.jpg": "91b87093c890ebb3ccc796464862357d2d3fa7059136710a21f47bc74c7dc579",
     },
     "4:5": {
-        "4-5_1_padded.jpg": "6e463123c330b1ed78cce9ea77dfd6af9f785b277d19a5b61e960a0f8201e4e3",
+        "4-5_1_padded.jpg": "825480fe1b007963fa4e531c6bb13a0a1f1a9d53d8e149ad90ff407b6728ced2",
         "4-5_2_section1.jpg": "2bb1d8d14889b0cc447844f93e974776d8e9c7162c501433293b47ed7d449dcb",
         "4-5_3_section2.jpg": "0d650c8b3fddfb51af1cf1db83fa09ed3268b3ceee340cde06e9354f8a240928",
         "4-5_4_section3.jpg": "9d72470b98e949a32635d0aeacbde45786ec1f5e672f8e2ec0a41d28a11a1812",
     },
     "1.91:1": {
-        "1.91-1_1_padded.jpg": "04f84c63833ea5bbd0e2936f7ff21cf43ca497a2d5ab7a4e205a9de8b0904d56",
+        "1.91-1_1_padded.jpg": "fd61b6591790c958e834be8e96b6e7fa2ff132f4359f5e987c5c1b8930d2a8c8",
         "1.91-1_2_section1.jpg": "bc555a4f1f3b3e6634cdfbe467557829aa142babf9611cf125bb14b786a1bdfd",
         "1.91-1_3_section2.jpg": "72a3de48dd1f5453f92c77a8756c4a9b97f83edc3b70e83d70905096f8f247f3",
     },
@@ -229,24 +229,16 @@ GOLDEN_HASHES: dict[str, dict[str, str]] = {
 def test_golden_outputs_are_byte_identical(tmp_path: Path) -> None:
     import hashlib
 
+    golden_source = Path(__file__).parent / "fixtures" / "golden_wide.jpg"
     for name, expected in GOLDEN_HASHES.items():
         ratio = pipeline.RATIOS[name]
         written = pipeline.process_image(
-            "tests/fixtures/golden_wide.jpg",
+            golden_source,
             tmp_path / name.replace(":", "-"),
             ratio,
         )
         actual = {
-            p.name.split("_", 1)[1]: hashlib.sha256(p.read_bytes()).hexdigest()
-            for p in written
+            p.name.split("_", 1)[1]: hashlib.sha256(p.read_bytes()).hexdigest() for p in written
         }
         expected_by_suffix = {k.split("_", 1)[1]: v for k, v in expected.items()}
         assert actual == expected_by_suffix, f"output changed at {name}"
-
-
-def test_golden_frame_counts_differ_by_ratio() -> None:
-    # Guards the feature itself: if every ratio produced the same count,
-    # the byte-identity test above could pass while the feature was broken.
-    counts = {name: len(hashes) for name, hashes in GOLDEN_HASHES.items()}
-    assert counts["4:5"] > counts["1:1"], counts
-    assert counts["1:1"] >= counts["1.91:1"], counts

@@ -18,34 +18,67 @@ def test_padded_frame_is_exactly_the_target_ratio() -> None:
         assert abs(frame.width / frame.height - ratio.value) < 0.01, ratio.name
 
 
-def test_padded_frame_keeps_side_padding() -> None:
-    frame = geometry.make_padded_frame(synthetic_panorama(3000, 800), geometry.SQUARE)
-    assert frame.width == 3000 + 2 * geometry.SIDE_PADDING
+def test_padded_frame_size_keeps_side_padding() -> None:
+    # padded_frame_size (the pre-downscale composition maths) is unchanged
+    # by the resize in make_padded_frame; this pins that directly rather
+    # than reading it off the (now downscaled) output pixels.
+    width, _ = geometry.padded_frame_size(3000, 800, geometry.SQUARE)
+    assert width == 3000 + 2 * geometry.SIDE_PADDING
+
+
+def _is_white(pixel: object) -> bool:
+    assert isinstance(pixel, tuple)
+    return all(channel > 250 for channel in pixel)
 
 
 def test_padded_frame_pastes_at_side_padding_not_zero() -> None:
     # Kills a mutation that pastes at (0, 0) or at (SIDE_PADDING, VERTICAL_PADDING)
-    # instead of centering.
-    frame = geometry.make_padded_frame(synthetic_panorama(3000, 800), geometry.SQUARE)
+    # instead of centering. Coordinates are scaled: make_padded_frame downscales
+    # the composed canvas to the output size, so the padding boundary in output
+    # pixels is proportional, not literally SIDE_PADDING. Margins are generous
+    # to stay clear of LANCZOS edge blur at the boundary.
+    pano_width, pano_height = 3000, 800
+    frame = geometry.make_padded_frame(synthetic_panorama(pano_width, pano_height), geometry.SQUARE)
+    canvas_width, _ = geometry.padded_frame_size(pano_width, pano_height, geometry.SQUARE)
+    scale = geometry.SQUARE.width / canvas_width
+    boundary = geometry.SIDE_PADDING * scale
     mid_y = frame.height // 2
-    assert frame.getpixel((geometry.SIDE_PADDING - 1, mid_y)) == (255, 255, 255)
-    assert frame.getpixel((geometry.SIDE_PADDING + 1, mid_y)) != (255, 255, 255)
+    assert _is_white(frame.getpixel((max(0, int(boundary) - 20), mid_y)))
+    assert not _is_white(frame.getpixel((int(boundary) + 20, mid_y)))
 
 
 def test_padded_frame_centers_vertically() -> None:
-    frame = geometry.make_padded_frame(synthetic_panorama(3000, 800), geometry.SQUARE)
-    top_gap = (frame.height - 800) // 2
+    pano_width, pano_height = 3000, 800
+    frame = geometry.make_padded_frame(synthetic_panorama(pano_width, pano_height), geometry.SQUARE)
+    _canvas_width, canvas_height = geometry.padded_frame_size(
+        pano_width, pano_height, geometry.SQUARE
+    )
+    scale = geometry.SQUARE.height / canvas_height
+    top_gap = (canvas_height - pano_height) // 2
+    boundary = top_gap * scale
     mid_x = frame.width // 2
-    assert frame.getpixel((mid_x, top_gap - 1)) == (255, 255, 255)
-    assert frame.getpixel((mid_x, top_gap + 1)) != (255, 255, 255)
+    assert _is_white(frame.getpixel((mid_x, max(0, int(boundary) - 20))))
+    assert not _is_white(frame.getpixel((mid_x, int(boundary) + 20)))
+
+
+def test_padded_frame_is_exactly_the_target_size() -> None:
+    # Frame 1 must match the detail frames' pixel size exactly, not just
+    # their ratio -- otherwise a large-format scan produces a whole-panorama
+    # frame at full source resolution beside sub-megabyte detail frames.
+    for ratio in geometry.RATIOS.values():
+        frame = geometry.make_padded_frame(synthetic_panorama(3000, 800), ratio)
+        assert frame.size == (ratio.width, ratio.height), ratio.name
 
 
 def test_padded_frame_grows_when_ratio_would_clip_the_panorama() -> None:
     # A tall-ish input at 1.91:1: deriving height from width would leave the
     # panorama taller than the canvas, so the canvas is sized from height.
-    frame = geometry.make_padded_frame(synthetic_panorama(400, 2000), geometry.LANDSCAPE)
-    assert frame.height >= 2000 + 2 * geometry.VERTICAL_PADDING
-    assert abs(frame.width / frame.height - geometry.LANDSCAPE.value) < 0.01
+    # Tested against padded_frame_size directly -- the pre-downscale
+    # composition maths that make_padded_frame's output no longer exposes,
+    # since the final image is always exactly ratio.width x ratio.height.
+    width, height = geometry.padded_frame_size(400, 2000, geometry.LANDSCAPE)
+    assert height >= 2000 + 2 * geometry.VERTICAL_PADDING
+    assert abs(width / height - geometry.LANDSCAPE.value) < 0.01
 
 
 def test_section_bounds_split_on_integer_division() -> None:
@@ -148,3 +181,16 @@ def test_count_rounds_half_up_not_bankers() -> None:
     # tile = 1000 * 1.0 = 1000; 2500/1000 = 2.5 exactly.
     # Python's round() would give 2 (banker's rounding); we want 3.
     assert geometry.section_count(2500, 1000, geometry.SQUARE) == 3
+
+
+def test_section_count_differs_by_ratio_for_the_golden_fixture() -> None:
+    # Repoints what used to be a self-referential golden-hash-count check at
+    # the production function it was meant to guard. golden_wide.jpg is
+    # 600x250.
+    width, height = 600, 250
+    counts = {
+        ratio.name: geometry.section_count(width, height, ratio)
+        for ratio in geometry.RATIOS.values()
+    }
+    assert counts["4:5"] > counts["1:1"], counts
+    assert counts["1:1"] >= counts["1.91:1"], counts

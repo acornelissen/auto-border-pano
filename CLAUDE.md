@@ -48,6 +48,8 @@ Src-layout package at `src/auto_border_pano/`, four modules with one dependency 
 
 At a tall ratio like `4:5`, most of the padded frame is white border — that is the intended aesthetic, not a bug.
 
+The composed canvas is built at panorama scale (so the padding maths above stays exact) and then downscaled with `Image.Resampling.LANCZOS` to exactly `(ratio.width, ratio.height)` — the same pixel size as every detail frame. Before this, frame 1 was written at full source resolution; for a large-format scan that meant a many-megabyte first frame beside sub-megabyte detail frames, which Instagram rejects or heavily recompresses. `padded_frame_size()` itself is unchanged — it still governs the pre-downscale composition.
+
 ### Behaviour changes from the pre-refactor scripts
 
 - `find_panoramas()` no longer double-counts files on case-insensitive filesystems (the old code globbed `*.jpg` and `*.JPG` separately, matching the same file twice).

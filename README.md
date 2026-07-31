@@ -119,7 +119,9 @@ batch the rejected file is reported and the rest continue.
 ### Output 1: Padded frame
 
 - Contains the entire panorama, centered on a white canvas sized to the
-  target ratio
+  target ratio, then scaled down to exactly the target output size (same
+  pixel dimensions as the detail frames) — a large-format scan no longer
+  produces a multi-megabyte first frame beside sub-megabyte detail frames
 - At the default `4:5` ratio, most of the canvas is white border by design —
   that's the intended aesthetic, not a bug
 - At `1:1` the canvas is `max(width + 200px, height + 20px)` on a side, so

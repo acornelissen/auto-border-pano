@@ -61,9 +61,7 @@ def section_count(pano_width: int, pano_height: int, ratio: AspectRatio) -> int:
     return max(MIN_SECTIONS, math.floor(pano_width / tile + 0.5))
 
 
-def padded_frame_size(
-    pano_width: int, pano_height: int, ratio: AspectRatio
-) -> tuple[int, int]:
+def padded_frame_size(pano_width: int, pano_height: int, ratio: AspectRatio) -> tuple[int, int]:
     """Canvas size for the whole-panorama frame at a given ratio.
 
     Sized from the width so the panorama keeps SIDE_PADDING left and right.
@@ -87,12 +85,19 @@ def make_padded_frame(image: Image.Image, ratio: AspectRatio) -> Image.Image:
 
     The panorama is centered, so at a tall ratio most of the frame is white
     border. That is the intended aesthetic, not a bug.
+
+    The canvas is composed at panorama scale (so the padding maths above
+    stays exact), then downscaled to exactly (ratio.width, ratio.height) --
+    the same size as the detail frames. Without this, frame 1 for a
+    large-format scan is written at full source resolution: tens of
+    megabytes next to sub-megabyte detail frames, and a size Instagram
+    rejects or heavily recompresses.
     """
     pano_width, pano_height = image.size
     width, height = padded_frame_size(pano_width, pano_height, ratio)
     canvas = Image.new("RGB", (width, height), BACKGROUND)
     canvas.paste(image, ((width - pano_width) // 2, (height - pano_height) // 2))
-    return canvas
+    return canvas.resize((ratio.width, ratio.height), Image.Resampling.LANCZOS)
 
 
 def section_bounds(width: int, index: int, count: int) -> tuple[int, int]:
@@ -108,9 +113,7 @@ def section_bounds(width: int, index: int, count: int) -> tuple[int, int]:
     return start, start + section_width
 
 
-def make_section(
-    image: Image.Image, index: int, count: int, ratio: AspectRatio
-) -> Image.Image:
+def make_section(image: Image.Image, index: int, count: int, ratio: AspectRatio) -> Image.Image:
     """Crop one detail frame and scale it to exactly fill the target ratio.
 
     Scales by whichever axis keeps the target fully covered, then
@@ -136,6 +139,4 @@ def make_section(
 
     x_offset = (resized.width - ratio.width) // 2
     y_offset = (resized.height - ratio.height) // 2
-    return resized.crop(
-        (x_offset, y_offset, x_offset + ratio.width, y_offset + ratio.height)
-    )
+    return resized.crop((x_offset, y_offset, x_offset + ratio.width, y_offset + ratio.height))
