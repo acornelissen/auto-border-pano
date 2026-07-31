@@ -49,15 +49,17 @@ the Homebrew Python on macOS. That is a configuration change, not a redesign.
 - **pytest** for tests.
 - **pre-commit** running ruff and mypy on commit, pytest on push. Tests are kept
   off the commit hook so commits stay fast.
-- No CI. There is no GitHub remote on this repository, so a workflow file would
-  be dormant. Revisit if a remote is added.
+- No CI, by choice. The repository does have a GitHub remote
+  (`acornelissen/auto-border-pano`), so a workflow would run if added; it was
+  declined in favour of the local pre-commit and pre-push hooks. Cheap to add
+  later since `mise run check` is the single command a workflow would call.
 
 ## Structure
 
 Move to a `src` layout package so the console-script entry points work
 identically on all three platforms:
 
-```
+```text
 src/auto_border_pano/
   geometry.py    Pure. PIL Image in, PIL Image out. No paths, no disk I/O.
   pipeline.py    Opens a file, calls geometry, saves four JPEGs. Owns the
@@ -120,7 +122,7 @@ Golden-image comparison is explicitly out of scope.
 mise tasks, for macOS and Linux:
 
 | Task | Does |
-|------|------|
+| ---- | ---- |
 | `setup` | `uv sync` |
 | `gui` | launch the GUI |
 | `split` | run the CLI |
