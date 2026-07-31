@@ -4,6 +4,7 @@ This is the only module that touches the filesystem. It also owns the
 output-filename contract, which the GUI depends on for previews.
 """
 
+import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -29,7 +30,36 @@ JPEG_EXTENSIONS = (".jpg", ".jpeg")
 
 PADDED_SUFFIX = "_1_padded.jpg"
 
+# Reports one *file* finishing in a batch: (completed_files, total_files, path).
 ProgressCallback = Callable[[int, int, Path], None]
+
+# Reports one *frame* of a single panorama landing on disk:
+# (frame_index, total_frames, path_just_written), zero-based like
+# ProgressCallback's completed count, so the GUI's existing
+# `(done + 1) / total` progress arithmetic works unchanged. Distinct from
+# ProgressCallback -- "frame 3 of 5" of one negative, not "file 3 of 10".
+FrameCallback = Callable[[int, int, Path], None]
+
+_log = logging.getLogger(__name__)
+
+
+def _report_frame(on_frame: FrameCallback | None, index: int, total: int, path: Path) -> None:
+    """Hand one written frame to the caller's callback, never letting it break the run.
+
+    The frame is already on disk by the time this runs. A GUI callback here
+    crosses back to the main thread through `root.after`, which can fail for
+    reasons that have nothing to do with the image -- a closed window, say.
+    Letting that propagate would abandon the remaining frames and report a
+    failed conversion for files that were written correctly, so the
+    exception is swallowed. It is logged rather than discarded, so a real
+    bug in a callback is still findable.
+    """
+    if on_frame is None:
+        return
+    try:
+        on_frame(index, total, path)
+    except Exception:
+        _log.exception("frame progress callback failed for %s", path)
 
 
 @dataclass
@@ -69,8 +99,20 @@ def process_image(
     input_path: Path | str,
     output_prefix: Path | str,
     ratio: AspectRatio = DEFAULT_RATIO,
+    on_frame: FrameCallback | None = None,
 ) -> list[Path]:
-    """Split one panorama into a whole-panorama frame plus detail frames."""
+    """Split one panorama into a whole-panorama frame plus detail frames.
+
+    `on_frame` is called once per output file, immediately after that file
+    is written, with (frame_index, total_frames, path). The index is
+    zero-based, matching `process_folder`'s completed count. It fires for
+    every frame including the whole-panorama one, in the same order as the
+    returned list, and `total_frames` always equals that list's length -- so
+    a caller can drive a progress bar or fill in a contact strip frame by
+    frame. An exception raised by the callback is logged and swallowed:
+    the frames are already on disk, and a display glitch must not turn a
+    good conversion into a reported failure.
+    """
     with Image.open(input_path) as opened:
         source = opened.convert("RGB")
 
@@ -85,11 +127,14 @@ def process_image(
     targets = output_paths(output_prefix, count)
     targets[0].parent.mkdir(parents=True, exist_ok=True)
 
+    total = len(targets)
     geometry.make_padded_frame(source, ratio).save(targets[0], "JPEG", quality=JPEG_QUALITY)
+    _report_frame(on_frame, 0, total, targets[0])
     for index in range(count):
         geometry.make_section(source, index, count, ratio).save(
             targets[index + 1], "JPEG", quality=JPEG_QUALITY
         )
+        _report_frame(on_frame, index + 1, total, targets[index + 1])
     return targets
 
 

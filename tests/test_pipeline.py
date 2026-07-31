@@ -47,6 +47,58 @@ def test_process_image_output_sizes_match_the_ratio(tmp_path: Path) -> None:
                 assert img.size == (ratio.width, ratio.height)
 
 
+def test_process_image_reports_every_frame_in_written_order(tmp_path: Path) -> None:
+    source = _write_panorama(tmp_path / "pano.jpg", 3000, 1250)
+    seen: list[tuple[int, int, Path]] = []
+    written = pipeline.process_image(
+        source,
+        tmp_path / "out",
+        pipeline.RATIOS["4:5"],
+        on_frame=lambda index, total, path: seen.append((index, total, path)),
+    )
+
+    assert [s[2] for s in seen] == written
+    assert [s[0] for s in seen] == list(range(len(written)))
+    # The frame is on disk by the time the callback runs, which is what lets
+    # a contact strip fill itself in one thumbnail at a time.
+    assert all(path.exists() for _, _, path in seen)
+
+
+def test_process_image_frame_total_tracks_the_ratio(tmp_path: Path) -> None:
+    source = _write_panorama(tmp_path / "pano.jpg", 3000, 1250)
+    for ratio in pipeline.RATIOS.values():
+        seen: list[tuple[int, int, Path]] = []
+
+        def record(
+            index: int, total: int, path: Path, seen: list[tuple[int, int, Path]] = seen
+        ) -> None:
+            seen.append((index, total, path))
+
+        written = pipeline.process_image(source, tmp_path / ratio.name, ratio, on_frame=record)
+        expected = len(pipeline.output_paths(tmp_path / ratio.name, len(written) - 1))
+        assert len(seen) == expected == len(written)
+        assert {s[1] for s in seen} == {expected}
+
+
+def test_process_image_frame_callback_is_optional(tmp_path: Path) -> None:
+    source = _write_panorama(tmp_path / "pano.jpg", 3000, 1250)
+    written = pipeline.process_image(source, tmp_path / "out")
+    assert all(p.exists() for p in written)
+
+
+def test_process_image_survives_a_raising_frame_callback(tmp_path: Path) -> None:
+    source = _write_panorama(tmp_path / "pano.jpg", 3000, 1250)
+
+    def explode(index: int, total: int, path: Path) -> None:
+        raise RuntimeError("main thread is gone")
+
+    # A broken display callback must not fail a conversion whose frames are
+    # already written, so the error is swallowed and every frame still lands.
+    written = pipeline.process_image(source, tmp_path / "out", on_frame=explode)
+    assert len(written) == 1 + 3
+    assert all(p.exists() for p in written)
+
+
 def test_process_image_rejects_portrait_input(tmp_path: Path) -> None:
     source = _write_panorama(tmp_path / "tall.jpg", 800, 3000)
     with pytest.raises(ValueError, match="portrait"):
