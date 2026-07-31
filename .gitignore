@@ -35,3 +35,6 @@ temp/
 reference/
 # Sample panoramas for manual verification (not tracked)
 samples/
+
+# Agent scratch (reports, ledgers) - not project content
+.superpowers/
