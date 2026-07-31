@@ -32,3 +32,49 @@ def make_padded_square(image: Image.Image) -> Image.Image:
     canvas = Image.new("RGB", (size, size), BACKGROUND)
     canvas.paste(image, ((size - width) // 2, (size - height) // 2))
     return canvas
+
+
+SECTION_SIZE = 1080
+SECTION_COUNT = 3
+
+
+def section_bounds(width: int, index: int) -> tuple[int, int]:
+    """Return the horizontal crop bounds of one section.
+
+    Uses integer division, so when the width is not divisible by
+    SECTION_COUNT the remaining pixels on the right edge are discarded.
+    """
+    if not 0 <= index < SECTION_COUNT:
+        raise ValueError(f"index must be 0..{SECTION_COUNT - 1}, got {index}")
+    section_width = width // SECTION_COUNT
+    start = index * section_width
+    return start, start + section_width
+
+
+def make_section(
+    image: Image.Image, index: int, size: int = SECTION_SIZE
+) -> Image.Image:
+    """Crop one section of the panorama and fill a square of `size`.
+
+    Scales on whichever axis keeps the square fully covered, then
+    center-crops the overflow.
+    """
+    width, height = image.size
+    start, end = section_bounds(width, index)
+    crop = image.crop((start, 0, end, height))
+    crop_width, crop_height = crop.size
+
+    if crop_width > crop_height:
+        scale = size / crop_height
+        resized = crop.resize(
+            (int(crop_width * scale), size), Image.Resampling.LANCZOS
+        )
+        offset = (resized.width - size) // 2
+        return resized.crop((offset, 0, offset + size, size))
+
+    scale = size / crop_width
+    resized = crop.resize(
+        (size, int(crop_height * scale)), Image.Resampling.LANCZOS
+    )
+    offset = (resized.height - size) // 2
+    return resized.crop((0, offset, size, offset + size))
