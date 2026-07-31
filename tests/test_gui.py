@@ -28,8 +28,6 @@ class _StubRoot:
 
 
 def test_preview_titles_track_the_frame_count() -> None:
-    from auto_border_pano import gui
-
     assert gui.preview_titles(2) == ["Whole", "Detail 1", "Detail 2"]
     assert gui.preview_titles(4) == [
         "Whole",
@@ -41,8 +39,6 @@ def test_preview_titles_track_the_frame_count() -> None:
 
 
 def test_preview_titles_match_output_paths_length() -> None:
-    from auto_border_pano import gui, pipeline
-
     for count in (2, 3, 4, 5):
         assert len(gui.preview_titles(count)) == len(pipeline.output_paths("/tmp/x", count))
 
@@ -106,3 +102,45 @@ def test_run_batch_survives_non_oserror_failure(
 
     assert stub_root.calls, "root.after was never scheduled -- worker died silently"
     assert finished == [("Failed", None, None, "synthetic bomb")]
+
+
+def test_finish_reenables_button_even_if_update_preview_raises() -> None:
+    """A surprise exception from update_preview must not wedge the GUI.
+
+    update_preview's own except Exception only covers the image-decode step;
+    _rebuild_preview_panes and the strict zip sit outside any try. If either
+    raises, the Process button must still come back to "normal" via a
+    finally, not be left disabled forever.
+    """
+
+    class _StubButton:
+        def __init__(self) -> None:
+            self.last_state: str | None = None
+
+        def config(self, state: str) -> None:
+            self.last_state = state
+
+    app = gui.PanoramaSplitterGUI.__new__(gui.PanoramaSplitterGUI)
+    app.progress = _StubVar()  # type: ignore[assignment]
+    app.status = _StubVar()  # type: ignore[assignment]
+    app.process_btn = _StubButton()  # type: ignore[assignment]
+
+    def boom(*_args: Any, **_kwargs: Any) -> None:
+        raise RuntimeError("synthetic preview failure")
+
+    app.update_preview = boom  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError, match="synthetic preview failure"):
+        app._finish("Complete", "prefix", 3, None)
+
+    assert app.process_btn.last_state == "normal", "Process button was left disabled"  # type: ignore[attr-defined]
+
+
+class _StubVar:
+    """Stand-in for a tk.DoubleVar/StringVar that just records the last value."""
+
+    def __init__(self) -> None:
+        self.value: Any = None
+
+    def set(self, value: Any) -> None:
+        self.value = value

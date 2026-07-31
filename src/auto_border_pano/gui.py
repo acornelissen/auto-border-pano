@@ -35,6 +35,7 @@ class PanoramaSplitterGUI:
         self.ratio = tk.StringVar(value=pipeline.DEFAULT_RATIO.name)
         self._preview_images: list[ImageTk.PhotoImage] = []
         self.preview_labels: list[ttk.Label] = []
+        self._max_preview_columns = 0
 
         self._build_ui()
 
@@ -118,9 +119,11 @@ class PanoramaSplitterGUI:
             label.pack(expand=True, fill="both")
             self.preview_labels.append(label)
 
-        # Drop stale column weights from a previous, longer run.
-        for column in range(len(titles), len(titles) + 6):
+        # Drop stale column weights from any previous, longer run, up to the
+        # highest column count this instance has ever built.
+        for column in range(len(titles), self._max_preview_columns + 1):
             self.preview_frame.columnconfigure(column, weight=0)
+        self._max_preview_columns = max(self._max_preview_columns, len(titles))
 
     def browse_file(self) -> None:
         filename = filedialog.askopenfilename(
@@ -180,9 +183,11 @@ class PanoramaSplitterGUI:
         """Runs on the main thread. All widget mutation happens here."""
         self.progress.set(100)
         self.status.set(message)
-        if prefix is not None and count is not None:
-            self.update_preview(prefix, count)
-        self.process_btn.config(state="normal")
+        try:
+            if prefix is not None and count is not None:
+                self.update_preview(prefix, count)
+        finally:
+            self.process_btn.config(state="normal")
         if error is not None:
             messagebox.showerror("Error", error)
         else:
@@ -200,9 +205,11 @@ class PanoramaSplitterGUI:
         else:
             message = f"Processed {succeeded} of {total}"
         self.status.set(message)
-        if result.last_prefix is not None and result.last_count is not None:
-            self.update_preview(str(result.last_prefix), result.last_count)
-        self.process_btn.config(state="normal")
+        try:
+            if result.last_prefix is not None and result.last_count is not None:
+                self.update_preview(str(result.last_prefix), result.last_count)
+        finally:
+            self.process_btn.config(state="normal")
         if failed:
             messagebox.showwarning("Completed with errors", message)
         else:
