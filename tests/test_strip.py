@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 from PIL import Image
-from PySide6.QtCore import QPoint, QRect, Qt
-from PySide6.QtGui import QFontMetrics
+from PySide6.QtCore import QEvent, QPoint, QRect, Qt
+from PySide6.QtGui import QFocusEvent, QFontMetrics
 from pytestqt.qtbot import QtBot
 
 from maskingframe import pipeline
@@ -68,6 +68,19 @@ def test_the_frame_count_follows_the_titles(qtbot: QtBot) -> None:
 
     assert built.frame_count == 3
     assert built.caption_at(0).startswith("FRAME 1")
+
+
+def test_rebuilding_frames_drops_a_selection_it_can_no_longer_support(qtbot: QtBot) -> None:
+    # A shorter plan than the one that made the selection is the same hazard
+    # the ribbon had: the tab selected frame 3, the ratio changed, and a
+    # shorter run arrived. Dropped at the cause, not guarded at every reader.
+    strip = ContactStrip(frames=4)
+    qtbot.addWidget(strip)
+    strip.set_selected(3)
+
+    strip.set_frames(["frame 1 . whole panorama", "frame 2 . detail"])
+
+    assert strip.selected() is None
 
 
 def test_a_long_caption_is_elided_to_its_own_frame(qtbot: QtBot) -> None:
@@ -696,3 +709,79 @@ def test_releasing_a_drag_settles_once(qtbot: QtBot) -> None:
             strip, Qt.MouseButton.LeftButton, pos=QPoint(centre.x() + 20, centre.y())
         )
     assert blocker.args == [2]
+
+
+def test_the_strip_takes_focus(qtbot: QtBot) -> None:
+    strip = ContactStrip(frames=4)
+    qtbot.addWidget(strip)
+    assert strip.focusPolicy() == Qt.FocusPolicy.StrongFocus
+
+
+def test_taking_focus_selects_the_first_detail_frame(qtbot: QtBot) -> None:
+    # Frame 0 is the whole panorama and has no position, so the first thing
+    # worth selecting is frame 1.
+    strip = ContactStrip(frames=4)
+    qtbot.addWidget(strip)
+    strip.set_draggable(True)
+    strip.focusInEvent(QFocusEvent(QEvent.Type.FocusIn))
+    assert strip.selected() == 1
+
+
+def test_set_selected_is_silent_on_the_strip(qtbot: QtBot) -> None:
+    strip = ContactStrip(frames=4)
+    qtbot.addWidget(strip)
+    with qtbot.assertNotEmitted(strip.selection_changed):
+        strip.set_selected(2)
+    assert strip.selected() == 2
+
+
+def test_arrows_nudge_the_selected_strip_frame(qtbot: QtBot) -> None:
+    strip = ContactStrip(frames=4)
+    qtbot.addWidget(strip)
+    strip.set_draggable(True)
+    strip.set_selected(2)
+    with qtbot.waitSignal(strip.frame_nudged, timeout=1000) as blocker:
+        qtbot.keyClick(strip, Qt.Key.Key_Right)  # type: ignore[no-untyped-call]
+    assert blocker.args == [2, 1]
+    with qtbot.waitSignal(strip.frame_nudged, timeout=1000) as blocker:
+        qtbot.keyClick(strip, Qt.Key.Key_Left, Qt.KeyboardModifier.ShiftModifier)  # type: ignore[no-untyped-call]
+    assert blocker.args == [2, -10]
+
+
+def test_home_and_end_span_the_width_on_the_strip(qtbot: QtBot) -> None:
+    strip = ContactStrip(frames=4)
+    qtbot.addWidget(strip)
+    strip.set_draggable(True)
+    strip.set_selected(1)
+    with qtbot.waitSignal(strip.frame_nudged, timeout=1000) as blocker:
+        qtbot.keyClick(strip, Qt.Key.Key_End)  # type: ignore[no-untyped-call]
+    assert blocker.args == [1, 100]
+
+
+def test_the_strip_selection_skips_the_whole_panorama_frame(qtbot: QtBot) -> None:
+    strip = ContactStrip(frames=4)
+    qtbot.addWidget(strip)
+    strip.set_draggable(True)
+    strip.set_selected(1)
+    with qtbot.assertNotEmitted(strip.selection_changed):
+        qtbot.keyClick(strip, Qt.Key.Key_Up)  # type: ignore[no-untyped-call]
+    assert strip.selected() == 1
+
+
+def test_strip_keys_do_nothing_when_not_draggable(qtbot: QtBot) -> None:
+    # Folder mode: there is no one panorama whose frames could be placed.
+    strip = ContactStrip(frames=4)
+    qtbot.addWidget(strip)
+    strip.set_selected(1)
+    with qtbot.assertNotEmitted(strip.frame_nudged):
+        qtbot.keyClick(strip, Qt.Key.Key_Right)  # type: ignore[no-untyped-call]
+
+
+def test_the_selected_strip_frame_is_marked(qtbot: QtBot) -> None:
+    strip = ContactStrip(frames=4)
+    qtbot.addWidget(strip)
+    strip.resize(600, 300)
+    strip.set_selected(2)
+    assert strip.marked_rect() == strip.frame_rect_at(2)
+    strip.set_selected(None)
+    assert strip.marked_rect().isNull()

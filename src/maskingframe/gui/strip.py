@@ -41,9 +41,11 @@ from pathlib import Path
 from PIL import Image
 from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal
 from PySide6.QtGui import (
+    QFocusEvent,
     QFont,
     QFontMetrics,
     QImage,
+    QKeyEvent,
     QMouseEvent,
     QPainter,
     QPaintEvent,
@@ -280,6 +282,15 @@ class ContactStrip(QWidget):
     frame_drag_settled = Signal(int)
     """The hand has stopped on this frame. What a re-render hangs off."""
 
+    frame_nudged = Signal(int, int)
+    """(frame index, step count). Strip indices, like `frame_dragged`, so
+    this widget speaks one numbering throughout; the tab converts. A count
+    rather than a distance, because how far a step moves is policy and the
+    strip has never heard of a panorama's width."""
+
+    selection_changed = Signal(int)
+    """(frame index) when the keys move the selection."""
+
     def __init__(self, parent: QWidget | None = None, frames: int = DEFAULT_FRAME_COUNT) -> None:
         super().__init__(parent)
         self._font: QFont = theme.stencil_font(10, tracking=1.6)
@@ -292,6 +303,8 @@ class ContactStrip(QWidget):
         self._draggable = False
         self._drag_index: int | None = None
         self._drag_origin = 0
+        self._selected: int | None = None
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         # Expanding in both directions: the frames grow to fill the space the
         # window gives them. The strip's own background is painted only
         # behind the film, so filling the cell does not leave a large pale
@@ -375,6 +388,26 @@ class ContactStrip(QWidget):
         self._drag_index = None
         self.setCursor(Qt.CursorShape.SizeHorCursor if draggable else Qt.CursorShape.ArrowCursor)
 
+    def set_selected(self, index: int | None) -> None:
+        """Mark one frame, or none. Emits nothing.
+
+        Drawn whether or not the strip is draggable: in folder mode there is
+        still a frame under the cursor worth naming, even though there is no
+        position to move.
+        """
+        self._selected = index
+        self._name_selection()
+        self.update()
+
+    def selected(self) -> int | None:
+        return self._selected
+
+    def marked_rect(self) -> QRect:
+        """Where the selection is drawn, or a null rect."""
+        if self._selected is None or not 0 <= self._selected < len(self._frames):
+            return QRect()
+        return self._frame_rect(self._selected)
+
     def frame_rect_at(self, index: int) -> QRect:
         """Where the output frame sits inside frame `index`'s aperture."""
         if not 0 <= index < len(self._frames):
@@ -410,6 +443,12 @@ class ContactStrip(QWidget):
         called on every run and must leave nothing stale behind."""
         self._frames = [_Frame(title=title.upper()) for title in titles] or [_Frame()]
         self._errors = []
+        if self._selected is not None and not 1 <= self._selected < len(self._frames):
+            # A rebuild can shrink the run out from under a held selection --
+            # a shorter plan than the one that made it. Dropped at the cause
+            # rather than guarded at every reader that indexes with it.
+            self._selected = None
+            self._name_selection()
         self._remeasure()
 
     def show_paths(self, paths: Sequence[Path]) -> None:
@@ -646,6 +685,60 @@ class ContactStrip(QWidget):
         self._drag_index = None
         self.frame_drag_settled.emit(index)
 
+    def focusInEvent(self, event: QFocusEvent) -> None:
+        if self._selected is None and len(self._frames) > 1:
+            self._selected = 1
+            self._name_selection()
+        super().focusInEvent(event)
+        self.update()
+
+    def focusOutEvent(self, event: QFocusEvent) -> None:
+        super().focusOutEvent(event)
+        self.update()
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        # Folder mode makes the strip a display: there is no one panorama
+        # whose frames could be placed, so the keys have nothing to act on.
+        if not self._draggable or len(self._frames) < 2:
+            super().keyPressEvent(event)
+            return
+        if self._selected is None or self._selected < 1:
+            self._selected = 1
+        key = event.key()
+        coarse = event.modifiers() & Qt.KeyboardModifier.ShiftModifier
+        steps_by_key: dict[int, int] = {
+            Qt.Key.Key_Left: -10 if coarse else -1,
+            Qt.Key.Key_Right: 10 if coarse else 1,
+            Qt.Key.Key_Home: -100,
+            Qt.Key.Key_End: 100,
+        }
+        steps = steps_by_key.get(key)
+        if steps is not None:
+            self.frame_nudged.emit(self._selected, steps)
+            return
+        if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
+            wanted = self._selected + (1 if key == Qt.Key.Key_Down else -1)
+            # Floor of 1: frame 0 shows the whole panorama, so there is no
+            # position in it to select.
+            if 1 <= wanted < len(self._frames):
+                self._selected = wanted
+                self._name_selection()
+                self.update()
+                self.selection_changed.emit(wanted)
+            return
+        super().keyPressEvent(event)
+
+    def _name_selection(self) -> None:
+        """State the selection in words, for a screen reader.
+
+        The rail says the same thing on screen. Both, not either: a state
+        carried by colour alone fails the floor this project holds itself to.
+        """
+        if self._selected is None:
+            self.setAccessibleName("Contact strip")
+            return
+        self.setAccessibleName(f"Frame {self._selected + 1} of {len(self._frames)}")
+
     def _aperture(self, index: int) -> tuple[int, int]:
         """The top-left corner of one frame's square image area."""
         size = self._frame_size
@@ -682,7 +775,7 @@ class ContactStrip(QWidget):
         left, top = self._aperture(index)
         row_top = top - TOP - NUMBER_ROW
 
-        painter.setPen(theme.rgb(theme.CHINAGRAPH))
+        painter.setPen(theme.rgb(theme.CHINAGRAPH if index == self._selected else theme.INK))
         painter.drawText(
             QRect(left, row_top + TOP, size, NUMBER_ROW),
             int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
