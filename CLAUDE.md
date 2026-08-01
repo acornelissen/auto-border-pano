@@ -127,6 +127,48 @@ with the even default — a position is chosen by looking at one photograph — 
 says so where the ribbon would be, because silence would read as a missing
 feature. The CLI has no position flags for the same reason.
 
+Both views also take focus and handle keys, because a feature that decides what
+every output frame contains must not need a pointer. Left and Right move the
+selected frame by `split_tab.KEY_STEP` (1% of the panorama's width), Shift makes
+that ten steps, Home and End send it to the ends of its travel, and Up and Down
+move the selection, stopping at the ends rather than wrapping. A key press goes
+through `geometry.move_position`, the same rule both drags obey, so the two
+cannot disagree.
+
+The widgets emit a count of steps rather than a distance. How far a step moves
+is policy, and the tab is the only thing that knows what a percent of this
+panorama is — so `ribbon.py` and `strip.py` stay presentation only. Each widget
+speaks its own numbering: the ribbon's windows are detail frames, the strip's
+frames include frame 1, and the tab converts, exactly as it does for the drags.
+
+The selection is marked in chinagraph on the selected frame's numeral and edge,
+and stated in words in the rail (`Frame 3 · 42% along`). Both, not either: a
+state carried by colour alone fails the WCAG 2.2 AA floor this project holds.
+The rail's wording is what the widgets hand to `setAccessibleName`, so a screen
+reader and the screen say the same thing.
+
+A selection is dropped at the cause, not guarded at every reader.
+`FrameRibbon.set_plan` and `ContactStrip.set_frames` both drop a selection the
+incoming plan or frame list can no longer support, and `SplitTab._set_positions`
+makes the same decision for the tab's own copy. That is why no reader of the
+selection needs a bounds check. The alternative — clamping frame 3 to frame 2 —
+was rejected: it silently substitutes a different frame for the one the user
+picked, which looks like the same selection but points at different content.
+
+Focus announces the selection it makes. Both widgets emit `selection_changed`
+when focus is what selected the frame. Without that, a single Tab press marked
+a frame in chinagraph while the tab still held nothing and the rail was empty —
+the state was carried by colour alone, which is the failure this work exists to
+remove. `set_selected` stays silent on both widgets, so the tab adopting the
+selection and echoing it back cannot loop.
+
+A held key settles rather than rendering per repeat. `split_tab.NUDGE_SETTLE_MS`
+is 120 ms: auto-repeat arrives every 15 to 40 ms, so one render happens when the
+key stops, the way a drag renders once on release. Positions and the spoken
+names still update on every keystroke; only the picture waits. The timer is
+stopped when a run or a preview starts, so a pending settle cannot fire into
+one.
+
 A source narrower than one output tile (a 1.5:1 image at `1.91:1`) has no
 travel at all: every position clamps to zero and the crop is the whole width.
 Degenerate, but it must not raise.
