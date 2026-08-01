@@ -8,12 +8,13 @@ leaving a white border. This is that, for panoramas bound for Instagram.
 
 It takes a panoramic JPG and creates:
 
-1. **Padded frame**: The full panorama, fitted inside the target output frame with a 100px inset on all sides and centered on a white canvas. Whichever axis binds gets exactly 100px of padding — usually the width for a wide panorama, but at `1.91:1` a panorama flatter than the frame's own ratio binds on height instead — and the other axis gets whatever's left over
+1. **Bordered frame**: The full panorama, fitted inside the target output frame with a border on all sides and centered on the border colour. The border is a percent of the frame's short side — 9% by default, so it reads the same at every ratio — and whichever axis binds gets exactly that, with the other axis getting whatever's left over
 2. **Detail frames**: A zoomed, cropped-and-resized view of a horizontal slice of the panorama, at the target aspect ratio. How many of these there are depends on the ratio and the panorama's shape — see [Aspect ratio](#aspect-ratio) below
 
 ## Features
 
 - Process single panoramic images or entire folders
+- Set the border width and colour, and the gap between composite panels
 - Automatic resizing to maximize content at the chosen aspect ratio
 - High-quality LANCZOS resampling for crisp output
 - Maintains aspect ratio while maximizing visible content
@@ -131,6 +132,35 @@ mise run split -- ./panoramas ./output --ratio 1.91:1
 Portrait images are rejected — this tool expects landscape panoramas. In a
 batch the rejected file is reported and the rest continue.
 
+## Border and gaps
+
+The border is a percent of the frame's short side rather than a fixed pixel
+count, so one setting reads the same at every ratio. The default is 9%: 97px
+at `4:5` and `1:1`, 51px at `1.91:1`.
+
+| Flag | Default | What it does |
+| ---- | ------- | ------------ |
+| `--border PERCENT` | `9` | Border width, as a percent of the frame's short side |
+| `--border-colour HEX` | `#ffffff` | Border colour, e.g. `#c9302a` or `c9302a` |
+| `--gutter PERCENT` | `4` | Composites only: the gap between panels |
+| `--gutter-colour HEX` | `#ffffff` | Composites only: the colour of that gap |
+| `--border-detail-frames` | off | Border the zoomed detail frames too, not just the first frame |
+
+`--border-color` and `--gutter-color` work as well, if you prefer them. The
+CLI splits panoramas only, so the two gutter flags are there for parity with
+the GUI's Compose tab, which is where composites are made.
+
+On a composite the two colours cover different things: the gutter colour
+fills only the strips between panels, and everything else — the outer margin
+and the space left over from centring — takes the border colour.
+
+Both tabs of the GUI have the same Border section, and each remembers what
+you last set it to.
+
+```bash
+mise run split -- panorama.jpg my_prefix --border 12 --border-colour '#000000'
+```
+
 ## Diptychs and triptychs
 
 The second tab composes two or three photographs into a single frame at any
@@ -140,7 +170,7 @@ The layout is chosen for you. The tool tries each sensible arrangement — a
 row, a column, and for three images the variants with one large panel beside
 two stacked ones — and keeps whichever fills the frame best. Panels are never
 cropped: each keeps its own aspect ratio, and whatever space is left over
-becomes white border. That is what lets a 6x17 panorama, a square 6x6 and a
+becomes border. That is what lets a 6x17 panorama, a square 6x6 and a
 35mm frame sit in one composite without any of them losing content.
 
 Images stay in the order you arrange them. Use Up and Down to change it.
@@ -150,20 +180,19 @@ much of the point.
 
 ## Output Details
 
-### Output 1: Padded frame
+### Output 1: Bordered frame
 
 - Contains the entire panorama, fitted (never cropped) inside the target
-  output frame with a 100px inset on all sides and centered on a white
-  canvas already sized to the target output size (same pixel dimensions as
-  the detail frames) — a large-format scan doesn't produce a multi-megabyte
-  first frame beside sub-megabyte detail frames
-- At the default `4:5` ratio, most of the canvas is white border by design —
+  output frame with a border on all sides and centered on a canvas already
+  sized to the target output size (same pixel dimensions as the detail
+  frames) — a large-format scan doesn't produce a multi-megabyte first frame
+  beside sub-megabyte detail frames
+- At the default `4:5` ratio, most of the canvas is border by design —
   that's the intended aesthetic, not a bug
-- Whichever axis binds gets exactly 100px of padding — normally the width,
-  but at `1.91:1` a panorama flatter than 2.4:1 (this project's own scans
-  included) binds on height instead — and the other axis gets whatever's
-  left over, usually much more than 100px (this is deliberate, and locked
-  in place by tests)
+- Whichever axis binds gets exactly the border — normally the width, but a
+  panorama flatter than the inset box binds on height instead — and the
+  other axis gets whatever's left over, usually much more (this is
+  deliberate, and locked in place by tests)
 - Only square when you ask for `1:1`
 - Ideal for Instagram gallery posts
 
