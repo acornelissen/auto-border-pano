@@ -855,7 +855,7 @@ git commit -m "feat(gui): place the detail frames from the keyboard"
 **Files:**
 - Modify: `CLAUDE.md`
 
-- [ ] **Step 1: Record the keyboard model**
+- [x] **Step 1: Record the keyboard model**
 
 In the section on where the detail frames land, after the paragraph about the ribbon and the strip both writing to one tuple, add:
 
@@ -883,7 +883,7 @@ reader and the screen say the same thing.
 
 Add `SplitTab.KEY_STEP` to the `gui/` bullet's description of `split_tab.py` if that bullet lists such things.
 
-- [ ] **Step 2: Run the full gate and commit**
+- [x] **Step 2: Run the full gate and commit**
 
 ```bash
 mise run check
