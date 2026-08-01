@@ -4,7 +4,14 @@ import pytest
 from PIL import Image
 
 from maskingframe import compose, geometry, layout
-from maskingframe.geometry import DEFAULT_STYLE
+from maskingframe.geometry import DEFAULT_STYLE, FrameStyle
+
+TWO_TONE = FrameStyle(
+    border_percent=9.0,
+    border_colour="#000000",
+    gutter_percent=4.0,
+    gutter_colour="#c9302a",
+)
 
 
 def _image(width: int, height: int, colour: tuple[int, int, int]) -> Image.Image:
@@ -96,3 +103,55 @@ def test_extreme_aspect_ratio_with_small_height() -> None:
     # Should not raise ValueError due to aspect mismatch
     result = compose.render(images, solved, geometry.SQUARE)
     assert result.size == (geometry.SQUARE.width, geometry.SQUARE.height)
+
+
+def _rendered(style: FrameStyle) -> tuple[Image.Image, layout.Layout]:
+    images = [_image(1500, 1000, (255, 255, 255)), _image(1500, 1000, (255, 255, 255))]
+    solved = layout.solve([1.5, 1.5], geometry.PORTRAIT, style)
+    return compose.render(images, solved, geometry.PORTRAIT, style), solved
+
+
+def test_outer_border_takes_the_border_colour() -> None:
+    canvas, _solved = _rendered(TWO_TONE)
+    assert canvas.getpixel((0, 0)) == (0, 0, 0)
+    assert canvas.getpixel((canvas.width - 1, canvas.height - 1)) == (0, 0, 0)
+
+
+def test_the_strip_between_panels_takes_the_gutter_colour() -> None:
+    canvas, solved = _rendered(TWO_TONE)
+    gutter = solved.gutters[0]
+    centre = (gutter.x + gutter.width // 2, gutter.y + gutter.height // 2)
+    assert canvas.getpixel(centre) == (201, 48, 42)
+
+
+def test_no_border_colour_leaks_between_the_panels() -> None:
+    canvas, solved = _rendered(TWO_TONE)
+    first, second = solved.boxes
+    # Walk the line joining the two panels; every pixel is panel or gutter,
+    # never the outer colour.
+    if first.x + first.width <= second.x:
+        row = first.y + first.height // 2
+        span = range(first.x + first.width, second.x)
+        pixels = [canvas.getpixel((column, row)) for column in span]
+    else:
+        column = first.x + first.width // 2
+        span = range(first.y + first.height, second.y)
+        pixels = [canvas.getpixel((column, row)) for row in span]
+    assert pixels
+    assert (0, 0, 0) not in pixels
+
+
+def test_a_zero_gutter_paints_nothing_extra() -> None:
+    style = FrameStyle(border_colour="#000000", gutter_percent=0.0, gutter_colour="#c9302a")
+    canvas, solved = _rendered(style)
+    assert solved.gutters == ()
+    colours = canvas.getcolors(maxcolors=1 << 20)
+    assert colours is not None
+    assert all(colour != (201, 48, 42) for _count, colour in colours)
+
+
+def test_render_still_refuses_a_mismatched_box() -> None:
+    images = [_image(1500, 1000, (255, 255, 255)), _image(1000, 1500, (255, 255, 255))]
+    solved = layout.solve([1.5, 1.5], geometry.PORTRAIT, TWO_TONE)
+    with pytest.raises(ValueError, match="refusing to distort"):
+        compose.render(images, solved, geometry.PORTRAIT, TWO_TONE)

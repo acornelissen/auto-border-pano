@@ -781,7 +781,7 @@ FrameStyle also retires the GUTTER constant."
 - Consumes: `geometry.FrameStyle`, `geometry.DEFAULT_STYLE`, `layout.Layout.gutters`.
 - Produces: `compose.render(images, solved, ratio, style: FrameStyle = DEFAULT_STYLE) -> Image.Image`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/test_compose.py`:
 
@@ -845,12 +845,12 @@ def test_render_still_refuses_a_mismatched_box() -> None:
         compose.render(images, solved, geometry.PORTRAIT, TWO_TONE)
 ```
 
-- [ ] **Step 2: Run the tests and verify they fail**
+- [x] **Step 2: Run the tests and verify they fail**
 
 Run: `uv run pytest tests/test_compose.py -v`
 Expected: FAIL, `render() takes 3 positional arguments but 4 were given`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Replace `src/maskingframe/compose.py`'s import block and `render`:
 
@@ -902,15 +902,15 @@ Note: a gutter box can extend one pixel outside the canvas after inflation at th
 
 If `test_gutters_stay_inside_the_border` from Task 4 fails because of that 1px inflation, relax that assertion to allow one pixel of slack rather than removing the inflation.
 
-- [ ] **Step 4: Run the tests and verify they pass**
+- [x] **Step 4: Run the tests and verify they pass**
 
 Run: `uv run pytest -v`
 
-- [ ] **Step 5: Run the full gate**
+- [x] **Step 5: Run the full gate**
 
 Run: `mise run check`
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add -A
