@@ -620,6 +620,7 @@ class ComposeTab(QWidget):
             lambda: _solve_job(token, sources, ratio_name, style),
             self._apply_layout_name,
             self._solve_failed,
+            owner=self,
         )
 
     def _solve_failed(self, _error: BaseException) -> None:
@@ -761,7 +762,7 @@ class ComposeTab(QWidget):
             result = pipeline.compose_images(sources, prefix, ratio, style)
             return _Composed(result.path, result.layout_name, ratio.name)
 
-        submit(job, self._finish, self._failed)
+        submit(job, self._finish, self._failed, owner=self)
 
     def preview(self) -> None:
         # Preview is disabled unless this holds; the guard is a safety net.

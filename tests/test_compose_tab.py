@@ -722,16 +722,32 @@ def test_a_rendered_composite_carries_no_overlay(qtbot: QtBot, tab: ComposeTab) 
     assert tab.previews.border_rects(0) == []
 
 
-def _captured_renders(monkeypatch: pytest.MonkeyPatch) -> list[tuple[Any, Any, Any]]:
+def _captured_renders(monkeypatch: pytest.MonkeyPatch) -> list[tuple[Any, Any, Any, Any]]:
     """Hold every submitted job instead of running it, so two answers can
     be landed in a chosen order."""
-    captured: list[tuple[Any, Any, Any]] = []
+    captured: list[tuple[Any, Any, Any, Any]] = []
     monkeypatch.setattr(
         compose_tab,
         "submit",
-        lambda job, done, failed=None, owner=None: captured.append((job, done, failed)),
+        lambda job, done, failed=None, owner=None: captured.append((job, done, failed, owner)),
     )
     return captured
+
+
+def test_every_job_names_the_widget_its_callbacks_touch(
+    qtbot: QtBot, tab: ComposeTab, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Qt drops a queued signal only for a destroyed *bound method*, and
+    `submit` connects closures, so a callback with no `owner` reaches a
+    widget whose C++ half has gone and raises on the GUI thread."""
+    captured = _captured_renders(monkeypatch)
+    tab._accept([WIDE, TALL])
+    tab.preview()
+    tab.output_row.setText(str(tmp_path / "out"))
+    tab.save()
+
+    assert captured, "no job was submitted, so nothing was checked"
+    assert [owner for *_rest, owner in captured] == [tab] * len(captured)
 
 
 def test_changing_the_border_composes_the_frame_again(qtbot: QtBot, tab: ComposeTab) -> None:

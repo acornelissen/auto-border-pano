@@ -546,19 +546,37 @@ def _previewed(qtbot: Any, tab: SplitTab, tmp_path: Path) -> None:
     qtbot.waitUntil(lambda: tab.strip.exposed > 0, timeout=20000)
 
 
-def _captured_renders(monkeypatch: pytest.MonkeyPatch) -> list[tuple[Any, Any, Any]]:
+def _captured_renders(monkeypatch: pytest.MonkeyPatch) -> list[tuple[Any, Any, Any, Any]]:
     """Hold every submitted job instead of running it.
 
     The only way to land two answers in a chosen order, which is what a
     staleness test is about.
     """
-    captured: list[tuple[Any, Any, Any]] = []
+    captured: list[tuple[Any, Any, Any, Any]] = []
     monkeypatch.setattr(
         split_tab,
         "submit",
-        lambda job, done, failed=None, owner=None: captured.append((job, done, failed)),
+        lambda job, done, failed=None, owner=None: captured.append((job, done, failed, owner)),
     )
     return captured
+
+
+def test_every_job_names_the_widget_its_callbacks_touch(
+    qtbot: Any, tab: SplitTab, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Qt drops a queued signal only for a destroyed *bound method*, and
+    `submit` connects closures, so a callback with no `owner` reaches a
+    widget whose C++ half has gone and raises on the GUI thread."""
+    captured = _captured_renders(monkeypatch)
+    tab.source_row.setText(str(_panorama(tmp_path)))
+    tab.dest_row.setText(str(tmp_path / "out"))
+    tab.preview()
+    tab.process_images()
+    tab.folder_radio.setChecked(True)
+    tab.process_images()
+
+    assert captured, "no job was submitted, so nothing was checked"
+    assert [owner for *_rest, owner in captured] == [tab] * len(captured)
 
 
 def test_changing_the_border_renders_the_frames_again(
