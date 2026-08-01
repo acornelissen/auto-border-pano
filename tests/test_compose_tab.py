@@ -23,8 +23,13 @@ from PIL import Image
 from pytestqt.qtbot import QtBot
 
 from maskingframe import layout, pipeline
-from maskingframe.gui import compose_tab
+from maskingframe.gui import compose_tab, settings
 from maskingframe.gui.compose_tab import ComposeTab
+
+# Every test here builds a real ComposeTab, and the tab reads and writes the
+# stored border style on construction and on every change. Without this the
+# suite would read -- and overwrite -- the preferences of whoever runs it.
+pytestmark = pytest.mark.usefixtures("isolated_settings")
 
 FIXTURES = Path(__file__).parent / "fixtures"
 WIDE = str(FIXTURES / "compose_wide.jpg")
@@ -423,7 +428,7 @@ def _rail_texts(built: ComposeTab) -> list[str]:
 def test_the_rail_reads_subject_then_format_then_destination(tab: ComposeTab) -> None:
     """Split's rail is subject, FORMAT, DESTINATION, primary. These two rails
     drifting apart is a bug that has been fixed twice."""
-    assert _rail_texts(tab) == ["SOURCES", "FORMAT", "DESTINATION"]
+    assert _rail_texts(tab) == ["SOURCES", "FORMAT", "BORDER", "DESTINATION"]
 
 
 def test_preview_sits_below_save_and_is_not_a_peer_of_it(tab: ComposeTab) -> None:
@@ -477,3 +482,118 @@ def test_the_module_never_imports_a_message_box() -> None:
     source = Path(compose_tab.__file__).read_text(encoding="utf-8")
     assert "QMessageBox(" not in source
     assert "QMessageBox." not in source
+
+
+# --- the border and the gap ------------------------------------------------------
+
+
+def test_compose_tab_restores_the_stored_style(qtbot: QtBot) -> None:
+    settings.save_style(settings.COMPOSE, pipeline.FrameStyle(gutter_percent=7.0))
+    built = ComposeTab()
+    qtbot.addWidget(built)
+    assert built._style().gutter_percent == 7.0
+
+
+def test_compose_tab_stores_a_changed_style(tab: ComposeTab) -> None:
+    assert tab.border_controls.gutter_spin is not None
+    tab.border_controls.gutter_spin.setValue(3.0)
+    assert settings.load_style(settings.COMPOSE).gutter_percent == 3.0
+
+
+def test_compose_tab_offers_gutter_controls_but_no_detail_toggle(tab: ComposeTab) -> None:
+    assert tab.border_controls.gutter_spin is not None
+    assert tab.border_controls.gutter_swatch is not None
+    assert tab.border_controls.detail_check is None
+
+
+def test_the_two_tabs_keep_separate_styles(qtbot: QtBot) -> None:
+    settings.save_style(settings.SPLIT, pipeline.FrameStyle(border_percent=30.0))
+    built = ComposeTab()
+    qtbot.addWidget(built)
+    assert built._style().border_percent == pipeline.DEFAULT_STYLE.border_percent
+
+
+def test_the_border_section_sits_between_format_and_destination(tab: ComposeTab) -> None:
+    """Both rails carry the same sections in the same order; switching tabs
+    must not re-lay-out the window."""
+    rail = tab.columns.rail_layout
+    order = []
+    for index in range(rail.count()):
+        item = rail.itemAt(index)
+        order.append(None if item is None else item.widget())
+    assert order.index(tab.border_controls) > order.index(tab.ratio_combo)
+    assert order.index(tab.border_controls) < order.index(tab.output_row)
+
+
+def test_a_style_change_re_solves_the_arrangement(qtbot: QtBot, tab: ComposeTab) -> None:
+    """The gap can change which arrangement wins, so the name in the rail
+    must not go on describing the previous solution."""
+    tab._accept([WIDE, TALL])
+    _settled(qtbot, tab)
+    before = tab._solve_token
+
+    assert tab.border_controls.gutter_spin is not None
+    tab.border_controls.gutter_spin.setValue(11.0)
+    assert tab._solve_token > before
+    _settled(qtbot, tab)
+
+
+def test_the_solve_carries_the_style_it_was_asked_for(
+    qtbot: QtBot, tab: ComposeTab, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`name_layout` runs off the GUI thread, so the style it uses must
+    travel with the request rather than being re-read inside the job."""
+    seen: list[Any] = []
+    original = pipeline.name_layout
+
+    def record(paths: Any, ratio: Any, style: Any = pipeline.DEFAULT_STYLE) -> str:
+        seen.append(style)
+        return original(paths, ratio, style)
+
+    monkeypatch.setattr(pipeline, "name_layout", record)
+    tab.border_controls.set_style(pipeline.FrameStyle(border_percent=13.0))
+    tab._accept([WIDE, TALL])
+    _settled(qtbot, tab)
+    assert seen
+    assert seen[-1].border_percent == 13.0
+
+
+def test_a_stale_solve_still_loses_after_a_style_change(tab: ComposeTab) -> None:
+    """A style change and a source change racing: the newer token wins,
+    exactly as before."""
+    tab.border_controls.set_style(pipeline.FrameStyle(gutter_percent=9.0))
+    tab._on_style_changed(tab._style())
+    stale = compose_tab._Solve(token=tab._solve_token - 1, name="row", count=2, sizes={})
+    tab._apply_layout_name(stale)
+    assert tab.layout_name == ""
+
+
+def test_save_renders_with_the_chosen_style(qtbot: QtBot, tmp_path: Path) -> None:
+    built = ComposeTab()
+    qtbot.addWidget(built)
+    built._accept([WIDE, TALL])
+    built.border_controls.set_style(
+        pipeline.FrameStyle(border_percent=10.0, border_colour="#000000")
+    )
+    built.output_row.setText(str(tmp_path / "out"))
+    built.save()
+    qtbot.waitUntil(lambda: built.status.startswith("Saved"), timeout=15000)
+    written = next(iter(tmp_path.glob("*.jpg")))
+    with Image.open(written) as composite:
+        assert composite.convert("RGB").getpixel((0, 0)) == (0, 0, 0)
+
+
+def test_preview_renders_with_the_chosen_style(
+    qtbot: QtBot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    built = ComposeTab()
+    qtbot.addWidget(built)
+    built._accept([WIDE, TALL])
+    built.border_controls.set_style(
+        pipeline.FrameStyle(border_percent=10.0, border_colour="#000000")
+    )
+    shown: list[Image.Image] = []
+    monkeypatch.setattr(built.previews, "show_images", shown.extend)
+    built.preview()
+    qtbot.waitUntil(lambda: bool(shown), timeout=15000)
+    assert shown[0].convert("RGB").getpixel((0, 0)) == (0, 0, 0)

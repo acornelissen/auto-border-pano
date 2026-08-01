@@ -35,7 +35,7 @@ from PySide6.QtWidgets import (
 )
 
 from maskingframe import pipeline
-from maskingframe.gui import shell, theme
+from maskingframe.gui import settings, shell, theme
 from maskingframe.gui.sources import Source, SourcesList
 from maskingframe.gui.strip import ContactStrip
 from maskingframe.gui.work import submit
@@ -165,12 +165,21 @@ class _Previewed:
     count: int
 
 
-def _solve_job(token: int, sources: list[str], ratio_name: str) -> _Solve:
+def _solve_job(
+    token: int,
+    sources: list[str],
+    ratio_name: str,
+    style: pipeline.FrameStyle,
+) -> _Solve:
     """Runs on a worker. Opens files, touches no widget.
 
     One unreadable file must not cost the others their dimensions, and a
     count the solver cannot arrange is not an error to report -- it is
     simply no name to show.
+
+    The style arrives as an argument for the same reason the ratio does: a
+    job that re-read the controls could solve for one gap and have its
+    answer captioned with another.
     """
     sizes: dict[str, tuple[int, int]] = {}
     for source in sources:
@@ -180,7 +189,7 @@ def _solve_job(token: int, sources: list[str], ratio_name: str) -> _Solve:
             continue
         sizes[source] = (facts.width, facts.height)
     try:
-        name = pipeline.name_layout(sources, pipeline.RATIOS[ratio_name])
+        name = pipeline.name_layout(sources, pipeline.RATIOS[ratio_name], style)
     except (ValueError, OSError):
         name = ""
     return _Solve(token=token, name=name, count=len(sources), sizes=sizes)
@@ -296,6 +305,14 @@ class ComposeTab(QWidget):
         self.layout_label = shell.help_label("")
         rail.addWidget(self.layout_label)
 
+        # Between FORMAT and DESTINATION, the same slot the Split tab gives
+        # it: the two rails are one product and must not drift apart.
+        rail.addSpacing(theme.L)
+        self.border_controls = shell.BorderControls(show_gutter=True, show_detail_toggle=False)
+        self.border_controls.set_style(settings.load_style(settings.COMPOSE))
+        self.border_controls.style_changed.connect(self._on_style_changed)
+        rail.addWidget(self.border_controls)
+
         rail.addSpacing(theme.L)
         rail.addWidget(shell.section("Destination"))
         rail.addSpacing(theme.S)
@@ -364,6 +381,21 @@ class ComposeTab(QWidget):
 
     def _ratio_name(self) -> str:
         return _RATIO_BY_DISPLAY.get(self.ratio_combo.currentText(), pipeline.DEFAULT_RATIO.name)
+
+    def _style(self) -> pipeline.FrameStyle:
+        """The border and gap as the controls currently read.
+
+        Always called on the GUI thread and captured into a local before a
+        job starts, never from inside one.
+        """
+        return self.border_controls.frame_style()
+
+    def _on_style_changed(self, style: pipeline.FrameStyle) -> None:
+        """Persist the choice and re-solve: the gap can change which
+        arrangement wins, so the name in the rail would otherwise be
+        describing the previous solution."""
+        settings.save_style(settings.COMPOSE, style)
+        self._request_layout_name()
 
     @property
     def status(self) -> str:
@@ -466,8 +498,9 @@ class ComposeTab(QWidget):
             return
         token = self._solve_token
         ratio_name = self._ratio_name()
+        style = self._style()
         submit(
-            lambda: _solve_job(token, sources, ratio_name),
+            lambda: _solve_job(token, sources, ratio_name, style),
             self._apply_layout_name,
             self._solve_failed,
         )
@@ -595,12 +628,13 @@ class ComposeTab(QWidget):
             self._set_hint(NO_PREFIX, error=True)
             return
         ratio = pipeline.RATIOS[self._ratio_name()]
+        style = self._style()
         sources = list(self.images)
         self._set_buttons_enabled(False)
         self._set_status(WORKING)
 
         def job() -> _Composed:
-            result = pipeline.compose_images(sources, prefix, ratio)
+            result = pipeline.compose_images(sources, prefix, ratio, style)
             return _Composed(result.path, result.layout_name, ratio.name)
 
         submit(job, self._finish, self._failed)
@@ -610,12 +644,13 @@ class ComposeTab(QWidget):
         if not self.can_compose():
             return
         ratio = pipeline.RATIOS[self._ratio_name()]
+        style = self._style()
         sources = list(self.images)
         self._set_buttons_enabled(False)
         self._set_status(WORKING)
 
         def job() -> _Previewed:
-            image, layout_name = pipeline.compose_preview(sources, ratio)
+            image, layout_name = pipeline.compose_preview(sources, ratio, style)
             return _Previewed(image, layout_name, ratio.name, len(sources))
 
         submit(job, self._finish_preview, self._failed)
