@@ -39,11 +39,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from PIL import Image
-from PySide6.QtCore import QRect, QSize, Qt
+from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal
 from PySide6.QtGui import (
     QFont,
     QFontMetrics,
     QImage,
+    QMouseEvent,
     QPainter,
     QPaintEvent,
     QPixmap,
@@ -267,6 +268,18 @@ class _Frame:
 class ContactStrip(QWidget):
     """A row of numbered frames on one continuous strip."""
 
+    frame_dragged = Signal(int, float)
+    """(frame index, delta in frame widths). Positive means the crop moves
+    right along the panorama -- the user pushed the picture left, the way a
+    photograph moves under a hand.
+
+    A delta rather than a position, because the strip has no idea how wide
+    the panorama is. The tab converts it, since the tab is the only thing
+    that knows both."""
+
+    frame_drag_settled = Signal(int)
+    """The hand has stopped on this frame. What a re-render hangs off."""
+
     def __init__(self, parent: QWidget | None = None, frames: int = DEFAULT_FRAME_COUNT) -> None:
         super().__init__(parent)
         self._font: QFont = theme.stencil_font(10, tracking=1.6)
@@ -276,6 +289,9 @@ class ContactStrip(QWidget):
         self._border: BorderPreview | None = None
         self._frame_size = MIN_FRAME_PX
         self._columns = max(frames, 1)
+        self._draggable = False
+        self._drag_index: int | None = None
+        self._drag_origin = 0
         # Expanding in both directions: the frames grow to fill the space the
         # window gives them. The strip's own background is painted only
         # behind the film, so filling the cell does not leave a large pale
@@ -347,6 +363,17 @@ class ContactStrip(QWidget):
     @property
     def border_preview(self) -> BorderPreview | None:
         return self._border
+
+    def set_draggable(self, draggable: bool) -> None:
+        """Whether a frame's picture can be pushed left and right.
+
+        Off by default and off in folder mode: a position is chosen by
+        looking at one photograph, so there is nothing to drag when the run
+        is a whole folder.
+        """
+        self._draggable = draggable
+        self._drag_index = None
+        self.setCursor(Qt.CursorShape.SizeHorCursor if draggable else Qt.CursorShape.ArrowCursor)
 
     def frame_rect_at(self, index: int) -> QRect:
         """Where the output frame sits inside frame `index`'s aperture."""
@@ -585,6 +612,39 @@ class ContactStrip(QWidget):
         # already say there is nothing on it, and captioning them said the
         # same thing twice -- in the largest element in the window.
         painter.end()
+
+    def _frame_at(self, point: QPoint) -> int | None:
+        for index in range(len(self._frames)):
+            if self._frame_rect(index).contains(point):
+                return index
+        return None
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if not self._draggable or event.button() != Qt.MouseButton.LeftButton:
+            return
+        point = event.position().toPoint()
+        index = self._frame_at(point)
+        # Frame 0 is the whole panorama: it shows everything, so there is no
+        # position in it to choose.
+        if index is None or index == 0:
+            return
+        self._drag_index = index
+        self._drag_origin = point.x()
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if self._drag_index is None:
+            return
+        rect = self._frame_rect(self._drag_index)
+        moved = event.position().toPoint().x() - self._drag_origin
+        # Pushing the picture left moves the crop right, so the sign flips.
+        self.frame_dragged.emit(self._drag_index, -moved / max(1, rect.width()))
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if self._drag_index is None:
+            return
+        index = self._drag_index
+        self._drag_index = None
+        self.frame_drag_settled.emit(index)
 
     def _aperture(self, index: int) -> tuple[int, int]:
         """The top-left corner of one frame's square image area."""

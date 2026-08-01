@@ -15,12 +15,13 @@ from pathlib import Path
 
 import pytest
 from PIL import Image
-from PySide6.QtCore import QRect
+from PySide6.QtCore import QPoint, QRect, Qt
 from PySide6.QtGui import QFontMetrics
 from pytestqt.qtbot import QtBot
 
 from maskingframe import pipeline
 from maskingframe.gui import strip, theme
+from maskingframe.gui.strip import ContactStrip
 
 
 @pytest.fixture
@@ -629,3 +630,69 @@ def test_the_composite_overlay_matches_what_a_render_actually_produces(
     # Enough of the grid survived the edge margin to make the walk mean
     # something, and enough of it is border to catch a missed axis of slack.
     assert checked > 2000
+
+
+# --- dragging a frame ---------------------------------------------------
+
+
+def test_the_strip_is_not_draggable_until_it_is_told_to_be(qtbot: QtBot) -> None:
+    strip = ContactStrip(frames=3)
+    qtbot.addWidget(strip)
+    strip.resize(600, 300)
+
+    with qtbot.assertNotEmitted(strip.frame_dragged):
+        centre = strip.frame_rect_at(1).center()
+        qtbot.mousePress(strip, Qt.MouseButton.LeftButton, pos=centre)  # type: ignore[no-untyped-call]
+        qtbot.mouseMove(strip, QPoint(centre.x() + 30, centre.y()))  # type: ignore[no-untyped-call]
+        qtbot.mouseRelease(strip, Qt.MouseButton.LeftButton, pos=centre)  # type: ignore[no-untyped-call]
+
+
+def test_dragging_a_frame_reports_a_delta_in_frame_widths(qtbot: QtBot) -> None:
+    strip = ContactStrip(frames=3)
+    qtbot.addWidget(strip)
+    strip.resize(600, 300)
+    strip.set_draggable(True)
+
+    rect = strip.frame_rect_at(1)
+    centre = rect.center()
+    seen: list[tuple[int, float]] = []
+    strip.frame_dragged.connect(lambda index, delta: seen.append((index, delta)))
+
+    qtbot.mousePress(strip, Qt.MouseButton.LeftButton, pos=centre)  # type: ignore[no-untyped-call]
+    qtbot.mouseMove(strip, QPoint(centre.x() - rect.width() // 2, centre.y()))  # type: ignore[no-untyped-call]
+
+    assert seen, "a drag inside a frame should report a delta"
+    index, delta = seen[-1]
+    assert index == 1
+    # The picture was pushed left by half a frame, so the crop moves right.
+    assert delta == pytest.approx(0.5, abs=0.05)
+
+
+def test_dragging_frame_one_reports_nothing(qtbot: QtBot) -> None:
+    # Frame 1 is the whole panorama. There is nothing to position.
+    strip = ContactStrip(frames=3)
+    qtbot.addWidget(strip)
+    strip.resize(600, 300)
+    strip.set_draggable(True)
+
+    with qtbot.assertNotEmitted(strip.frame_dragged):
+        centre = strip.frame_rect_at(0).center()
+        qtbot.mousePress(strip, Qt.MouseButton.LeftButton, pos=centre)  # type: ignore[no-untyped-call]
+        qtbot.mouseMove(strip, QPoint(centre.x() + 40, centre.y()))  # type: ignore[no-untyped-call]
+
+
+def test_releasing_a_drag_settles_once(qtbot: QtBot) -> None:
+    strip = ContactStrip(frames=3)
+    qtbot.addWidget(strip)
+    strip.resize(600, 300)
+    strip.set_draggable(True)
+
+    centre = strip.frame_rect_at(2).center()
+    qtbot.mousePress(strip, Qt.MouseButton.LeftButton, pos=centre)  # type: ignore[no-untyped-call]
+    qtbot.mouseMove(strip, QPoint(centre.x() + 20, centre.y()))  # type: ignore[no-untyped-call]
+
+    with qtbot.waitSignal(strip.frame_drag_settled, timeout=1000) as blocker:
+        qtbot.mouseRelease(  # type: ignore[no-untyped-call]
+            strip, Qt.MouseButton.LeftButton, pos=QPoint(centre.x() + 20, centre.y())
+        )
+    assert blocker.args == [2]
