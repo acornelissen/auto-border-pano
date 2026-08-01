@@ -13,10 +13,16 @@ from PIL import Image
 from PySide6.QtWidgets import QDialog, QMessageBox, QRadioButton
 
 from maskingframe import pipeline
+from maskingframe.gui import settings
 from maskingframe.gui.split_tab import NO_COUNT, UNCOUNTED_ACTION, SplitTab, preview_titles
 from tests.conftest import synthetic_panorama
 
 pytest.importorskip("pytestqt")
+
+# The tab reads and writes the stored border style, so every test here must
+# be pointed at a throwaway store or it would edit the developer's own
+# preferences.
+pytestmark = pytest.mark.usefixtures("isolated_settings")
 
 
 @pytest.fixture
@@ -373,3 +379,74 @@ def test_preview_sits_below_the_primary_and_is_not_a_peer_of_it(tab: SplitTab) -
     assert tab.action_btn.objectName() == "Primary"
     # An outlined button, not bare text: it still has to read as pressable.
     assert tab.preview_btn.objectName() == "Secondary"
+
+
+def test_split_tab_restores_the_stored_style(qtbot: Any) -> None:
+    settings.save_style(settings.SPLIT, pipeline.FrameStyle(border_percent=17.0))
+    restored = SplitTab()
+    qtbot.addWidget(restored)
+    assert restored._style().border_percent == 17.0
+
+
+def test_split_tab_stores_a_changed_style(tab: SplitTab) -> None:
+    tab.border_controls.border_spin.setValue(21.0)
+    assert settings.load_style(settings.SPLIT).border_percent == 21.0
+
+
+def test_split_tab_offers_the_detail_frame_toggle(tab: SplitTab) -> None:
+    assert tab.border_controls.detail_check is not None
+    assert tab.border_controls.gutter_spin is None
+
+
+def test_border_controls_sit_between_the_format_and_the_destination(tab: SplitTab) -> None:
+    rail = tab.columns.rail_layout
+    order = []
+    for index in range(rail.count()):
+        item = rail.itemAt(index)
+        order.append(None if item is None else item.widget())
+    assert order.index(tab.count_label) < order.index(tab.border_controls)
+    assert order.index(tab.border_controls) < order.index(tab.dest_row)
+
+
+def test_preview_honours_the_border_colour(qtbot: Any, tab: SplitTab, tmp_path: Path) -> None:
+    """The style has to reach the pipeline, not just the settings file."""
+    tab.source_row.setText(str(_panorama(tmp_path)))
+    tab.border_controls.border_spin.setValue(10.0)
+    tab.border_controls.border_swatch.set_colour("#c9302a")
+    qtbot.waitUntil(lambda: tab.preview_btn.isEnabled())
+
+    tab.preview()
+    qtbot.waitUntil(lambda: tab.preview_btn.isEnabled(), timeout=20000)
+    frames = pipeline.preview_frames(
+        str(_panorama(tmp_path)), pipeline.RATIOS[tab._ratio_name()], tab._style()
+    )
+    assert frames[0].getpixel((0, 0)) == (201, 48, 42)
+    assert tab.status_label.text().startswith("Preview of ")
+
+
+def test_a_run_honours_the_border_colour(qtbot: Any, tab: SplitTab, tmp_path: Path) -> None:
+    tab.source_row.setText(str(_panorama(tmp_path)))
+    tab.dest_row.setText(str(tmp_path / "out"))
+    tab.border_controls.border_swatch.set_colour("#000000")
+    qtbot.waitUntil(lambda: tab.preview_btn.isEnabled())
+
+    tab.process_images()
+    qtbot.waitUntil(lambda: tab.action_btn.isEnabled(), timeout=20000)
+    with Image.open(tmp_path / "out_1_padded.jpg") as padded:
+        assert padded.convert("RGB").getpixel((0, 0)) == (0, 0, 0)
+
+
+def test_a_batch_run_honours_the_border_colour(qtbot: Any, tab: SplitTab, tmp_path: Path) -> None:
+    sources = tmp_path / "in"
+    sources.mkdir()
+    synthetic_panorama(600, 200).save(sources / "one.jpg", "JPEG", quality=95)
+    destination = tmp_path / "out"
+    tab.folder_radio.setChecked(True)
+    tab.source_row.setText(str(sources))
+    tab.dest_row.setText(str(destination))
+    tab.border_controls.border_swatch.set_colour("#000000")
+
+    tab.process_images()
+    qtbot.waitUntil(lambda: tab.action_btn.isEnabled(), timeout=20000)
+    with Image.open(destination / "one_1_padded.jpg") as padded:
+        assert padded.convert("RGB").getpixel((0, 0)) == (0, 0, 0)

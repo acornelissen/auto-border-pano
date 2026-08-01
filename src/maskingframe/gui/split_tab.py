@@ -35,7 +35,7 @@ from PySide6.QtWidgets import (
 )
 
 from maskingframe import pipeline
-from maskingframe.gui import shell, theme
+from maskingframe.gui import settings, shell, theme
 from maskingframe.gui.strip import ContactStrip
 from maskingframe.gui.work import submit
 
@@ -143,6 +143,14 @@ class SplitTab(QWidget):
         rail.addWidget(self.count_label)
 
         rail.addSpacing(theme.L)
+        # No gap control: a split writes one frame at a time, so there is
+        # nothing for a gap to sit between.
+        self.border_controls = shell.BorderControls(show_gutter=False, show_detail_toggle=True)
+        self.border_controls.set_style(settings.load_style(settings.SPLIT))
+        self.border_controls.style_changed.connect(self._on_style_changed)
+        rail.addWidget(self.border_controls)
+
+        rail.addSpacing(theme.L)
         rail.addWidget(shell.section("Destination"))
         rail.addSpacing(theme.S)
         self.dest_row = shell.PathRow("Choose folder")
@@ -222,6 +230,19 @@ class SplitTab(QWidget):
         documented default rather than raising.
         """
         return _RATIO_BY_DISPLAY.get(self.ratio_box.currentText(), pipeline.DEFAULT_RATIO.name)
+
+    def _style(self) -> pipeline.FrameStyle:
+        """The border the rail currently describes. GUI thread only.
+
+        Named `_style` rather than `style` because `QWidget.style()` is
+        already taken, and the control it reads is `frame_style()` for the
+        same reason.
+        """
+        return self.border_controls.frame_style()
+
+    def _on_style_changed(self, style: pipeline.FrameStyle) -> None:
+        """Persist the choice, so the next launch opens on the same border."""
+        settings.save_style(settings.SPLIT, style)
 
     def _on_selection_changed(self, *_args: object) -> None:
         """Re-read the source's header. GUI thread only.
@@ -423,6 +444,11 @@ class SplitTab(QWidget):
             self._apply_button_states()
 
     def _start_single(self, source: str, prefix: str, ratio_name: str) -> None:
+        # Read on the GUI thread and closed over, exactly like the ratio: a
+        # worker re-reading the controls could render one border and caption
+        # it with another.
+        style = self._style()
+
         def cut() -> list[Path]:
             # Worker thread. `frame_written.emit` is the only crossing, and
             # Qt queues it to the GUI thread by itself.
@@ -431,6 +457,7 @@ class SplitTab(QWidget):
                 prefix,
                 pipeline.RATIOS[ratio_name],
                 on_frame=lambda done, total, path: self.frame_written.emit(done, total, path),
+                style=style,
             )
 
         def done(written: list[Path]) -> None:
@@ -447,6 +474,8 @@ class SplitTab(QWidget):
         submit(cut, done, failed)
 
     def _start_batch(self, source: str, destination: str, ratio_name: str) -> None:
+        style = self._style()
+
         def cut() -> pipeline.BatchResult:
             return pipeline.process_folder(
                 source,
@@ -455,6 +484,7 @@ class SplitTab(QWidget):
                 on_progress=lambda done, total, path: self.source_started.emit(
                     done, total, path.name
                 ),
+                style=style,
             )
 
         def done(result: pipeline.BatchResult) -> None:
@@ -498,6 +528,7 @@ class SplitTab(QWidget):
         self._set_error("")
         source = self.source_row.text()
         ratio_name = self._ratio_name()
+        style = self._style()
         self._running = True
         self._apply_button_states()
         self.status_label.setText("Rendering preview")
@@ -505,7 +536,7 @@ class SplitTab(QWidget):
         def render() -> list[Image.Image]:
             # Worker thread. Touches no widget; the frames come back as plain
             # data and are shown on the GUI thread below.
-            return pipeline.preview_frames(source, pipeline.RATIOS[ratio_name])
+            return pipeline.preview_frames(source, pipeline.RATIOS[ratio_name], style)
 
         def done(frames: list[Image.Image]) -> None:
             self._running = False
