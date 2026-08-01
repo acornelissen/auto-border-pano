@@ -1068,7 +1068,7 @@ Tasks 7, 8 and 9 touch disjoint files and depend only on Task 6. They can be wor
 - Consumes: `pipeline.FrameStyle`, `pipeline.DEFAULT_STYLE`, `pipeline.parse_colour`.
 - Produces: `cli.build_parser()` gains `--border`, `--border-colour`/`--border-color`, `--gutter`, `--gutter-colour`/`--gutter-color`, `--border-detail-frames`; and `cli._style_from_args(args) -> pipeline.FrameStyle`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 import argparse
@@ -1127,12 +1127,12 @@ def test_main_reports_a_missing_input(capsys: pytest.CaptureFixture[str]) -> Non
     assert cli.main(["nope.jpg"]) == 1
 ```
 
-- [ ] **Step 2: Run the tests and verify they fail**
+- [x] **Step 2: Run the tests and verify they fail**
 
 Run: `uv run pytest tests/test_cli.py -v`
 Expected: FAIL, `AttributeError: module 'maskingframe.cli' has no attribute '_style_from_args'`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Add to `src/maskingframe/cli.py`, above `build_parser`:
 
@@ -1233,16 +1233,16 @@ In `main`, build the style once and pass it to both branches:
             written = pipeline.process_image(args.input, args.output, ratio, None, style)
 ```
 
-- [ ] **Step 4: Run the tests and verify they pass**
+- [x] **Step 4: Run the tests and verify they pass**
 
 Run: `uv run pytest -v`
 
-- [ ] **Step 5: Check the help reads well**
+- [x] **Step 5: Check the help reads well**
 
 Run: `uv run maskingframe --help`
 Expected: the five new flags appear, the American aliases are listed alongside their British spellings, and the gutter flags say "composites only".
 
-- [ ] **Step 6: Run the full gate and commit**
+- [x] **Step 6: Run the full gate and commit**
 
 ```bash
 mise run check
@@ -1272,7 +1272,7 @@ nobody has to guess."
   - `settings.save_style(scope: str, style: pipeline.FrameStyle) -> None`
   - `settings.SPLIT: str = "split"`, `settings.COMPOSE: str = "compose"`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `tests/test_gui_settings.py`:
 
@@ -1336,12 +1336,12 @@ def test_a_corrupt_value_falls_back_to_the_default(key: str, value: str) -> None
     assert settings.load_style(settings.SPLIT) == pipeline.DEFAULT_STYLE
 ```
 
-- [ ] **Step 2: Run the tests and verify they fail**
+- [x] **Step 2: Run the tests and verify they fail**
 
 Run: `uv run pytest tests/test_gui_settings.py -v`
 Expected: FAIL, `ImportError: cannot import name 'settings'`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 `src/maskingframe/gui/settings.py`:
 
@@ -1415,11 +1415,11 @@ If the test fixture's `QSettings()` (no arguments) and the module's `QSettings(O
 
 In `src/maskingframe/gui/app.py`, inside `run()`, call `settings.configure()` immediately after the `QApplication` is created and before `MainWindow` is constructed. Also set `app.setOrganizationName(settings.ORGANISATION)` and `app.setApplicationName(settings.APPLICATION)`.
 
-- [ ] **Step 4: Run the tests and verify they pass**
+- [x] **Step 4: Run the tests and verify they pass**
 
 Run: `uv run pytest tests/test_gui_settings.py -v`
 
-- [ ] **Step 5: Run the full gate and commit**
+- [x] **Step 5: Run the full gate and commit**
 
 ```bash
 mise run check
@@ -1447,7 +1447,7 @@ to the default rather than failing the launch."
 
 `shell.py` currently imports nothing from `pipeline` and is described as presentation-only, "nothing here knows what a panorama is". A border width and colour are presentation, so this holds — but `BorderControls` does need the `FrameStyle` type. Import it from `pipeline`, not `geometry`, keeping the dependency rule.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `tests/test_gui_shell.py`:
 
@@ -1535,12 +1535,12 @@ def test_gutter_controls_are_hidden_when_not_wanted(qtbot) -> None:
     assert controls.gutter_swatch is None
 ```
 
-- [ ] **Step 2: Run the tests and verify they fail**
+- [x] **Step 2: Run the tests and verify they fail**
 
 Run: `uv run pytest tests/test_gui_shell.py -v`
 Expected: FAIL, `AttributeError: module 'maskingframe.gui.shell' has no attribute 'Swatch'`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Add to `src/maskingframe/gui/theme.py`'s `stylesheet()`, near the `QLineEdit` block:
 
@@ -1725,11 +1725,11 @@ Extend `shell.py`'s imports with `Signal` from `PySide6.QtCore`, and `QCheckBox`
 
 Update the module docstring: it currently says "Nothing here knows what a panorama is." That is still true — add a sentence noting that `pipeline` is imported for the `FrameStyle` type and the colour parser only, never for image work.
 
-- [ ] **Step 4: Run the tests and verify they pass**
+- [x] **Step 4: Run the tests and verify they pass**
 
 Run: `uv run pytest tests/test_gui_shell.py -v`
 
-- [ ] **Step 5: Run the full gate and commit**
+- [x] **Step 5: Run the full gate and commit**
 
 ```bash
 mise run check
@@ -1755,7 +1755,7 @@ Tasks 10 and 11 touch disjoint files and both depend on Tasks 6, 8 and 9. They c
 - Consumes: `shell.BorderControls`, `settings.load_style`, `settings.save_style`, `settings.SPLIT`, `pipeline.process_image`, `pipeline.process_folder`, `pipeline.preview_frames`.
 - Produces: `SplitTab.border_controls: shell.BorderControls` and `SplitTab._style() -> pipeline.FrameStyle`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 def test_split_tab_restores_the_stored_style(qtbot, isolated_settings) -> None:
@@ -1781,12 +1781,12 @@ def test_split_tab_offers_the_detail_frame_toggle(qtbot, isolated_settings) -> N
 
 Put the `isolated_settings` fixture in `tests/conftest.py` (create if absent), reusing the body written for Task 8's `_isolated_settings` so both suites share one definition.
 
-- [ ] **Step 2: Run the tests and verify they fail**
+- [x] **Step 2: Run the tests and verify they fail**
 
 Run: `uv run pytest tests/test_gui_split_tab.py -v`
 Expected: FAIL, `AttributeError: 'SplitTab' object has no attribute 'border_controls'`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 In `split_tab.py`'s `_build`, immediately after the `count_label` block and before the `Destination` section:
 
@@ -1819,16 +1819,16 @@ Read the existing `_ratio_name()` / `ratio_name` pattern in each of those three 
 
 Add `from maskingframe.gui import settings` to the imports.
 
-- [ ] **Step 4: Run the tests and verify they pass**
+- [x] **Step 4: Run the tests and verify they pass**
 
 Run: `uv run pytest -v`
 
-- [ ] **Step 5: Look at it**
+- [ ] **Step 5: Look at it** (not run: the GUI was not launched in this session)
 
 Run: `mise run gui`
 Check: the Border section sits between FORMAT and DESTINATION; tabbing reaches the spin box, the swatch and the checkbox in that order; the swatch opens a picker and the rail updates; setting the border to 25% and previewing shows a visibly thicker border.
 
-- [ ] **Step 6: Run the full gate and commit**
+- [x] **Step 6: Run the full gate and commit**
 
 ```bash
 mise run check
@@ -1852,7 +1852,7 @@ render one setting and caption it with another."
 - Consumes: `shell.BorderControls`, `settings.load_style`, `settings.save_style`, `settings.COMPOSE`, `pipeline.compose_images`, `pipeline.compose_preview`, `pipeline.name_layout`.
 - Produces: `ComposeTab.border_controls: shell.BorderControls` and `ComposeTab._style() -> pipeline.FrameStyle`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 def test_compose_tab_restores_the_stored_style(qtbot, isolated_settings) -> None:
@@ -1884,12 +1884,12 @@ def test_the_two_tabs_keep_separate_styles(qtbot, isolated_settings) -> None:
     assert tab._style().border_percent == pipeline.DEFAULT_STYLE.border_percent
 ```
 
-- [ ] **Step 2: Run the tests and verify they fail**
+- [x] **Step 2: Run the tests and verify they fail**
 
 Run: `uv run pytest tests/test_gui_compose_tab.py -v`
 Expected: FAIL, `AttributeError: 'ComposeTab' object has no attribute 'border_controls'`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Read `compose_tab.py`'s `_build` first and find where the FORMAT section ends and DESTINATION begins — both rails carry the same sections in the same order, so the border section goes in the same relative position as Task 10 put it. Insert:
 
@@ -1931,16 +1931,16 @@ Pass `self._style()` through `pipeline.compose_images`, `pipeline.compose_previe
 
 Add `from maskingframe.gui import settings` to the imports.
 
-- [ ] **Step 4: Run the tests and verify they pass**
+- [x] **Step 4: Run the tests and verify they pass**
 
 Run: `uv run pytest -v`
 
-- [ ] **Step 5: Look at it**
+- [ ] **Step 5: Look at it** (not run: the GUI was not launched in this session)
 
 Run: `mise run gui`
 Check: on the Compose tab the Border section carries four controls and no detail-frames checkbox, in the same position as on Split; setting the gap colour to red and previewing a diptych shows a red strip between the two panels and white around the outside; setting the gap to 0% removes the strip entirely; a large gap can change the arrangement name in the rail, and the name under the preview agrees with it.
 
-- [ ] **Step 6: Run the full gate and commit**
+- [x] **Step 6: Run the full gate and commit**
 
 ```bash
 mise run check
@@ -1959,7 +1959,7 @@ the name in the rail rather than leaving it describing the old solution."
 - Modify: `CLAUDE.md`
 - Modify: `README.md` if one exists
 
-- [ ] **Step 1: Rewrite the stale passages in `CLAUDE.md`**
+- [x] **Step 1: Rewrite the stale passages in `CLAUDE.md`**
 
 The following statements are now wrong and must be corrected:
 
@@ -1971,11 +1971,11 @@ The following statements are now wrong and must be corrected:
 - Add a short section describing the two colours on a composite: the gutter colour fills only the strips between panels; the outer border and the centring slack take the border colour.
 - The "Behaviour changes" list should gain an entry saying the border and gutter are now settings rather than constants, and that the default landscape border changed.
 
-- [ ] **Step 2: Verify every claim in what you wrote**
+- [x] **Step 2: Verify every claim in what you wrote**
 
 For each statement you added or edited, open the file it describes and confirm it is true. Do not carry over a description from the old text without checking it.
 
-- [ ] **Step 3: Run the full gate and commit**
+- [x] **Step 3: Run the full gate and commit**
 
 ```bash
 mise run check
@@ -1992,9 +1992,13 @@ which exists now."
 
 After Task 12, before declaring the work done:
 
-- [ ] `mise run check` passes.
-- [ ] `uv run maskingframe --help` lists all five new flags.
-- [ ] A CLI run with `--border 20 --border-colour '#c9302a'` produces a visibly red-bordered frame 1.
-- [ ] A CLI compose run with `--gutter-colour '#000000'` produces a black strip between the panels.
-- [ ] `mise run gui` launches, both tabs show the Border section in the same position, settings survive a quit and relaunch, and every new control is reachable by keyboard alone.
-- [ ] `git log --oneline` shows one commit per task, each of which builds and passes on its own.
+- [x] `mise run check` passes.
+- [x] `uv run maskingframe --help` lists all five new flags.
+- [x] A CLI run with `--border 20 --border-colour '#c9302a'` produces a visibly red-bordered frame 1.
+- [ ] A CLI compose run with `--gutter-colour '#000000'` produces a black strip between the panels. **Cannot be performed:** the CLI has no compose subcommand, so `--gutter` and `--gutter-colour` are parsed and then never reach any output. See "Known gap" below.
+- [ ] `mise run gui` launches, both tabs show the Border section in the same position, settings survive a quit and relaunch, and every new control is reachable by keyboard alone. **Left for the user:** automated tests cover the wiring, persistence, ordering and focusability, but nobody has looked at it.
+- [x] `git log --oneline` shows one commit per task, each of which builds and passes on its own.
+
+## Known gap
+
+`--gutter` and `--gutter-colour` are dead flags. The gutter only exists on a composite, and the CLI only splits panoramas -- there is no `compose` subcommand. The flags parse, validate and build a `FrameStyle`, and that style's gutter fields then never reach an output file. This is a hole in the plan, not in the implementation: the plan asked for "full parity with the GUI" without noticing the CLI had no compose path to reach parity on. Either add a compose subcommand or drop the two flags.
