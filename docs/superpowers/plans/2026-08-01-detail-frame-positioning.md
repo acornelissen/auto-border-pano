@@ -1938,7 +1938,7 @@ git commit -m "feat(gui): place the detail frames from the Split tab"
 **Files:**
 - Modify: `CLAUDE.md`
 
-- [ ] **Step 1: Update the architecture notes**
+- [x] **Step 1: Update the architecture notes**
 
 In the `pipeline.py` bullet, after the sentence about re-exports, add:
 
@@ -1946,7 +1946,7 @@ In the `pipeline.py` bullet, after the sentence about re-exports, add:
 
 In the `gui/` bullet, add `ribbon.py` to the list of modules: "`ribbon.py` (`FrameRibbon`, the whole panorama with a draggable window per detail frame)".
 
-- [ ] **Step 2: Add a section on the position model**
+- [x] **Step 2: Add a section on the position model**
 
 Add this after the "Border behaviour worth knowing" section:
 
@@ -1978,11 +1978,11 @@ travel at all: every position clamps to zero and the crop is the whole width.
 Degenerate, but it must not raise.
 ```
 
-- [ ] **Step 2b: Check the behaviour-changes entry landed**
+- [x] **Step 2b: Check the behaviour-changes entry landed**
 
 Task 2 added the detail-frame entry to "Behaviour changes from the pre-refactor scripts". Confirm it is there with `grep -n "full-height crop" CLAUDE.md`; if it is missing, add it now using the wording from Task 2, Step 7.
 
-- [ ] **Step 3: Run the full gate and commit**
+- [x] **Step 3: Run the full gate and commit**
 
 ```bash
 mise run check
