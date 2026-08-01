@@ -6,13 +6,46 @@ widgets, so nothing has to be faked.
 """
 
 import os
+from collections.abc import Iterator
+from pathlib import Path
 
+import pytest
 from PIL import Image
 
 # Set before any test module imports Qt. The GUI tests build real widgets,
 # and without this they open windows on the desktop of whoever is running
 # the suite -- and fail outright anywhere without a display.
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+
+@pytest.fixture
+def isolated_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
+    """Point QSettings at a throwaway store for the duration of a test.
+
+    Without this a test would read and write the developer's real
+    preferences file. Two things are needed, not one:
+
+    - INI format, redirected with `setPath`, because that is the only
+      format whose location can be moved on every platform -- the macOS
+      native format ignores `setPath` and would go on writing to
+      ~/Library/Preferences.
+    - A per-test organisation and application name, because Qt caches
+      loaded settings against those names for the life of the process.
+      Redirecting the path alone leaves the second test in a session
+      reading the first test's cached values.
+
+    Yields the directory the store lives under, so a test can prove the
+    redirection actually took effect rather than assuming it.
+    """
+    from PySide6.QtCore import QSettings
+
+    from maskingframe.gui import settings
+
+    QSettings.setDefaultFormat(QSettings.Format.IniFormat)
+    QSettings.setPath(QSettings.Format.IniFormat, QSettings.Scope.UserScope, str(tmp_path))
+    monkeypatch.setattr(settings, "ORGANISATION", "maskingframe-test")
+    monkeypatch.setattr(settings, "APPLICATION", tmp_path.name)
+    yield tmp_path
 
 
 def synthetic_panorama(width: int = 3000, height: int = 800) -> Image.Image:

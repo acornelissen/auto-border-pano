@@ -8,7 +8,7 @@ import sys
 
 from PySide6.QtWidgets import QApplication, QMainWindow, QTabWidget, QVBoxLayout, QWidget
 
-from maskingframe.gui import shell, theme
+from maskingframe.gui import settings, shell, theme
 from maskingframe.gui.compose_tab import ComposeTab
 from maskingframe.gui.split_tab import SplitTab
 
@@ -61,7 +61,11 @@ class MainWindow(QMainWindow):
 def run() -> None:
     app = QApplication.instance() or QApplication(sys.argv)
     assert isinstance(app, QApplication)
-    app.setApplicationName("Masking Frame")
+    app.setOrganizationName(settings.ORGANISATION)
+    app.setApplicationName(settings.APPLICATION)
+    # Before the window, so anything built with it can read what the last
+    # session stored.
+    settings.configure()
     app.setStyleSheet(theme.stylesheet())
     window = MainWindow()
     window.show()
