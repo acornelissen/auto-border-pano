@@ -1268,7 +1268,7 @@ Do this in parallel with Task 5. It touches only `strip.py`, which Task 5 does n
   - `frame_drag_settled = Signal(int)` — (frame index), once on release
   - `set_draggable(draggable: bool) -> None`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `tests/test_strip.py`:
 
@@ -1338,12 +1338,12 @@ def test_releasing_a_drag_settles_once(qtbot: QtBot) -> None:
 
 Ensure `tests/test_strip.py` imports `QPoint` and `Qt` from `PySide6.QtCore` and `pytest`.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `mise exec -- uv run pytest tests/test_strip.py -k drag -v`
 Expected: FAIL with `AttributeError: 'ContactStrip' object has no attribute 'frame_dragged'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Add `Signal` to the `PySide6.QtCore` import in `strip.py` and `QMouseEvent` to the `PySide6.QtGui` import. Then, inside `ContactStrip`, add the signals immediately under the class docstring:
 
@@ -1427,12 +1427,12 @@ Add `QPoint` to the `PySide6.QtCore` import as well.
 
 Note the delta is measured from the press point, not from the previous move, so successive move events report an absolute displacement rather than accumulating rounding. The tab must therefore treat it as "position at press plus delta", which Task 7 does.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `mise exec -- uv run pytest tests/test_strip.py -v`
 Expected: PASS, including the existing tests.
 
-- [ ] **Step 5: Run the full gate and commit**
+- [x] **Step 5: Run the full gate and commit**
 
 ```bash
 mise run check
