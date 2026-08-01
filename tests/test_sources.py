@@ -19,7 +19,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from pytestqt.qtbot import QtBot
 
-from maskingframe.gui import sources
+from maskingframe.gui import sources, theme
 
 
 @pytest.fixture
@@ -181,6 +181,19 @@ def test_the_arrows_do_nothing_on_an_empty_list(qtbot: QtBot, built: sources.Sou
 
 def test_the_widget_takes_focus(built: sources.SourcesList) -> None:
     assert built.focusPolicy() == Qt.FocusPolicy.StrongFocus
+
+
+def test_focus_is_ink_so_it_does_not_compete_with_the_selected_row(
+    built: sources.SourcesList,
+) -> None:
+    """Focus is INK on every control in the app, and here it has a second
+    job: chinagraph already marks the selected row and numbers the rows, so
+    a red ring round the whole list left three meanings in one colour and
+    the selection bar was the one that lost."""
+    sheet = built.styleSheet()
+    focus_rule = next(line for line in sheet.splitlines() if ":focus" in line)
+    assert theme.INK in focus_rule
+    assert theme.CHINAGRAPH not in focus_rule
 
 
 def test_the_selection_survives_a_reorder(qtbot: QtBot, built: sources.SourcesList) -> None:

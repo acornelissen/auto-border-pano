@@ -208,7 +208,12 @@ class SourcesList(QListWidget):
                 border: {BORDER}px solid {theme.EDGE};
                 outline: none;
             }}
-            QListWidget#Sources:focus {{ border: {BORDER}px solid {theme.CHINAGRAPH}; }}
+            /* INK, like every other focus state in the app -- and here that
+               matters twice over. Chinagraph already marks the selected row
+               and numbers the rows, so ringing the whole list in it left
+               three meanings in one colour, and the thing that lost was the
+               selection bar: the one mark that says which row you are on. */
+            QListWidget#Sources:focus {{ border: {BORDER}px solid {theme.INK}; }}
             """
         )
 
