@@ -175,6 +175,33 @@ def stylesheet() -> str:
     QLineEdit:focus {{ border: 1px solid {INK}; }}
     QLineEdit:disabled {{ background: {PANEL}; color: {INK_DIM}; }}
 
+    QDoubleSpinBox {{
+        background: {WELL};
+        border: 1px solid {EDGE};
+        padding: 4px 6px;
+        color: {INK};
+        font-family: "{data}";
+        font-size: 12px;
+        selection-background-color: {CHINAGRAPH};
+        selection-color: {WELL};
+    }}
+    QDoubleSpinBox:focus {{ border: 1px solid {INK}; }}
+    QDoubleSpinBox:disabled {{ background: {PANEL}; color: {INK_DIM}; }}
+
+    /* A block of the colour it sets, so the border is the only chrome it
+       carries. Focus is INK like every other field here: a control turning
+       chinagraph when you click into it would read as an error. The ring
+       thickens rather than changing hue, so it survives a swatch set to a
+       colour close to INK itself. */
+    #Swatch {{
+        border: 1px solid {EDGE};
+        min-width: 34px;
+        min-height: 24px;
+        padding: 0;
+    }}
+    #Swatch:hover {{ border-color: {INK_DIM}; }}
+    #Swatch:focus {{ border: 2px solid {INK}; }}
+
     QPushButton {{
         background: {WELL};
         border: 1px solid {EDGE};
