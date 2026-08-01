@@ -1079,8 +1079,8 @@ def test_the_rail_and_the_widgets_say_the_same_thing(qtbot: Any, tmp_path: Path)
 
     tab.ribbon.selection_changed.emit(1)
 
-    # 3000x1000 at 4:5 spreads three frames evenly across the travel, which
-    # puts the middle one at 24% of the width. Stated literally: agreeing on
+    # 3000x1000 at 4:5 gets four detail frames, stepped evenly by a third of
+    # the travel, which puts the second one at 24% of the width. Stated literally: agreeing on
     # a wrong number is still wrong.
     assert tab.selection_label.text() == "Frame 3 · 24% along"
     assert tab.ribbon.accessibleName() == "Frame 3, 24 percent along"
@@ -1186,3 +1186,21 @@ def test_a_held_key_renders_once_rather_than_per_repeat(qtbot: Any, tmp_path: Pa
     assert renders == 0, "a render per repeat is what the settle exists to prevent"
     qtbot.waitUntil(lambda: renders > 0, timeout=2000)
     assert renders == 1
+
+
+def test_a_pending_settle_does_not_land_inside_a_run(qtbot: Any, tmp_path: Path) -> None:
+    """The settle is a deferral, so a run started inside it would otherwise
+    find the strip put back to the overlay under a status saying it is
+    cutting frames."""
+    tab = loaded_tab(qtbot, tmp_path)
+    tab.dest_row.setText(str(tmp_path / "out"))
+    tab.strip.set_frames(preview_titles(len(tab.positions())))
+    tab.strip.show_images([synthetic_panorama(40, 40)] * (len(tab.positions()) + 1))
+    exposed = tab.strip.exposed
+
+    tab.ribbon.frame_nudged.emit(0, 1)
+    tab.process_images()
+
+    assert not tab._nudge_timer.isActive()
+    assert tab.strip.exposed == exposed
+    assert tab.status_label.text() == "Cutting frames"

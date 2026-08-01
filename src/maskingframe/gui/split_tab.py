@@ -694,6 +694,7 @@ class SplitTab(QWidget):
         self._rerender()
 
     def _clear_facts(self, subject: str = "") -> None:
+        self._nudge_timer.stop()
         self.facts_label.setText("")
         self.count_label.setText(NO_COUNT)
         self.action_btn.setText(UNCOUNTED_ACTION)
@@ -922,6 +923,10 @@ class SplitTab(QWidget):
         if not destination:
             self._set_error("Choose where the frames should go.")
             return
+        # A settle still pending from a nudge would land inside the run and
+        # put the strip back to the overlay, over a status that has just
+        # said the run is in flight.
+        self._nudge_timer.stop()
         self._running = True
         self._apply_button_states()
         self.progress_bar.setValue(0)
@@ -970,6 +975,9 @@ class SplitTab(QWidget):
         if updating:
             self.status_label.setText(shell.UPDATING_PREVIEW)
         else:
+            # This render supersedes any settle still waiting, for the same
+            # reason a run does.
+            self._nudge_timer.stop()
             self._running = True
             self._apply_button_states()
             self.status_label.setText("Rendering preview")
