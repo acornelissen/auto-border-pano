@@ -815,7 +815,7 @@ class ComposeTab(QWidget):
                 return
             self._failed(error)
 
-        submit(job, done, failed)
+        submit(job, done, failed, owner=self)
 
     def _failed(self, error: BaseException) -> None:
         """One failure path for both actions. Inline, never modal."""

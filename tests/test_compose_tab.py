@@ -729,7 +729,7 @@ def _captured_renders(monkeypatch: pytest.MonkeyPatch) -> list[tuple[Any, Any, A
     monkeypatch.setattr(
         compose_tab,
         "submit",
-        lambda job, done, failed=None: captured.append((job, done, failed)),
+        lambda job, done, failed=None, owner=None: captured.append((job, done, failed)),
     )
     return captured
 

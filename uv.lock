@@ -157,6 +157,7 @@ source = { editable = "." }
 dependencies = [
     { name = "pillow" },
     { name = "pyside6" },
+    { name = "shiboken6" },
 ]
 
 [package.dev-dependencies]
@@ -172,6 +173,7 @@ dev = [
 requires-dist = [
     { name = "pillow", specifier = ">=10.0.0" },
     { name = "pyside6", specifier = ">=6.8" },
+    { name = "shiboken6", specifier = ">=6.8" },
 ]
 
 [package.metadata.requires-dev]

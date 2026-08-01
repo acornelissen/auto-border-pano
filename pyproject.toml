@@ -6,6 +6,10 @@ requires-python = ">=3.13"
 dependencies = [
     "Pillow>=10.0.0",
     "pyside6>=6.8",
+    # `work.py` asks shiboken whether a widget's C++ half is still there.
+    # It arrives with pyside6 in practice, but the code imports it by name,
+    # so it is named here rather than relied on as a transitive.
+    "shiboken6>=6.8",
 ]
 
 [project.scripts]
