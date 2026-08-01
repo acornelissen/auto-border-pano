@@ -12,6 +12,7 @@ import pytest
 from PIL import Image
 
 from maskingframe import pipeline
+from tests import conftest
 from tests.conftest import synthetic_panorama
 
 
@@ -117,3 +118,48 @@ def test_naming_a_layout_rejects_a_count_it_cannot_arrange(tmp_path: Path) -> No
 
     with pytest.raises(ValueError):
         pipeline.name_layout([path], pipeline.DEFAULT_RATIO)
+
+
+def test_facts_carry_the_default_positions(tmp_path: Path) -> None:
+    source = tmp_path / "pano.jpg"
+    conftest.synthetic_panorama(2000, 1000).save(source, "JPEG", quality=95)
+
+    facts = pipeline.inspect_source(source, pipeline.RATIOS["4:5"])
+
+    # frame_count counts the padded frame too, so there is one fewer position.
+    assert len(facts.positions) == facts.frame_count - 1
+    assert facts.positions[0] == 0.0
+    assert facts.window_fraction == pytest.approx(0.4)
+
+
+def test_facts_positions_follow_the_ratio(tmp_path: Path) -> None:
+    source = tmp_path / "pano.jpg"
+    conftest.synthetic_panorama(2000, 1000).save(source, "JPEG", quality=95)
+
+    portrait = pipeline.inspect_source(source, pipeline.RATIOS["4:5"])
+    landscape = pipeline.inspect_source(source, pipeline.RATIOS["1.91:1"])
+
+    assert portrait.window_fraction < landscape.window_fraction
+
+
+def test_the_gui_can_reach_the_position_model_without_importing_geometry() -> None:
+    # gui/ may import only pipeline, so these have to be re-exported.
+    for name in (
+        "default_positions",
+        "normalise_positions",
+        "insert_position",
+        "drop_position",
+        "frame_width",
+        "position_travel",
+    ):
+        assert callable(getattr(pipeline, name)), name
+
+
+def test_ribbon_thumbnail_is_bounded_and_keeps_its_shape(tmp_path: Path) -> None:
+    source = tmp_path / "pano.jpg"
+    conftest.synthetic_panorama(4000, 800).save(source, "JPEG", quality=95)
+
+    thumb = pipeline.ribbon_thumbnail(source, max_width=1200)
+
+    assert thumb.width <= 1200
+    assert thumb.width / thumb.height == pytest.approx(5.0, rel=0.01)

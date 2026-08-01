@@ -5,6 +5,7 @@ output-filename contract, which the GUI depends on for previews.
 """
 
 import logging
+import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -20,8 +21,9 @@ from maskingframe import compose, geometry, layout
 # is still caught by the per-file exception handling in process_folder.
 Image.MAX_IMAGE_PIXELS = None
 
-# Re-exported so cli.py and gui/ can offer ratio and border selection
-# without importing geometry directly -- they depend on pipeline only.
+# Re-exported so `cli.py` and `gui/` can offer ratio, border and position
+# controls without importing `geometry` directly -- that is what preserves
+# the one-way dependency direction. Do not "simplify" these away.
 AspectRatio = geometry.AspectRatio
 RATIOS = geometry.RATIOS
 DEFAULT_RATIO = geometry.DEFAULT_RATIO
@@ -29,6 +31,12 @@ FrameStyle = geometry.FrameStyle
 DEFAULT_STYLE = geometry.DEFAULT_STYLE
 parse_colour = geometry.parse_colour
 MAX_PERCENT = geometry.MAX_PERCENT
+default_positions = geometry.default_positions
+normalise_positions = geometry.normalise_positions
+insert_position = geometry.insert_position
+drop_position = geometry.drop_position
+frame_width = geometry.frame_width
+position_travel = geometry.position_travel
 
 JPEG_QUALITY = 95
 JPEG_EXTENSIONS = (".jpg", ".jpeg")
@@ -253,6 +261,33 @@ def cached_preview_source(input_path: Path | str) -> Image.Image:
     return image
 
 
+def ribbon_thumbnail(input_path: Path | str, max_width: int = 1200) -> Image.Image:
+    """A small copy of the whole panorama, for the ribbon to draw.
+
+    Bounded by width rather than by pixels because the ribbon is one long
+    strip: a 13:1 panorama at 1200px wide is under 100px tall and costs
+    almost nothing. Uses `draft` so libjpeg decodes straight to a reduced
+    scale rather than decoding in full and throwing the pixels away.
+
+    Separate from `cached_preview_source`, which holds a much larger copy
+    for cutting detail frames from. This one is only ever looked at.
+    """
+    path = Path(input_path)
+    with Image.open(path) as opened:
+        width, height = opened.size
+        if width > max_width:
+            scale = max_width / width
+            opened.draft("RGB", (max_width, max(1, math.floor(height * scale + 0.5))))
+        image = opened.convert("RGB")
+    if image.width > max_width:
+        scale = max_width / image.width
+        image = image.resize(
+            (max_width, max(1, math.floor(image.height * scale + 0.5))),
+            Image.Resampling.LANCZOS,
+        )
+    return image
+
+
 def preview_frames(
     input_path: Path | str,
     ratio: AspectRatio = DEFAULT_RATIO,
@@ -317,6 +352,15 @@ class SourceFacts:
     height: int
     native_ratio: str
     frame_count: int
+    positions: tuple[float, ...] = ()
+    """Where the detail frames land by default: one left edge per frame, as
+    a fraction of the panorama's width. The interface opens on these and
+    the user moves them from there."""
+
+    window_fraction: float = 0.0
+    """How much of the panorama's width one detail frame covers. The ribbon
+    needs it to draw a window, and it is derived from the ratio and the
+    source's height, so it belongs with the rest of the header read."""
 
 
 def inspect_source(path: Path | str, ratio: AspectRatio = DEFAULT_RATIO) -> SourceFacts:
@@ -337,6 +381,8 @@ def inspect_source(path: Path | str, ratio: AspectRatio = DEFAULT_RATIO) -> Sour
         height=height,
         native_ratio=f"{width / height:.2f}:1",
         frame_count=geometry.section_count(width, height, ratio) + 1,
+        positions=geometry.default_positions(width, height, ratio),
+        window_fraction=min(1.0, geometry.frame_width(height, ratio) / width),
     )
 
 
