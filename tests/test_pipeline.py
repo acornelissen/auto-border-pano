@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from maskingframe import pipeline
+from maskingframe import layout, pipeline
 from tests.conftest import synthetic_panorama
 
 
@@ -468,3 +468,57 @@ def test_style_is_re_exported() -> None:
     assert pipeline.DEFAULT_STYLE.border_percent == 9.0
     assert pipeline.parse_colour("#FFF") == "#ffffff"
     assert pipeline.MAX_PERCENT == 40.0
+
+
+def test_composite_rects_normalises_the_solved_layout() -> None:
+    """The GUI may import pipeline and nothing else, so the gaps have to
+    arrive as plain fractions with the arithmetic already done."""
+    aspects = [1.5, 0.75]
+    ratio = pipeline.RATIOS["4:5"]
+    style = pipeline.FrameStyle(border_percent=8.0, gutter_percent=4.0)
+
+    rects = pipeline.composite_rects(aspects, ratio, style)
+    solved = layout.solve(aspects, ratio, style)
+
+    assert rects.name == solved.name
+    assert rects.panels == tuple(
+        (
+            box.x / ratio.width,
+            box.y / ratio.height,
+            box.width / ratio.width,
+            box.height / ratio.height,
+        )
+        for box in solved.boxes
+    )
+    assert rects.gaps == tuple(
+        (
+            box.x / ratio.width,
+            box.y / ratio.height,
+            box.width / ratio.width,
+            box.height / ratio.height,
+        )
+        for box in solved.gutters
+    )
+    assert all(0.0 <= value <= 1.0 for rect in rects.gaps for value in rect)
+
+
+def test_composite_rects_has_no_gaps_when_there_is_no_gap() -> None:
+    """A zero gap is nothing to draw, not a hairline to draw."""
+    rects = pipeline.composite_rects(
+        [1.5, 0.75], pipeline.RATIOS["1:1"], pipeline.FrameStyle(gutter_percent=0.0)
+    )
+
+    assert rects.gaps == ()
+    assert len(rects.panels) == 2
+
+
+def test_composite_rects_opens_no_files(monkeypatch: pytest.MonkeyPatch) -> None:
+    """It is called on every slider move, on the GUI thread. The user's
+    scans reach 132MP, so a header read here would stall exactly them."""
+
+    def forbidden(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("composite_rects must not touch the filesystem")
+
+    monkeypatch.setattr(Image, "open", forbidden)
+
+    assert pipeline.composite_rects([1.5, 0.75], pipeline.RATIOS["1:1"]).panels

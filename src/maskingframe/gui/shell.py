@@ -32,6 +32,14 @@ from PySide6.QtWidgets import (
 from maskingframe import pipeline
 from maskingframe.gui import theme
 
+STALE_PREVIEW = "Settings changed. Press Preview to render them."
+"""What both tabs say when a render is dropped for no longer matching.
+
+A preview vanishing as you drag a slider reads as a glitch unless
+something accounts for it. It is a plain statement, in the help voice, not
+an error -- nothing has gone wrong and there is nothing to fix.
+"""
+
 
 class RebateBand(QWidget):
     """The black band a lab prints the frame's name onto.

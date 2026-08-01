@@ -37,7 +37,7 @@ from PySide6.QtWidgets import (
 from maskingframe import pipeline
 from maskingframe.gui import settings, shell, theme
 from maskingframe.gui.sources import Source, SourcesList
-from maskingframe.gui.strip import ContactStrip
+from maskingframe.gui.strip import BorderPreview, ContactStrip, Rect
 from maskingframe.gui.work import submit
 
 MIN_IMAGES = 2
@@ -395,7 +395,78 @@ class ComposeTab(QWidget):
         arrangement wins, so the name in the rail would otherwise be
         describing the previous solution."""
         settings.save_style(settings.COMPOSE, style)
+        self._discard_stale_preview()
         self._request_layout_name()
+        self._refresh_border_preview()
+
+    def _aspects(self) -> list[float] | None:
+        """The sources' aspect ratios, or None while any is still unknown.
+
+        Read from the cache the off-thread solve fills in, never from disk:
+        this is called on every slider move, and a header read on the GUI
+        thread is exactly what stalls a 132MP scan.
+        """
+        if not self.can_compose():
+            return None
+        aspects = []
+        for path in self.images:
+            size = self._sizes.get(path)
+            if size is None or size[1] <= 0:
+                return None
+            aspects.append(size[0] / size[1])
+        return aspects
+
+    def _refresh_border_preview(self) -> None:
+        """Draw the border, and the gaps between panels, on the strip.
+
+        The gaps are as much of a composite as the outer border is, so they
+        are shown in their own colour rather than left to the imagination.
+        With fewer than two sources there is no arrangement to solve, and
+        the outer border goes on alone.
+        """
+        style = self._style()
+        ratio = pipeline.RATIOS[self._ratio_name()]
+        gaps: tuple[Rect, ...] = ()
+        aspects = self._aspects()
+        if aspects is not None:
+            try:
+                solved = pipeline.composite_rects(aspects, ratio, style)
+                gaps = tuple(Rect(*gap) for gap in solved.gaps)
+            except ValueError:
+                # No arrangement fits these shapes at this ratio. The outer
+                # border is still true, so it is still drawn.
+                gaps = ()
+        self.previews.set_border_preview(
+            BorderPreview(
+                aspect=ratio.width / ratio.height,
+                border=style.border_percent / 100,
+                colour=style.border_colour,
+                gaps=gaps,
+                gap_colour=style.gutter_colour,
+            )
+        )
+
+    def _discard_stale_preview(self) -> None:
+        """Drop a render that the settings have moved on from.
+
+        A composed preview has the border and the gaps rendered into it, so
+        the moment either changes the image on the table is a picture of
+        settings nobody has any more. Dropping it puts the empty frame and
+        the live overlay back, and those do agree with the rail.
+
+        Called from the handlers for the things that make a render stale --
+        the style, the ratio, the sources -- and deliberately not from
+        `_refresh_border_preview`, which also runs when a background solve
+        lands. A solve landing is new information about the settings in
+        force, not a change to them, and clearing there would pull a
+        just-rendered preview off the table.
+
+        The note goes in the hint rather than the status line: the status
+        line is the live sentence describing the composite, and the solve
+        that a style change kicks off rewrites it as soon as it lands.
+        """
+        if self.previews.clear_images():
+            self._set_hint(shell.STALE_PREVIEW)
 
     @property
     def status(self) -> str:
@@ -523,6 +594,9 @@ class ComposeTab(QWidget):
             # widget, not through _refresh_list, which would start another
             # solve and loop.
             self.listbox.set_items(self._rows())
+        # The gaps can only be solved once every source's shape is known,
+        # which is exactly what has just arrived.
+        self._refresh_border_preview()
 
     # --- the list -----------------------------------------------------------
 
@@ -539,6 +613,10 @@ class ComposeTab(QWidget):
         self._set_band(f"{count} sources" if count else "", self._detail)
         self._request_layout_name()
         self._apply_button_states()
+        # The set of sources decides the arrangement, and so the gaps.
+        self._refresh_border_preview()
+        # A composite of a set of sources that has changed is stale as well.
+        self._discard_stale_preview()
         # The output prefix is derived from the first image. If the field
         # still holds that derived value -- i.e. the user hasn't typed their
         # own -- re-derive it from the current first image, so add A, add B,
@@ -697,4 +775,8 @@ class ComposeTab(QWidget):
             self._apply_button_states()
 
     def _on_ratio_change(self, _index: int = 0) -> None:
+        # A new ratio is a new frame shape, so anything already rendered is
+        # a picture of the old one.
+        self._discard_stale_preview()
         self._request_layout_name()
+        self._refresh_border_preview()

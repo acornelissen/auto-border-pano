@@ -13,7 +13,7 @@ from PIL import Image
 from PySide6.QtWidgets import QDialog, QLabel, QMessageBox, QRadioButton
 
 from maskingframe import pipeline
-from maskingframe.gui import settings
+from maskingframe.gui import settings, shell
 from maskingframe.gui.split_tab import NO_COUNT, UNCOUNTED_ACTION, SplitTab, preview_titles
 from tests.conftest import synthetic_panorama
 
@@ -476,3 +476,120 @@ def test_a_batch_run_honours_the_border_colour(qtbot: Any, tab: SplitTab, tmp_pa
     qtbot.waitUntil(lambda: tab.action_btn.isEnabled(), timeout=20000)
     with Image.open(destination / "one_1_padded.jpg") as padded:
         assert padded.convert("RGB").getpixel((0, 0)) == (0, 0, 0)
+
+
+def test_the_border_is_previewed_before_anything_is_loaded(qtbot: Any, tab: SplitTab) -> None:
+    """Dialling a border in before choosing a file is the main reason to
+    want a live preview, so it has to draw into the empty apertures."""
+    tab.strip.resize(900, 400)
+    tab.border_controls.border_slider.setValue(10.0)
+    tab.border_controls.border_swatch.set_colour("#ff0000")
+
+    preview = tab.strip.border_preview
+    assert preview is not None
+    assert preview.border == pytest.approx(0.1)
+    assert preview.colour == "#ff0000"
+    assert tab.strip.exposed == 0
+    assert tab.strip.border_rects(0), "an empty frame still has a frame to border"
+
+
+def test_the_ratio_decides_the_shape_the_border_is_drawn_around(qtbot: Any, tab: SplitTab) -> None:
+    tab.ratio_box.setCurrentText(pipeline.RATIOS["4:5"].display)
+    portrait = tab.strip.border_preview
+    tab.ratio_box.setCurrentText(pipeline.RATIOS["1.91:1"].display)
+    landscape = tab.strip.border_preview
+
+    assert portrait is not None and landscape is not None
+    assert portrait.aspect == pytest.approx(1080 / 1350)
+    assert landscape.aspect == pytest.approx(1080 / 566)
+
+
+def test_the_detail_frames_toggle_changes_which_frames_show_a_border(
+    qtbot: Any, tab: SplitTab
+) -> None:
+    """A split borders frame 1 always and the details only on request. A
+    preview that showed them all would be promising a frame the run will
+    not write."""
+    tab.strip.resize(900, 400)
+    tab.border_controls.border_slider.setValue(10.0)
+    check = tab.border_controls.detail_check
+    assert check is not None
+
+    check.setChecked(False)
+    assert tab.strip.border_rects(0)
+    assert tab.strip.border_rects(1) == []
+
+    check.setChecked(True)
+    assert tab.strip.border_rects(0)
+    assert tab.strip.border_rects(1)
+
+
+def test_a_zero_border_previews_nothing(qtbot: Any, tab: SplitTab) -> None:
+    tab.strip.resize(900, 400)
+    tab.border_controls.border_slider.setValue(0.0)
+
+    assert tab.strip.border_rects(0) == []
+
+
+# --- a render must never outlive the settings it was made under --------------
+
+
+def _previewed(qtbot: Any, tab: SplitTab, tmp_path: Path) -> None:
+    source = _panorama(tmp_path)
+    tab.source_row.setText(str(source))
+    qtbot.waitUntil(lambda: tab.preview_btn.isEnabled())
+    tab.preview()
+    qtbot.waitUntil(lambda: tab.strip.exposed > 0, timeout=20000)
+
+
+def test_changing_the_border_drops_the_render_it_no_longer_matches(
+    qtbot: Any, tab: SplitTab, tmp_path: Path
+) -> None:
+    """The frames on screen have the old border rendered into them. Left
+    there, the rail and the strip would be describing different pictures."""
+    _previewed(qtbot, tab, tmp_path)
+    frames = tab.strip.frame_count
+    caption = tab.strip.caption_at(0)
+
+    tab.border_controls.border_slider.setValue(20)
+
+    assert tab.strip.exposed == 0
+    # The run itself is untouched: same frames, same numbering, same names.
+    assert tab.strip.frame_count == frames
+    assert tab.strip.caption_at(0) == caption
+    # And the overlay is back, so the rail's setting is still shown.
+    assert tab.strip.border_rects(0)
+    assert tab.status_label.text() == shell.STALE_PREVIEW
+
+
+def test_changing_the_ratio_drops_the_render_too(qtbot: Any, tab: SplitTab, tmp_path: Path) -> None:
+    _previewed(qtbot, tab, tmp_path)
+
+    tab.ratio_box.setCurrentText(pipeline.RATIOS["1:1"].display)
+
+    assert tab.strip.exposed == 0
+    assert tab.strip.border_rects(0)
+
+
+def test_the_detail_toggle_drops_the_render_and_reaches_every_frame(
+    qtbot: Any, tab: SplitTab, tmp_path: Path
+) -> None:
+    _previewed(qtbot, tab, tmp_path)
+    assert tab.strip.frame_count > 1
+
+    detail_check = tab.border_controls.detail_check
+    assert detail_check is not None
+    detail_check.setChecked(True)
+
+    assert tab.strip.exposed == 0
+    assert tab.strip.border_rects(1)
+
+
+def test_nothing_is_said_when_there_was_no_render_to_drop(tab: SplitTab) -> None:
+    """A status line announcing a discard that never happened would be
+    narrating something the user never saw."""
+    before = tab.status_label.text()
+
+    tab.border_controls.border_slider.setValue(20)
+
+    assert tab.status_label.text() == before

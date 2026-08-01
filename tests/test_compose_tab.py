@@ -24,7 +24,7 @@ from PySide6.QtWidgets import QLabel
 from pytestqt.qtbot import QtBot
 
 from maskingframe import layout, pipeline
-from maskingframe.gui import compose_tab, settings
+from maskingframe.gui import compose_tab, settings, shell
 from maskingframe.gui.compose_tab import ComposeTab
 
 # Every test here builds a real ComposeTab, and the tab reads and writes the
@@ -621,3 +621,117 @@ def test_preview_renders_with_the_chosen_style(
     built.preview()
     qtbot.waitUntil(lambda: bool(shown), timeout=15000)
     assert shown[0].convert("RGB").getpixel((0, 0)) == (0, 0, 0)
+
+
+def _wait_for_sizes(qtbot: QtBot, tab: ComposeTab) -> None:
+    qtbot.waitUntil(lambda: all(path in tab._sizes for path in tab.images), timeout=5000)
+
+
+def test_the_border_is_previewed_with_nothing_loaded(qtbot: QtBot) -> None:
+    """The strip's single empty aperture still gets the border, at the
+    target ratio, and no gaps -- there is no arrangement to solve."""
+    tab = ComposeTab()
+    qtbot.addWidget(tab)
+    tab.previews.resize(600, 500)
+    tab.border_controls.border_slider.setValue(10.0)
+
+    preview = tab.previews.border_preview
+    assert preview is not None
+    assert preview.border == pytest.approx(0.1)
+    assert preview.gaps == ()
+    assert tab.previews.border_rects(0)
+
+
+def test_the_gaps_between_panels_are_previewed_too(qtbot: QtBot) -> None:
+    """Solved from the cached source shapes, so it matches what will be
+    rendered rather than being a decoration."""
+    tab = ComposeTab()
+    qtbot.addWidget(tab)
+    tab.previews.resize(600, 500)
+    tab._accept([WIDE, TALL])
+    _wait_for_sizes(qtbot, tab)
+    tab.border_controls.gutter_slider.setValue(6.0)  # type: ignore[union-attr]
+
+    style = tab.border_controls.frame_style()
+    ratio = pipeline.RATIOS[tab._ratio_name()]
+    aspects = [tab._sizes[path][0] / tab._sizes[path][1] for path in tab.images]
+    expected = pipeline.composite_rects(aspects, ratio, style).gaps
+
+    preview = tab.previews.border_preview
+    assert preview is not None
+    assert expected, "a nonzero gap must solve to at least one separator"
+    assert tuple((g.x, g.y, g.width, g.height) for g in preview.gaps) == expected
+    assert preview.gap_colour == style.gutter_colour
+
+
+def test_one_source_gets_the_outer_border_and_no_gaps(qtbot: QtBot) -> None:
+    """With fewer than two sources there is no layout to solve."""
+    tab = ComposeTab()
+    qtbot.addWidget(tab)
+    tab.previews.resize(600, 500)
+    tab._accept([WIDE])
+    _wait_for_sizes(qtbot, tab)
+
+    preview = tab.previews.border_preview
+    assert preview is not None
+    assert preview.gaps == ()
+    assert tab.previews.border_rects(0)
+
+
+# --- a render must never outlive the settings it was made under --------------
+
+
+def _previewed(qtbot: QtBot, tab: ComposeTab) -> None:
+    tab.previews.resize(600, 500)
+    tab._accept([WIDE, TALL])
+    _wait_for_sizes(qtbot, tab)
+    tab.preview()
+    qtbot.waitUntil(lambda: tab.previews.exposed > 0, timeout=15000)
+
+
+def test_a_rendered_composite_carries_no_overlay(qtbot: QtBot, tab: ComposeTab) -> None:
+    """The render already has the border and the gaps in it."""
+    _previewed(qtbot, tab)
+
+    assert tab.previews.border_rects(0) == []
+
+
+def test_changing_the_border_drops_the_composite_it_no_longer_matches(
+    qtbot: QtBot, tab: ComposeTab
+) -> None:
+    _previewed(qtbot, tab)
+
+    tab.border_controls.border_slider.setValue(20.0)
+
+    assert tab.previews.exposed == 0
+    assert tab.previews.border_rects(0)
+    assert tab.hint == shell.STALE_PREVIEW
+
+
+def test_changing_the_gap_drops_the_composite_too(qtbot: QtBot, tab: ComposeTab) -> None:
+    _previewed(qtbot, tab)
+
+    tab.border_controls.gutter_slider.setValue(9.0)  # type: ignore[union-attr]
+
+    assert tab.previews.exposed == 0
+
+
+def test_changing_the_ratio_drops_the_composite(qtbot: QtBot, tab: ComposeTab) -> None:
+    _previewed(qtbot, tab)
+
+    tab.ratio_combo.setCurrentText(pipeline.RATIOS["1:1"].display)
+
+    assert tab.previews.exposed == 0
+    assert tab.previews.border_rects(0)
+
+
+def test_a_solve_landing_does_not_pull_a_preview_off_the_table(
+    qtbot: QtBot, tab: ComposeTab
+) -> None:
+    """A background solve returning is new information about the settings
+    in force, not a change to them. Only a change discards a render."""
+    _previewed(qtbot, tab)
+
+    tab._refresh_border_preview()
+
+    assert tab.previews.exposed == 1

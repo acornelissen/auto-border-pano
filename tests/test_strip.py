@@ -10,13 +10,16 @@ They run headless under `QT_QPA_PLATFORM=offscreen`; `qtbot` supplies the
 `QApplication`.
 """
 
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 from PIL import Image
+from PySide6.QtCore import QRect
 from PySide6.QtGui import QFontMetrics
 from pytestqt.qtbot import QtBot
 
+from maskingframe import pipeline
 from maskingframe.gui import strip, theme
 
 
@@ -289,3 +292,240 @@ def test_a_wrapped_sheet_still_numbers_every_frame_in_order(qtbot: QtBot) -> Non
     assert [built.caption_at(index) for index in range(6)] == [
         f"FRAME {index}" for index in range(6)
     ]
+
+
+# --- the live border preview -------------------------------------------------
+
+
+def test_the_frame_inside_an_aperture_is_the_target_ratio(qtbot: QtBot) -> None:
+    """An aperture is square and an output frame is not, so with nothing
+    loaded the frame has to be derived from the ratio rather than assumed."""
+    tall = strip.frame_rect(0, 0, 100, 4 / 5)
+    assert (tall.x(), tall.y(), tall.width(), tall.height()) == (10, 0, 80, 100)
+
+    wide = strip.frame_rect(0, 0, 100, 2.0)
+    assert (wide.x(), wide.y(), wide.width(), wide.height()) == (0, 25, 100, 50)
+
+    square = strip.frame_rect(5, 7, 100, 1.0)
+    assert (square.x(), square.y(), square.width(), square.height()) == (5, 7, 100, 100)
+
+
+def test_the_border_is_a_percent_of_the_frames_short_side(qtbot: QtBot) -> None:
+    """Not of the aperture: the frame is what gets printed."""
+    bands = strip.border_bands(QRect(10, 0, 80, 100), 0.1)
+
+    assert [(b.x(), b.y(), b.width(), b.height()) for b in bands] == [
+        (10, 0, 80, 8),
+        (10, 92, 80, 8),
+        (10, 8, 8, 84),
+        (82, 8, 8, 84),
+    ]
+
+
+def test_a_zero_border_draws_nothing_at_all(qtbot: QtBot) -> None:
+    """Not a hairline. No border means no border."""
+    assert strip.border_bands(QRect(0, 0, 200, 200), 0.0) == []
+    # Nor when a nonzero fraction rounds away to nothing on a tiny frame.
+    assert strip.border_bands(QRect(0, 0, 4, 4), 0.05) == []
+
+
+def test_the_border_covers_only_frame_one_until_the_detail_frames_join_it(
+    qtbot: QtBot,
+) -> None:
+    """The Split tab borders frame 1 always and the details only on
+    request, so the drawing must say the same thing."""
+    built = _built(qtbot, frames=3)
+    built.resize(900, 400)
+
+    built.set_border_preview(
+        strip.BorderPreview(aspect=0.8, border=0.1, colour="#ff0000", first_frame_only=True)
+    )
+    assert built.border_rects(0)
+    assert built.border_rects(1) == []
+    assert built.border_rects(2) == []
+
+    built.set_border_preview(
+        strip.BorderPreview(aspect=0.8, border=0.1, colour="#ff0000", first_frame_only=False)
+    )
+    assert built.border_rects(1)
+    assert built.border_rects(2)
+
+
+def test_no_preview_means_no_overlay(qtbot: QtBot) -> None:
+    """The widget's original behaviour is still reachable."""
+    built = _built(qtbot, frames=2)
+    built.resize(900, 400)
+
+    assert built.border_preview is None
+    assert built.border_rects(0) == []
+
+
+def test_a_loaded_thumbnails_own_rectangle_is_the_frame(qtbot: QtBot, written_frame: Path) -> None:
+    """A thumbnail is already scaled to the output ratio and centred, so its
+    own rectangle is the frame -- no second guess at the shape."""
+    built = _built(qtbot, frames=1)
+    built.resize(600, 500)
+    built.show_paths([written_frame])
+    built.set_border_preview(strip.BorderPreview(aspect=4 / 5, border=0.1, colour="#ff0000"))
+
+    thumbnail = built.pixmap_at(0)
+    assert thumbnail is not None
+    frame = built.frame_rect_at(0)
+    assert (frame.width(), frame.height()) == (thumbnail.width(), thumbnail.height())
+
+
+def test_a_rendered_frame_carries_no_overlay(qtbot: QtBot, written_frame: Path) -> None:
+    """A render already has the border in it. Drawing the overlay on top
+    would lay a second border over the first."""
+    built = _built(qtbot, frames=2)
+    built.resize(900, 500)
+    built.show_paths([written_frame])
+    built.set_border_preview(strip.BorderPreview(aspect=4 / 5, border=0.1, colour="#ff0000"))
+
+    assert built.pixmap_at(0) is not None
+    assert built.border_rects(0) == []
+    # The frame beside it holds nothing, so it still gets the overlay.
+    assert built.pixmap_at(1) is None
+    assert built.border_rects(1)
+
+
+def test_clearing_the_images_keeps_the_frames_and_reports_what_went(
+    qtbot: QtBot, written_frame: Path
+) -> None:
+    """Dropping a stale render must not disturb the run it belongs to: the
+    count, the titles and the numbering all stay."""
+    built = _built(qtbot, frames=3)
+    built.resize(900, 500)
+    built.set_frames(["frame 1 . whole", "frame 2 . detail", "frame 3 . detail"])
+    built.show_paths([written_frame, written_frame])
+    built.mark_unreadable(2, "frame.jpg: broken")
+
+    assert built.clear_images() is True
+
+    assert built.frame_count == 3
+    assert built.exposed == 0
+    assert built.errors == []
+    assert not built.is_unreadable(2)
+    assert built.caption_at(0) == "FRAME 1 . WHOLE"
+    assert all(built.pixmap_at(index) is None for index in range(3))
+    # Nothing left to drop, and it says so, so a caller can stay quiet.
+    assert built.clear_images() is False
+
+
+def test_clearing_the_images_brings_the_overlay_back(qtbot: QtBot, written_frame: Path) -> None:
+    built = _built(qtbot, frames=1)
+    built.resize(600, 500)
+    built.set_border_preview(strip.BorderPreview(aspect=4 / 5, border=0.1, colour="#ff0000"))
+    built.show_paths([written_frame])
+    assert built.border_rects(0) == []
+
+    built.clear_images()
+
+    assert built.border_rects(0)
+
+
+def test_the_border_is_painted_solid_in_its_own_colour(qtbot: QtBot) -> None:
+    """Solid, at full colour: the point is to see the finished frame, not a
+    diagram of it. Sampled off a real render rather than trusted."""
+    built = _built(qtbot, frames=1)
+    built.resize(400, 400)
+    built.set_border_preview(strip.BorderPreview(aspect=1.0, border=0.2, colour="#ff0000"))
+
+    image = built.grab().toImage()
+    corner = built.border_rects(0)[0]
+    sampled = image.pixelColor(corner.x() + 2, corner.y() + 2)
+    assert (sampled.red(), sampled.green(), sampled.blue()) == (255, 0, 0)
+
+
+def test_the_gaps_are_drawn_in_the_gap_colour(qtbot: QtBot) -> None:
+    """On a composite the gaps between panels are as much of the result as
+    the outer border, and they are a second colour."""
+    built = _built(qtbot, frames=1)
+    built.resize(400, 400)
+    built.set_border_preview(
+        strip.BorderPreview(
+            aspect=1.0,
+            border=0.1,
+            colour="#ff0000",
+            gaps=(strip.Rect(0.45, 0.1, 0.1, 0.8),),
+            gap_colour="#0000ff",
+        )
+    )
+
+    frame = built.frame_rect_at(0)
+    middle = strip.scaled_rect(frame, strip.Rect(0.45, 0.1, 0.1, 0.8))
+    image = built.grab().toImage()
+    sampled = image.pixelColor(middle.x() + 2, middle.y() + middle.height() // 2)
+    assert (sampled.red(), sampled.green(), sampled.blue()) == (0, 0, 255)
+
+
+def test_a_rendered_composite_shows_its_border_exactly_once(qtbot: QtBot) -> None:
+    """The flaw this rule exists for, measured rather than argued.
+
+    `compose_preview` renders the border into the image, so a strip that
+    overlaid one as well would show a band twice as thick as the setting.
+    A wide source above a tall one at 4:5 arranges into a block that meets
+    the top of the frame, so a scan down the middle crosses the border and
+    nothing else before reaching the photograph. That run is counted in the
+    render and again on screen, and the two must agree once the on-screen
+    run is put back into the render's scale.
+
+    The overlay is deliberately set twice as thick as the render's own
+    border, because at matching settings the two land on exactly the same
+    pixels and a doubled draw cannot be told from a single one. Set apart,
+    a second draw shows up as a run twice as long. Scanning across would
+    prove nothing: a composite centres its block, and the slack either side
+    is border-coloured too, so the run at the left edge is legitimately
+    wider than the setting.
+    """
+    fixtures = Path(__file__).parent / "fixtures"
+    ratio = pipeline.RATIOS["4:5"]
+    style = pipeline.FrameStyle(border_percent=10.0, border_colour="#ff00ff")
+    image, _name = pipeline.compose_preview(
+        [fixtures / "compose_wide.jpg", fixtures / "compose_tall.jpg"], ratio, style
+    )
+
+    built = _built(qtbot, frames=1)
+    built.resize(600, 700)
+    built.show_images([image])
+    built.set_border_preview(
+        strip.BorderPreview(aspect=ratio.width / ratio.height, border=0.2, colour="#ff00ff")
+    )
+
+    def run_of_magenta(sample: Callable[[int], tuple[int, int, int]], limit: int) -> int:
+        length = 0
+        while length < limit:
+            red, green, blue = sample(length)
+            if not (red > 200 and green < 80 and blue > 200):
+                return length
+            length += 1
+        return length
+
+    rendered = image.convert("RGB")
+    middle = rendered.width // 2
+
+    def down_the_middle(y: int) -> tuple[int, int, int]:
+        pixel = rendered.getpixel((middle, y))
+        assert isinstance(pixel, tuple)
+        red, green, blue = pixel[:3]
+        return red, green, blue
+
+    baseline = run_of_magenta(down_the_middle, rendered.height)
+    # A tenth of the short side, as the setting says, so the yardstick is
+    # the rule itself and not just a second guess at it.
+    assert baseline == pytest.approx(0.1 * min(rendered.size), abs=2)
+
+    frame = built.frame_rect_at(0)
+    grabbed = built.grab().toImage()
+    column = frame.x() + frame.width() // 2
+
+    def on_screen(y: int) -> tuple[int, int, int]:
+        pixel = grabbed.pixelColor(column, frame.y() + y)
+        return pixel.red(), pixel.green(), pixel.blue()
+
+    shown = run_of_magenta(on_screen, frame.height())
+    scale = rendered.height / frame.height()
+
+    assert shown * scale == pytest.approx(
+        baseline, abs=3 * scale
+    ), f"the border ran {shown * scale:.0f}px of the render, which holds {baseline}px"

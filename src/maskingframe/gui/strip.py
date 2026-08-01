@@ -97,6 +97,99 @@ count is only a drawing, so being wrong about it costs nothing.
 UNREADABLE_CAPTION = "UNREADABLE"
 
 
+@dataclass(frozen=True)
+class Rect:
+    """A rectangle in normalised frame coordinates: 0..1 on both axes.
+
+    Normalised so nothing here has to know the output's pixel size, and so
+    the same description stays correct at every size the strip draws.
+    """
+
+    x: float
+    y: float
+    width: float
+    height: float
+
+
+@dataclass(frozen=True)
+class BorderPreview:
+    """What a border will look like, in terms the strip can draw.
+
+    Plain data on purpose -- floats, strings and normalised rectangles. The
+    strip is presentation only and must not learn what a `FrameStyle` is,
+    so a tab translates its own settings into this and hands it over.
+
+    `border` is a fraction of the frame's *short* side, matching how the
+    setting is defined; the frame is the target ratio fitted inside the
+    aperture, which is not the aperture itself. `first_frame_only` says the
+    border applies to frame 1 alone -- what the Split tab does until the
+    detail frames are bordered too. `gaps` are the separators between
+    composite panels, empty when there are none to draw.
+    """
+
+    aspect: float
+    border: float
+    colour: str
+    first_frame_only: bool = False
+    gaps: tuple[Rect, ...] = ()
+    gap_colour: str = ""
+
+
+def frame_rect(left: int, top: int, size: int, aspect: float) -> QRect:
+    """The output frame, at `aspect`, fitted inside a `size` square aperture.
+
+    An aperture is square; an output frame almost never is. With a
+    thumbnail loaded its own rectangle already *is* the frame, but an empty
+    frame has no such rectangle, and dialling a border in before choosing a
+    file is the main reason to want a live preview at all.
+    """
+    if aspect <= 0:
+        return QRect(left, top, size, size)
+    if aspect >= 1:
+        width = size
+        height = max(1, math.floor(size / aspect + 0.5))
+    else:
+        height = size
+        width = max(1, math.floor(size * aspect + 0.5))
+    return QRect(left + (size - width) // 2, top + (size - height) // 2, width, height)
+
+
+def border_bands(rect: QRect, fraction: float) -> list[QRect]:
+    """The four bands a border of `fraction` covers inside `rect`.
+
+    Returns nothing at all for a zero border rather than a hairline: no
+    border means no border. The bands are returned rather than painted so
+    the arithmetic can be checked without a screen.
+    """
+    if fraction <= 0 or rect.width() <= 0 or rect.height() <= 0:
+        return []
+    short = min(rect.width(), rect.height())
+    thickness = math.floor(fraction * short + 0.5)
+    if thickness <= 0:
+        return []
+    if 2 * thickness >= rect.height() or 2 * thickness >= rect.width():
+        return [QRect(rect)]
+    left, top = rect.x(), rect.y()
+    width, height = rect.width(), rect.height()
+    inner = height - 2 * thickness
+    return [
+        QRect(left, top, width, thickness),
+        QRect(left, top + height - thickness, width, thickness),
+        QRect(left, top + thickness, thickness, inner),
+        QRect(left + width - thickness, top + thickness, thickness, inner),
+    ]
+
+
+def scaled_rect(rect: QRect, normalised: Rect) -> QRect:
+    """Place a normalised rectangle inside a frame's pixel rectangle."""
+    return QRect(
+        rect.x() + math.floor(normalised.x * rect.width() + 0.5),
+        rect.y() + math.floor(normalised.y * rect.height() + 0.5),
+        max(1, math.floor(normalised.width * rect.width() + 0.5)),
+        max(1, math.floor(normalised.height * rect.height() + 0.5)),
+    )
+
+
 def pil_to_pixmap(image: Image.Image) -> QPixmap:
     """A `QPixmap` of `image`, converted through raw RGB888 bytes.
 
@@ -166,6 +259,7 @@ class ContactStrip(QWidget):
         self._metrics = QFontMetrics(self._font)
         self._frames: list[_Frame] = [_Frame() for _ in range(max(frames, 1))]
         self._errors: list[str] = []
+        self._border: BorderPreview | None = None
         self._frame_size = MIN_FRAME_PX
         self._columns = max(frames, 1)
         # Expanding in both directions: the frames grow to fill the space the
@@ -223,6 +317,45 @@ class ContactStrip(QWidget):
         rows = self.rows
         return 2 * EDGE + rows * (self._frame_size + CHROME_PX) + GUTTER * (rows - 1)
 
+    def set_border_preview(self, preview: BorderPreview | None) -> None:
+        """Draw the border the rail currently describes, or nothing.
+
+        `None` is the widget's original behaviour: no overlay at all. The
+        border is drawn solid, in its own colour, because it is what will
+        actually be printed -- a tint would be a diagram of the frame
+        rather than the frame.
+        """
+        if preview == self._border:
+            return
+        self._border = preview
+        self.update()
+
+    @property
+    def border_preview(self) -> BorderPreview | None:
+        return self._border
+
+    def frame_rect_at(self, index: int) -> QRect:
+        """Where the output frame sits inside frame `index`'s aperture."""
+        if not 0 <= index < len(self._frames):
+            return QRect()
+        return self._frame_rect(index)
+
+    def border_rects(self, index: int) -> list[QRect]:
+        """Where the border will land on frame `index`, in widget pixels.
+
+        Exposed so the overlay's geometry can be checked without sampling a
+        rendered image, and so a caller can prove which frames carry it.
+        """
+        if self._border is None or not 0 <= index < len(self._frames):
+            return []
+        if self._border.first_frame_only and index != 0:
+            return []
+        if self._frames[index].source is not None:
+            # A frame holding a render already has its border in the pixels.
+            # Overlaying another would lay a second band over the first.
+            return []
+        return border_bands(self._frame_rect(index), self._border.border)
+
     def set_frames(self, titles: Sequence[str]) -> None:
         """Lay out one frame per title, discarding everything from the last
         run. The count varies with the ratio and the panorama, so this is
@@ -248,6 +381,30 @@ class ContactStrip(QWidget):
             frame.scaled = None
             frame.unreadable = False
         self._remeasure()
+
+    def clear_images(self) -> bool:
+        """Drop every picture, keeping the frames themselves. Says whether
+        there was anything to drop.
+
+        For when a render on screen no longer matches the settings that made
+        it: the border is rendered *into* a preview, so the moment the rail
+        moves the picture is a lie. The strip goes back to empty apertures,
+        where the live overlay draws the border the rail now describes.
+
+        The run is untouched -- same count, same titles, same numbering --
+        because only the pixels went stale, not the shape of the run. The
+        return value is there so a caller can stay quiet when a frame
+        silently vanishing would have been the only thing worth saying.
+        """
+        dropped = any(frame.source is not None or frame.unreadable for frame in self._frames)
+        for frame in self._frames:
+            frame.source = None
+            frame.scaled = None
+            frame.scaled_at = 0
+            frame.unreadable = False
+        self._errors = []
+        self._remeasure()
+        return dropped
 
     def mark_written(self, index: int, path: Path) -> None:
         """Expose one frame. Progress is the strip filling in, not a bar."""
@@ -408,15 +565,41 @@ class ContactStrip(QWidget):
         # same thing twice -- in the largest element in the window.
         painter.end()
 
-    def _paint_frame(self, painter: QPainter, index: int, frame: _Frame) -> None:
+    def _aperture(self, index: int) -> tuple[int, int]:
+        """The top-left corner of one frame's square image area."""
         size = self._frame_size
         column = index % max(self._columns, 1)
         row = index // max(self._columns, 1)
-        left = EDGE + column * (size + GUTTER)
         # Every row carries its own number line and stencil line, so both
         # are offset from the row rather than from the widget.
         row_top = EDGE + row * (size + CHROME_PX + GUTTER)
-        top = row_top + TOP + NUMBER_ROW
+        return EDGE + column * (size + GUTTER), row_top + TOP + NUMBER_ROW
+
+    def _frame_rect(self, index: int) -> QRect:
+        """The output frame inside one aperture, in widget pixels.
+
+        A loaded thumbnail is already scaled to the output ratio and
+        centred, so its own rectangle *is* the frame. With nothing loaded
+        the frame has to be derived from the target ratio instead.
+        """
+        self._sync()
+        size = self._frame_size
+        left, top = self._aperture(index)
+        thumbnail = self._frames[index].at(size)
+        if thumbnail is not None:
+            return QRect(
+                left + (size - thumbnail.width()) // 2,
+                top + (size - thumbnail.height()) // 2,
+                thumbnail.width(),
+                thumbnail.height(),
+            )
+        aspect = self._border.aspect if self._border is not None else 1.0
+        return frame_rect(left, top, size, aspect)
+
+    def _paint_frame(self, painter: QPainter, index: int, frame: _Frame) -> None:
+        size = self._frame_size
+        left, top = self._aperture(index)
+        row_top = top - TOP - NUMBER_ROW
 
         painter.setPen(theme.rgb(theme.CHINAGRAPH))
         painter.drawText(
@@ -446,6 +629,8 @@ class ContactStrip(QWidget):
                 UNREADABLE_CAPTION,
             )
 
+        self._paint_border(painter, index)
+
         if frame.title:
             painter.setPen(theme.rgb(theme.INK_DIM))
             painter.drawText(
@@ -453,6 +638,35 @@ class ContactStrip(QWidget):
                 int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
                 self._elide(frame.title),
             )
+
+    def _paint_border(self, painter: QPainter, index: int) -> None:
+        """Lay the border, and any panel gaps, over one frame.
+
+        Solid and in its own colour: this is the finished frame, not an
+        annotation of it. The gaps go down in the gap colour for the same
+        reason -- on a composite they are as much of the result as the
+        outer border is.
+        """
+        preview = self._border
+        if preview is None:
+            return
+        if preview.first_frame_only and index != 0:
+            return
+        # A rendered preview already has the border drawn into it, so
+        # overlaying here would apply it twice -- and the two disagree,
+        # because the render's border sits inside the image while the
+        # overlay's sits on the frame. The render is the truth; leave it be.
+        if self._frames[index].source is not None:
+            return
+        rect = self._frame_rect(index)
+        colour = theme.rgb(preview.colour)
+        for band in border_bands(rect, preview.border):
+            painter.fillRect(band, colour)
+        if not preview.gaps or not preview.gap_colour:
+            return
+        gap_colour = theme.rgb(preview.gap_colour)
+        for gap in preview.gaps:
+            painter.fillRect(scaled_rect(rect, gap), gap_colour)
 
     def _elide(self, text: str) -> str:
         """`text`, shortened from the end until it fits one frame.

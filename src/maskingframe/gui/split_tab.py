@@ -36,7 +36,7 @@ from PySide6.QtWidgets import (
 
 from maskingframe import pipeline
 from maskingframe.gui import settings, shell, theme
-from maskingframe.gui.strip import ContactStrip
+from maskingframe.gui.strip import BorderPreview, ContactStrip
 from maskingframe.gui.work import submit
 
 # Built once so a run can do a plain dict lookup rather than scanning
@@ -84,6 +84,7 @@ class SplitTab(QWidget):
 
         self._build()
         self._apply_button_states()
+        self._refresh_border_preview()
 
         self.source_row.field.textChanged.connect(self._on_selection_changed)
         self.folder_radio.toggled.connect(self._on_selection_changed)
@@ -243,6 +244,42 @@ class SplitTab(QWidget):
     def _on_style_changed(self, style: pipeline.FrameStyle) -> None:
         """Persist the choice, so the next launch opens on the same border."""
         settings.save_style(settings.SPLIT, style)
+        self._refresh_border_preview()
+
+    def _refresh_border_preview(self) -> None:
+        """Show the border on the strip, as the rail currently describes it.
+
+        Frame 1 always carries the border; the detail frames only do when
+        the toggle says so, and the drawing has to say the same thing or it
+        would be promising a frame the run will not write.
+        """
+        style = self._style()
+        ratio = pipeline.RATIOS[self._ratio_name()]
+        self.strip.set_border_preview(
+            BorderPreview(
+                aspect=ratio.width / ratio.height,
+                border=style.border_percent / 100,
+                colour=style.border_colour,
+                first_frame_only=not style.border_detail_frames,
+            )
+        )
+        self._discard_stale_preview()
+
+    def _discard_stale_preview(self) -> None:
+        """Drop a render that the settings have moved on from.
+
+        The frames a preview puts on the strip have their border rendered
+        into them, so the moment the rail changes they are a picture of
+        settings nobody has any more. Dropping them puts the strip back to
+        empty apertures, where the live overlay draws what the rail now
+        says -- what is on screen and what the rail says are then the same
+        thing again, which is the whole point.
+
+        The status line accounts for it, because a preview disappearing as
+        you drag a slider otherwise reads as a fault.
+        """
+        if self.strip.clear_images():
+            self.status_label.setText(shell.STALE_PREVIEW)
 
     def _on_selection_changed(self, *_args: object) -> None:
         """Re-read the source's header. GUI thread only.
@@ -256,6 +293,11 @@ class SplitTab(QWidget):
         # Everything this method reacts to -- the source, the mode, the ratio
         # -- also decides whether Preview is pressable.
         self._apply_button_states()
+        # The ratio arrives through here too, and the ratio decides the
+        # shape of the frame the border is drawn around -- which also makes
+        # any render already on the table a picture of the wrong shape, so
+        # the refresh drops it.
+        self._refresh_border_preview()
         # The band names whatever is loaded, folder or file -- it is the one
         # thing on screen that says what you are working on.
         subject = Path(source).name if source else ""

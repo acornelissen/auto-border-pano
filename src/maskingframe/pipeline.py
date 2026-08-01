@@ -246,6 +246,60 @@ def name_layout(
     return layout.solve(aspects, ratio, style).name
 
 
+NormalisedRect = tuple[float, float, float, float]
+"""(x, y, width, height) as fractions of the output frame, 0..1 on both axes."""
+
+
+@dataclass(frozen=True)
+class CompositeRects:
+    """Where a composite's panels and gaps land, as fractions of the frame.
+
+    Plain floats rather than `layout.Box` objects, and the point of that is
+    architectural: the GUI may import `pipeline` and nothing else from the
+    package, so a live preview of the gaps has to be handed the arithmetic
+    already done. Normalised rather than in pixels for the same sort of
+    reason -- a preview drawn at whatever size a window allows should not
+    have to know what the output resolution is.
+    """
+
+    panels: tuple[NormalisedRect, ...]
+    gaps: tuple[NormalisedRect, ...]
+    name: str
+
+
+def composite_rects(
+    aspects: Sequence[float],
+    ratio: AspectRatio = DEFAULT_RATIO,
+    style: FrameStyle = DEFAULT_STYLE,
+) -> CompositeRects:
+    """Solve a composite's arrangement from aspect ratios alone.
+
+    Takes the sources' aspect ratios as floats, not paths, and opens
+    nothing: this is pure arithmetic, so an interface can call it on every
+    slider move without going near a worker thread. Anything that needs a
+    file's shape has read it already -- the user's scans reach 132MP and a
+    header read on the GUI thread is exactly what stalls those.
+
+    Solves through the same `layout.solve` the render uses, so a previewed
+    arrangement and a saved one cannot disagree.
+    """
+
+    def normalise(box: layout.Box) -> NormalisedRect:
+        return (
+            box.x / ratio.width,
+            box.y / ratio.height,
+            box.width / ratio.width,
+            box.height / ratio.height,
+        )
+
+    solved = layout.solve(aspects, ratio, style)
+    return CompositeRects(
+        panels=tuple(normalise(box) for box in solved.boxes),
+        gaps=tuple(normalise(box) for box in solved.gutters),
+        name=solved.name,
+    )
+
+
 @dataclass(frozen=True)
 class CompositeResult:
     """Where a composite was written, and which arrangement won.
