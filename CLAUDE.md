@@ -144,8 +144,11 @@ frames include frame 1, and the tab converts, exactly as it does for the drags.
 The selection is marked in chinagraph on the selected frame's numeral and edge,
 and stated in words in the rail (`Frame 3 · 42% along`). Both, not either: a
 state carried by colour alone fails the WCAG 2.2 AA floor this project holds.
-The rail's wording is what the widgets hand to `setAccessibleName`, so a screen
-reader and the screen say the same thing.
+Each widget also states its own selection to `setAccessibleName`, for a screen
+reader — the same frame numbering as the rail, but not the same string. The
+strip names the frame and its place in the sheet (`Frame 3 of 5`); it does not
+say a position in percent, because a percent of the panorama's width is
+knowledge it has never had, which is the whole reason the tab converts for it.
 
 A selection is dropped at the cause, not guarded at every reader.
 `FrameRibbon.set_plan` and `ContactStrip.set_frames` both drop a selection the
@@ -163,11 +166,11 @@ remove. `set_selected` stays silent on both widgets, so the tab adopting the
 selection and echoing it back cannot loop.
 
 A held key settles rather than rendering per repeat. `split_tab.NUDGE_SETTLE_MS`
-is 120 ms: auto-repeat arrives every 15 to 40 ms, so one render happens when the
-key stops, the way a drag renders once on release. Positions and the spoken
-names still update on every keystroke; only the picture waits. The timer is
-stopped when a run or a preview starts, so a pending settle cannot fire into
-one.
+is 120 ms, comfortably longer than a single auto-repeat interval (the platform
+fires 25 to 30 times a second), so one render happens when the key stops, the
+way a drag renders once on release. Positions and the spoken names still update
+on every keystroke; only the picture waits. The timer is stopped when a run or
+a preview starts, so a pending settle cannot fire into one.
 
 A source narrower than one output tile (a 1.5:1 image at `1.91:1`) has no
 travel at all: every position clamps to zero and the crop is the whole width.
