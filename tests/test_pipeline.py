@@ -386,9 +386,9 @@ def test_compose_creates_the_output_directory(tmp_path: Path) -> None:
 # Tied to the installed Pillow version's JPEG encoder; regenerate with the
 # command in the plan if a deliberate Pillow upgrade changes encoding.
 COMPOSITE_GOLDEN_HASHES: dict[str, str] = {
-    "4:5": "4115ac8a65b3a2ffcec2a5027a58fe494ad7ffddd61698b0de47acd1218210fc",
-    "1:1": "c8f8f3347c99837d013f3e4427e3ed29c12be5e697130d97c826242b90c536fc",
-    "1.91:1": "038a7fbc3b57330c7f580bac763231ece8c1aa271b648858500943a862df999f",
+    "4:5": "6c7af4ab9f6585f353c0598161015fd4fa41542a9010cf8937bd9f9549902128",
+    "1:1": "f6b6fa3fdcd9b5914075d3060af419264bf88528cf0693f77d2148ca0172cbd5",
+    "1.91:1": "1d0e662f631ff54a4c13b0c192e691511c520c74045b94147bc4c709e65b9442",
 }
 
 

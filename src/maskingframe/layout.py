@@ -19,9 +19,7 @@ import math
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 
-from maskingframe.geometry import AspectRatio
-
-GUTTER = 40
+from maskingframe.geometry import DEFAULT_STYLE, AspectRatio, FrameStyle
 
 
 @dataclass(frozen=True)
@@ -36,10 +34,16 @@ class Box:
 
 @dataclass(frozen=True)
 class Layout:
-    """A solved arrangement: which candidate won, where the panels go."""
+    """A solved arrangement: which candidate won, where the panels go.
+
+    `gutters` holds the exact rectangles between adjacent panels, so the
+    renderer can paint them a second colour without re-deriving any of the
+    arithmetic that produced them.
+    """
 
     name: str
     boxes: tuple[Box, ...]
+    gutters: tuple[Box, ...]
     score: float
 
 
@@ -111,6 +115,7 @@ def _place(
     aspects: Sequence[float],
     gutter: int,
     out: dict[int, Box],
+    gutters: list[Box],
 ) -> bool:
     """Assign a concrete rectangle to every leaf under this node.
 
@@ -119,6 +124,14 @@ def _place(
     that image (its box aspect would no longer match its source aspect),
     which breaks the no-crop guarantee the whole feature rests on -- so a
     candidate that can't place every leaf at >=1px loses instead.
+
+    Separator rectangles are collected alongside the leaves. Along the
+    gutter axis each one is inflated by a pixel at both ends: a child's
+    rounded edge can land a pixel off the rounded gutter edge, and the
+    renderer paints gutters before panels, so an overlap disappears under a
+    panel while a shortfall would show as a hairline of the wrong colour.
+    The cross axis is not inflated -- bleeding there would put gutter
+    colour into the outer border.
     """
     if isinstance(node, Leaf):
         w = math.floor(width + 0.5)
@@ -135,22 +148,36 @@ def _place(
         return True
 
     if isinstance(node, Row):
+        top = math.floor(y + 0.5)
+        band = math.floor(y + height + 0.5) - top
         offset = x
-        for child in node.children:
+        for position, child in enumerate(node.children):
             a, b = _coefficients(child, aspects, gutter)
             child_width = a * height + b
-            if not _place(child, offset, y, child_width, height, aspects, gutter, out):
+            if not _place(child, offset, y, child_width, height, aspects, gutter, out, gutters):
                 return False
-            offset += child_width + gutter
+            offset += child_width
+            if gutter > 0 and position < len(node.children) - 1:
+                left = math.floor(offset + 0.5) - 1
+                right = math.floor(offset + gutter + 0.5) + 1
+                gutters.append(Box(left, top, right - left, band))
+            offset += gutter
         return True
 
+    left = math.floor(x + 0.5)
+    band = math.floor(x + width + 0.5) - left
     offset = y
-    for child in node.children:
+    for position, child in enumerate(node.children):
         a, b = _coefficients(child, aspects, gutter)
         child_height = (width - b) / a
-        if not _place(child, x, offset, width, child_height, aspects, gutter, out):
+        if not _place(child, x, offset, width, child_height, aspects, gutter, out, gutters):
             return False
-        offset += child_height + gutter
+        offset += child_height
+        if gutter > 0 and position < len(node.children) - 1:
+            top = math.floor(offset + 0.5) - 1
+            bottom = math.floor(offset + gutter + 0.5) + 1
+            gutters.append(Box(left, top, band, bottom - top))
+        offset += gutter
     return True
 
 
@@ -159,10 +186,15 @@ def evaluate(
     name: str,
     aspects: Sequence[float],
     ratio: AspectRatio,
-    padding: int,
-    gutter: int,
+    style: FrameStyle,
 ) -> Layout | None:
-    """Solve one candidate, or return None if it cannot fit sensibly."""
+    """Solve one candidate, or return None if it cannot fit sensibly.
+
+    The style is a parameter rather than module state, so a preview and the
+    run it previews cannot disagree about the border or the gutter.
+    """
+    padding = style.border_px(ratio)
+    gutter = style.gutter_px(ratio)
     available_width = ratio.width - 2 * padding
     available_height = ratio.height - 2 * padding
     if available_width <= 0 or available_height <= 0:
@@ -188,20 +220,20 @@ def evaluate(
     y = padding + (available_height - height) / 2
 
     placed: dict[int, Box] = {}
-    if not _place(node, x, y, width, height, aspects, gutter, placed):
+    separators: list[Box] = []
+    if not _place(node, x, y, width, height, aspects, gutter, placed, separators):
         return None
     boxes = tuple(placed[i] for i in range(len(aspects)))
 
     covered = sum(box.width * box.height for box in boxes)
     score = covered / (available_width * available_height)
-    return Layout(name, boxes, score)
+    return Layout(name, boxes, tuple(separators), score)
 
 
 def solve(
     aspects: Sequence[float],
     ratio: AspectRatio,
-    padding: int,
-    gutter: int = GUTTER,
+    style: FrameStyle = DEFAULT_STYLE,
 ) -> Layout:
     """Choose the arrangement that fills the frame best without cropping.
 
@@ -214,7 +246,7 @@ def solve(
 
     best: Layout | None = None
     for name, node in candidates(len(aspects)):
-        solved = evaluate(node, name, aspects, ratio, padding, gutter)
+        solved = evaluate(node, name, aspects, ratio, style)
         if solved is None:
             continue
         if best is None or solved.score > best.score:

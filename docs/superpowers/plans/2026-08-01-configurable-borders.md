@@ -503,7 +503,7 @@ establishing shot. On, the whole carousel reads as one object."
 
 **Gutter geometry.** In a `Row` every child has exactly the parent's height, and in a `Column` every child has exactly the parent's width, so the gutter's cross-axis extent is the parent's own rounded extent. Along the gutter axis the rectangle runs from the end of one child's float extent to the start of the next, each rounded half-up — then inflated by 1px at each end. The inflation exists because a child's rounded edge can land one pixel away from the rounded gutter edge, and `compose` paints gutters *before* panels, so an overlap is covered by the panel while a shortfall would show as a hairline of the wrong colour between two panels. Cross-axis extent is **not** inflated, since bleeding there would put gutter colour into the outer border.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/test_layout.py`:
 
@@ -570,12 +570,12 @@ def test_default_gutter_is_four_percent() -> None:
     assert DEFAULT_STYLE.gutter_percent == 4.0
 ```
 
-- [ ] **Step 2: Run the tests and verify they fail**
+- [x] **Step 2: Run the tests and verify they fail**
 
 Run: `uv run pytest tests/test_layout.py -v`
 Expected: FAIL, `solve() takes 2 positional arguments but 3 were given` / `AttributeError: 'Layout' object has no attribute 'gutters'`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 In `src/maskingframe/layout.py`:
 
@@ -750,15 +750,15 @@ def solve(
 
 Finally update the two `layout.solve(...)` call sites in `pipeline.py` (lines 226 and 293) to `layout.solve(aspects, ratio, geometry.DEFAULT_STYLE)` as a bridge — Task 6 makes them take the caller's style.
 
-- [ ] **Step 4: Run the tests and verify they pass**
+- [x] **Step 4: Run the tests and verify they pass**
 
 Run: `uv run pytest -v`
 
-- [ ] **Step 5: Run the full gate**
+- [x] **Step 5: Run the full gate**
 
 Run: `mise run check`
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add -A

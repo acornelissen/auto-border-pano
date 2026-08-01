@@ -223,7 +223,7 @@ def name_layout(input_paths: Sequence[Path | str], ratio: AspectRatio = DEFAULT_
         with Image.open(path) as opened:
             width, height = opened.size
         aspects.append(width / height)
-    return layout.solve(aspects, ratio, geometry.DEFAULT_STYLE.border_px(ratio), layout.GUTTER).name
+    return layout.solve(aspects, ratio, geometry.DEFAULT_STYLE).name
 
 
 @dataclass(frozen=True)
@@ -290,7 +290,7 @@ def compose_preview(
             with_sizes.append(opened.size)
 
     aspects = [width / height for width, height in with_sizes]
-    solved = layout.solve(aspects, ratio, geometry.DEFAULT_STYLE.border_px(ratio), layout.GUTTER)
+    solved = layout.solve(aspects, ratio, geometry.DEFAULT_STYLE)
 
     images = [_load_for_box(path, box) for path, box in zip(paths, solved.boxes, strict=True)]
     canvas = compose.render(images, solved, ratio)
