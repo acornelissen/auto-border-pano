@@ -1996,8 +1996,8 @@ git commit -m "docs: record the detail frame position model"
 
 Every box above is ticked, and:
 
-- [ ] `mise run check` passes on a clean tree.
-- [ ] `mise exec -- uv run maskingframe tests/fixtures/golden_wide.jpg /tmp/verify --ratio 1.91:1` writes a padded frame plus detail frames, and each detail frame is 1080x566.
-- [ ] Opening `mise run gui`, loading a panorama in the Split tab, dragging a ribbon window and pressing Preview shows the frames from the chosen positions.
-- [ ] Switching to "Whole folder" hides the ribbon and shows the sentence in its place.
-- [ ] `grep -rn "import geometry\|from maskingframe import geometry" src/maskingframe/gui/` returns nothing.
+- [x] `mise run check` passes on a clean tree.
+- [x] `mise exec -- uv run maskingframe tests/fixtures/golden_wide.jpg /tmp/verify --ratio 1.91:1` writes a padded frame plus detail frames, and each detail frame is 1080x566.
+- [x] Opening `mise run gui`, loading a panorama in the Split tab, dragging a ribbon window and pressing Preview shows the frames from the chosen positions.
+- [x] Switching to "Whole folder" hides the ribbon and shows the sentence in its place.
+- [x] `grep -rn "import geometry\|from maskingframe import geometry" src/maskingframe/gui/` returns nothing.
