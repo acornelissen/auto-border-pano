@@ -69,11 +69,12 @@ mode writes to `./output` if you omit the output argument.
    mise run gui
    ```
    On the **Split** tab:
-   - Click "Choose file" to select a single panorama
-   - Click "Choose folder" to process multiple images
-   - Pick a target ratio
-   - Click "Cut frames" to start
-   - View previews of the generated images
+   - Pick "One frame" or "Whole folder", then click "Choose…" — the button
+     opens a file picker or a folder picker to match
+   - Pick a target ratio, and set the border if you want a different one
+   - Click "Preview" to see the frames on the light table without writing
+     anything
+   - Click "Cut frames" to write them
 
    Switch to the **Compose** tab to compose two or three photos
    into one frame instead — see
@@ -155,18 +156,24 @@ at `4:5` and `1:1`, 51px at `1.91:1`.
 | `--border-colour HEX` | `#ffffff` | Border colour, e.g. `#c9302a` or `c9302a` |
 | `--gutter PERCENT` | `4` | Composites only: the gap between panels |
 | `--gutter-colour HEX` | `#ffffff` | Composites only: the colour of that gap |
-| `--border-detail-frames` | off | Border the zoomed detail frames too, not just the first frame |
+| `--border-detail-frames` | off | Splits only: border the zoomed detail frames too, not just the first frame |
 
 `--border-color` and `--gutter-color` work as well, if you prefer them. Every
-flag in the table works on both `maskingframe` and `maskingframe compose`,
-though the two gutter flags only do anything on a composite.
+flag in the table is accepted by both `maskingframe` and `maskingframe
+compose`, because the two commands share one definition of them — but three
+only do anything on one of the two. The gutter flags need panels to sit
+between, and a composite has no detail frames to border.
 
 On a composite the two colours cover different things: the gutter colour
 fills only the strips between panels, and everything else — the outer margin
 and the space left over from centring — takes the border colour.
 
 Both tabs of the GUI have the same Border section, and each remembers what
-you last set it to.
+you last set it to. Dragging a width draws the new border straight onto the
+frames on the light table, so you can see it before anything is rendered.
+When you let go, any preview already on the table is made again at the new
+setting — the old picture stays up until the new one lands, rather than the
+table going blank while you wait.
 
 ```bash
 mise run split -- panorama.jpg my_prefix --border 12 --border-colour '#000000'

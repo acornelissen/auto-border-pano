@@ -307,6 +307,20 @@ def test_help_lists_the_new_flags() -> None:
     assert "composites only" in help_text
 
 
+def test_help_says_where_the_inert_flags_apply() -> None:
+    """Every style flag is attached to both parsers, so three of them do
+    nothing on one of the two commands. The help has to say which, or the
+    flag reads as broken rather than as inapplicable."""
+    split_help = cli.build_parser().format_help()
+    compose_help = cli.build_compose_parser().format_help()
+
+    for text in (split_help, compose_help):
+        assert "composites only: gap between panels" in " ".join(text.split())
+        assert "splits only: draw the border around the zoomed detail frames" in " ".join(
+            text.split()
+        )
+
+
 # --- compose subcommand -------------------------------------------------
 #
 # The compose path shares every style flag with the split path, so these

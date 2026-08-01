@@ -1995,10 +1995,15 @@ After Task 12, before declaring the work done:
 - [x] `mise run check` passes.
 - [x] `uv run maskingframe --help` lists all five new flags.
 - [x] A CLI run with `--border 20 --border-colour '#c9302a'` produces a visibly red-bordered frame 1.
-- [ ] A CLI compose run with `--gutter-colour '#000000'` produces a black strip between the panels. **Cannot be performed:** the CLI has no compose subcommand, so `--gutter` and `--gutter-colour` are parsed and then never reach any output. See "Known gap" below.
-- [ ] `mise run gui` launches, both tabs show the Border section in the same position, settings survive a quit and relaunch, and every new control is reachable by keyboard alone. **Left for the user:** automated tests cover the wiring, persistence, ordering and focusability, but nobody has looked at it.
+- [x] `uv run maskingframe compose --help` lists the same five flags, since both parsers are built from `_add_style_arguments()`.
+- [x] A CLI compose run with `--gutter-colour '#000000'` produces a black strip between the panels. Covered by `test_compose_gutter_colour_reaches_the_written_pixels` in `tests/test_cli.py`.
+- [x] `mise run gui` launches, both tabs show the Border section in the same position, settings survive a quit and relaunch, and every new control is reachable by keyboard alone. The user has since looked at it and is happy with it.
 - [x] `git log --oneline` shows one commit per task, each of which builds and passes on its own.
 
-## Known gap
+## Known gap, and how it was closed
 
-`--gutter` and `--gutter-colour` are dead flags. The gutter only exists on a composite, and the CLI only splits panoramas -- there is no `compose` subcommand. The flags parse, validate and build a `FrameStyle`, and that style's gutter fields then never reach an output file. This is a hole in the plan, not in the implementation: the plan asked for "full parity with the GUI" without noticing the CLI had no compose path to reach parity on. Either add a compose subcommand or drop the two flags.
+As written, this plan left `--gutter` and `--gutter-colour` as dead flags. The gutter only exists on a composite, and the CLI only split panoramas -- there was no `compose` subcommand, so the two flags parsed, validated and built a `FrameStyle` whose gutter fields then reached no output file. That was a hole in the plan rather than in the implementation: it asked for "full parity with the GUI" without noticing the CLI had no compose path to reach parity on.
+
+It has since been closed by adding the subcommand rather than dropping the flags. `maskingframe compose a.jpg b.jpg -o out` writes a diptych or triptych, and both parsers take their ratio and framing flags from one `_add_style_arguments()` definition, so the two commands cannot drift apart. `main()` dispatches on the literal first word instead of an argparse subparser, which is what keeps the bare `maskingframe pano.jpg out` form untouched. The gutter flags now reach real pixels; `tests/test_cli.py` asserts that.
+
+One flag is still inert on one command, and deliberately so: `--border-detail-frames` does nothing on `compose`, because a composite has no detail frames. Its help text says which command it applies to, in the same phrasing the gutter flags use.

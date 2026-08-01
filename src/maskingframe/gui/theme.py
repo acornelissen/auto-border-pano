@@ -47,9 +47,16 @@ INK_DIM = "#5C646B"
 CHINAGRAPH = "#C9302A"
 """The grease pencil an editor marks selects with.
 
-The primary action and errors, and nothing else. It earns its salience by
-being the only saturated colour in the app; a second accent would cost the
-primary action its primacy.
+The marking-up layer, and nothing else. A grease pencil numbers the frames,
+rings the select, marks the one to print and crosses out the one that
+failed -- so this colour carries the primary action, the current selection,
+the numbering, the progress bar while a run is in flight, and errors.
+Chrome stays greyscale: surfaces, fields, sliders, dividers and rules.
+
+The primary action keeps its primacy under that rule because it is the only
+large filled block of chinagraph here; everything else is a hairline, a
+numeral or an indicator a few pixels across. A second saturated hue would
+cost it that, and so would filling another large area with this one.
 """
 
 CHINAGRAPH_HOVER = "#B62923"
@@ -180,9 +187,9 @@ def stylesheet() -> str:
        ink block -- no radius, no bevel, no gradient, which is most of what
        a stock slider is made of.
 
-       Not chinagraph: the filled part of a groove is not the primary
-       action and it is not an error, and a second saturated colour would
-       cost the primary action its salience. So focus is INK too, shown as
+       Not chinagraph: a slider is chrome, not a mark on the sheet, and a
+       filled groove is a large enough area to compete with the primary
+       action for salience. So focus is INK too, shown as
        a border on the widget rather than on the handle -- the transparent
        border is always there so nothing shifts when it lights up.
 

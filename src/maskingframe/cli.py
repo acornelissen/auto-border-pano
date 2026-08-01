@@ -133,7 +133,8 @@ def _add_style_arguments(parser: argparse.ArgumentParser) -> None:
         "--border-detail-frames",
         action="store_true",
         help=(
-            "draw the border around the zoomed detail frames too, not just the whole-panorama frame"
+            "splits only: draw the border around the zoomed detail frames too, "
+            "not just the whole-panorama frame"
         ),
     )
 
