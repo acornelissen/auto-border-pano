@@ -34,7 +34,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from shiboken6 import isValid
 
 from maskingframe import pipeline
 from maskingframe.gui import settings, shell, theme
@@ -418,8 +417,16 @@ class SplitTab(QWidget):
         """The one place that decides whether the pair is pressable.
 
         Derived from the plan itself, so it cannot go out of date, and it
-        also updates the readouts the count feeds -- the label and the
-        button's number both count what a run will actually write.
+        also updates every readout the count feeds -- the label, the
+        button's number and the band all count what a run will actually
+        write. The band is in here rather than only in `_apply_facts`
+        because adding or removing a frame changes the count without any
+        facts arriving, and a band left saying the old number is the one
+        readout on screen contradicting the other two.
+
+        The ratio comes from the combobox here, not from an answer in
+        flight, and that is safe: any change to it bumps the inspection
+        token, so a stale answer never reaches this.
         """
         placed = len(self._positions)
         self.add_btn.setEnabled(placed > 0)
@@ -427,6 +434,7 @@ class SplitTab(QWidget):
         if placed:
             self.count_label.setText(f"{placed + 1} frames")
             self.action_btn.setText(f"Cut {placed + 1} frames")
+            self._set_band(self._subject, f"{self._ratio_name()} · {placed + 1} frames")
 
     def _load_ribbon_picture(self, token: int) -> None:
         """Decode a small copy of the panorama for the ribbon to draw.
@@ -445,15 +453,11 @@ class SplitTab(QWidget):
                 return None
 
         def done(image: Image.Image | None) -> None:
-            # `isValid` because this callback is a closure, not a bound
-            # method, so Qt has no receiver to drop it against: a decode
-            # still in flight when the tab is torn down would otherwise
-            # reach a widget whose C++ half has gone.
-            if token != self._inspect_token or not isValid(self.ribbon):
+            if token != self._inspect_token:
                 return
             self.ribbon.set_source(image)
 
-        submit(read, done, lambda _error: None)
+        submit(read, done, lambda _error: None, owner=self)
 
     def _rerender(self) -> None:
         """Make the frames on the table again, under the settings now in force.
@@ -517,6 +521,7 @@ class SplitTab(QWidget):
             read,
             lambda facts: self._apply_facts(token, facts, ratio_name, subject),
             lambda _error: self._apply_facts(token, None, ratio_name, subject),
+            owner=self,
         )
 
     def _apply_facts(
@@ -727,7 +732,7 @@ class SplitTab(QWidget):
         def failed(error: BaseException) -> None:
             self._finish(f"Could not cut {Path(source).name} — {error}", None, None, str(error))
 
-        submit(cut, done, failed)
+        submit(cut, done, failed, owner=self)
 
     def _start_batch(self, source: str, destination: str, ratio_name: str) -> None:
         style = self._style()
@@ -749,7 +754,7 @@ class SplitTab(QWidget):
         def failed(error: BaseException) -> None:
             self._finish(f"Could not cut {Path(source).name} — {error}", None, None, str(error))
 
-        submit(cut, done, failed)
+        submit(cut, done, failed, owner=self)
 
     def process_images(self) -> None:
         self._set_error("")
@@ -850,4 +855,4 @@ class SplitTab(QWidget):
             self.status_label.setText(f"Could not preview {Path(source).name} — {error}")
             self._set_error(str(error))
 
-        submit(render, done, failed)
+        submit(render, done, failed, owner=self)

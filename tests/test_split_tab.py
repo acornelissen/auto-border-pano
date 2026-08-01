@@ -556,7 +556,7 @@ def _captured_renders(monkeypatch: pytest.MonkeyPatch) -> list[tuple[Any, Any, A
     monkeypatch.setattr(
         split_tab,
         "submit",
-        lambda job, done, failed=None: captured.append((job, done, failed)),
+        lambda job, done, failed=None, owner=None: captured.append((job, done, failed)),
     )
     return captured
 
@@ -802,7 +802,13 @@ def test_a_run_cuts_at_the_chosen_positions(
     tab.process_images()
     qtbot.waitUntil(lambda: "positions" in seen, timeout=5000)
 
-    assert seen["positions"] == tab.positions()
+    # The value the test itself set, not just whatever the tab happens to
+    # hold: if the emit had quietly not landed, both sides of an identity
+    # check would be the even defaults and it would still pass.
+    forwarded = seen["positions"]
+    assert isinstance(forwarded, tuple)
+    assert forwarded[0] == pytest.approx(0.1)
+    assert forwarded == tab.positions()
 
     # The run is real, so it has to be let finish: a worker still writing
     # frames when the tab is torn down would report progress to a widget
@@ -862,3 +868,26 @@ def test_the_remove_button_is_dead_at_two_frames(qtbot: Any, tmp_path: Path) -> 
     assert not tab.remove_btn.isEnabled()
     tab.remove_frame()
     assert len(tab.positions()) == 2
+
+
+def test_changing_the_frame_count_restates_the_band(qtbot: Any, tmp_path: Path) -> None:
+    """The band is the one thing on screen naming what you are working on.
+    Left at the loaded count it would contradict the rail beside it."""
+    source = tmp_path / "pano.jpg"
+    conftest.synthetic_panorama(2000, 1000).save(source, "JPEG", quality=95)
+
+    tab = SplitTab()
+    qtbot.addWidget(tab)
+    tab.show()
+    tab.source_row.setText(str(source))
+    qtbot.waitUntil(lambda: tab.positions() != (), timeout=3000)
+
+    loaded = len(tab.positions()) + 1
+    assert tab.detail == f"4:5 · {loaded} frames"
+
+    tab.add_frame()
+    assert tab.detail == f"4:5 · {loaded + 1} frames"
+    assert tab.count_label.text() == f"{loaded + 1} frames"
+
+    tab.remove_frame()
+    assert tab.detail == f"4:5 · {loaded} frames"
