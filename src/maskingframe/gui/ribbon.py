@@ -155,6 +155,12 @@ class FrameRibbon(QWidget):
     def selected(self) -> int | None:
         return self._selected
 
+    def _select(self, index: int) -> None:
+        """Mark a frame internally. Announcing it is the caller's job, so
+        the one place that must stay silent -- `set_selected` -- can."""
+        self._selected = index
+        self._name_selection()
+
     def marked_rect(self) -> QRect:
         """Where the selection is drawn, or a null rect. Exposed so the
         marking can be checked without sampling pixels."""
@@ -271,11 +277,17 @@ class FrameRibbon(QWidget):
     def focusInEvent(self, event: QFocusEvent) -> None:
         # Nothing is marked until the user asks for it; asking for it is
         # exactly what taking focus is.
-        if self._selected is None and self._positions:
-            self._selected = 0
-            self._name_selection()
+        announce = self._selected is None and bool(self._positions)
+        if announce:
+            self._select(0)
         super().focusInEvent(event)
         self.update()
+        # Announced, not kept to itself: a frame marked here and nowhere
+        # else would be a selection carried by colour alone until the user
+        # happened to press a key. `set_selected` is silent, so the tab
+        # adopting this and echoing it back cannot loop.
+        if announce:
+            self.selection_changed.emit(0)
 
     def focusOutEvent(self, event: QFocusEvent) -> None:
         super().focusOutEvent(event)
@@ -286,8 +298,11 @@ class FrameRibbon(QWidget):
             super().keyPressEvent(event)
             return
         if self._selected is None:
+            # Same as taking focus, and announced for the same reason: this
+            # is reachable when the plan arrives after the focus did.
             self._selected = 0
             self._name_selection()
+            self.selection_changed.emit(0)
         key = event.key()
         coarse = event.modifiers() & Qt.KeyboardModifier.ShiftModifier
         steps: dict[int, int] = {
@@ -306,8 +321,7 @@ class FrameRibbon(QWidget):
             # frame back to the first would lose your place on a picture you
             # are reading left to right.
             if 0 <= wanted < len(self._positions):
-                self._selected = wanted
-                self._name_selection()
+                self._select(wanted)
                 self.update()
                 self.selection_changed.emit(wanted)
             return

@@ -23,7 +23,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from PIL import Image
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
     QButtonGroup,
     QFileDialog,
@@ -64,6 +64,16 @@ A round number in the unit a position is actually stored in, so the help
 text can state it exactly. The widgets emit a count of these rather than a
 distance: how far a step moves is policy, and the tab is the only thing that
 knows what a percent of this panorama is."""
+
+NUDGE_SETTLE_MS = 120
+"""How long the keys must be still before the frames are made again.
+
+A drag renders once, on release. A held arrow has no release: auto-repeat
+fires 25 to 30 times a second, and rendering per repeat would queue dozens
+of previews of a scan that can be 132MP. This is the equivalent pause --
+comfortably longer than any repeat interval, so a held key renders once when
+it stops, and short enough that a single press still feels immediate. Only
+the render waits; the positions themselves move on the keystroke."""
 
 UNCOUNTED_ACTION = "Cut frames"
 """The button's label while the count is unknown. Once it is known the
@@ -113,6 +123,12 @@ class SplitTab(QWidget):
         # Which detail frame is marked, in detail-frame indices. The one
         # copy: both views are told, neither is asked.
         self._selected: int | None = None
+        # Parented to this widget, so it cannot outlive it and fire into a
+        # destroyed tab.
+        self._nudge_timer = QTimer(self)
+        self._nudge_timer.setSingleShot(True)
+        self._nudge_timer.setInterval(NUDGE_SETTLE_MS)
+        self._nudge_timer.timeout.connect(self._rerender)
 
         self._build()
         self._apply_button_states()
@@ -448,15 +464,15 @@ class SplitTab(QWidget):
         """
         if not 0 <= index < len(self._positions):
             return
-        # A view marks its first frame when it takes focus, without asking.
-        # The nudge is the tab hearing about it, so it adopts that frame
-        # rather than leaving the rail blank beside a marked picture.
-        self._set_selected(index)
         self._move_position(index, self._positions[index] + steps * KEY_STEP)
-        # Told again, not just re-read: the frame has moved, so both views'
+        # Told, not just re-read: the frame has moved, so both views'
         # accessible names have to be redone to match the rail.
         self._set_selected(index)
-        self._rerender()
+        # Restarted on every repeat, so a held key renders once when it
+        # stops. `_rerender` is still governed by `_render_token`, so a
+        # render already in flight when this fires is dropped rather than
+        # painted over the newer one.
+        self._nudge_timer.start()
 
     def _on_frame_nudged(self, index: int, steps: int) -> None:
         self._nudge(index, steps)
@@ -764,7 +780,13 @@ class SplitTab(QWidget):
         must not silently unmark the frame the user is placing.
         """
         self.strip.set_frames(titles)
-        self.strip.set_selected(None if self._selected is None else self._selected + 1)
+        # Clamped, not re-imposed: `set_frames` drops a selection the new
+        # list cannot hold, and putting one back past its end would give the
+        # strip an index every reader in it trusts and none of them check.
+        wanted = None if self._selected is None else self._selected + 1
+        if wanted is not None and not 1 <= wanted < len(titles):
+            wanted = None
+        self.strip.set_selected(wanted)
 
     def update_preview(self, output_prefix: str, count: int) -> None:
         self._set_strip_frames(preview_titles(count))

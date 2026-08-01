@@ -1079,8 +1079,14 @@ def test_the_rail_and_the_widgets_say_the_same_thing(qtbot: Any, tmp_path: Path)
 
     tab.ribbon.selection_changed.emit(1)
 
-    along = tab.selection_label.text().split("·")[1].strip().removesuffix(" along")
-    assert tab.ribbon.accessibleName() == f"Frame 3, {along.removesuffix('%')} percent along"
+    # 3000x1000 at 4:5 spreads three frames evenly across the travel, which
+    # puts the middle one at 24% of the width. Stated literally: agreeing on
+    # a wrong number is still wrong.
+    assert tab.selection_label.text() == "Frame 3 · 24% along"
+    assert tab.ribbon.accessibleName() == "Frame 3, 24 percent along"
+    # The strip counts the frames it is showing, which is a different total
+    # until a render lands; the frame it names is the same one.
+    assert tab.strip.accessibleName().startswith("Frame 3 of ")
 
 
 def test_the_readout_clears_when_the_source_goes(qtbot: Any, tmp_path: Path) -> None:
@@ -1135,3 +1141,48 @@ def test_the_ribbon_comes_before_the_strip_in_the_tab_order(qtbot: Any, tmp_path
             break
         assert widget is not tab.ribbon, "walked the whole chain without reaching the strip"
     assert widget is tab.strip
+
+
+def test_taking_focus_alone_states_the_selection_everywhere(qtbot: Any, tmp_path: Path) -> None:
+    """A selection marked in chinagraph and nowhere else is carried by
+    colour alone. One Tab press has to populate the rail too."""
+    tab = loaded_tab(qtbot, tmp_path)
+
+    tab.ribbon.setFocus()
+
+    assert tab.selected() == 0
+    assert tab.ribbon.selected() == 0
+    assert tab.strip.selected() == 1
+    assert tab.selection_label.text() == "Frame 2 · 0% along"
+
+
+def test_taking_focus_on_the_strip_states_it_too(qtbot: Any, tmp_path: Path) -> None:
+    tab = loaded_tab(qtbot, tmp_path)
+
+    tab.strip.setFocus()
+
+    assert tab.selected() == 0
+    assert tab.ribbon.selected() == 0
+    assert tab.selection_label.text() == "Frame 2 · 0% along"
+
+
+def test_a_held_key_renders_once_rather_than_per_repeat(qtbot: Any, tmp_path: Path) -> None:
+    tab = loaded_tab(qtbot, tmp_path)
+    tab.strip.set_frames(preview_titles(len(tab.positions())))
+    tab.strip.show_images([synthetic_panorama(40, 40)] * (len(tab.positions()) + 1))
+    renders = 0
+    original = tab._render
+
+    def counted(*, updating: bool) -> None:
+        nonlocal renders
+        renders += 1
+        original(updating=updating)
+
+    tab._render = counted  # type: ignore[method-assign]
+
+    for _ in range(10):
+        tab.ribbon.frame_nudged.emit(0, 1)
+
+    assert renders == 0, "a render per repeat is what the settle exists to prevent"
+    qtbot.waitUntil(lambda: renders > 0, timeout=2000)
+    assert renders == 1
