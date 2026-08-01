@@ -13,6 +13,7 @@ from PIL import Image, ImageChops
 
 from maskingframe import geometry
 from maskingframe.geometry import DEFAULT_STYLE, FrameStyle, parse_colour
+from tests import conftest
 from tests.conftest import synthetic_panorama
 
 # LANCZOS resampling blurs a few pixels at the panorama's edge into a
@@ -172,25 +173,54 @@ def test_padded_frame_keeps_exact_top_padding_when_height_binds() -> None:
     assert other_side_margin > border + _BBOX_TOLERANCE
 
 
-def test_section_bounds_split_on_integer_division() -> None:
-    assert geometry.section_bounds(3001, 0, 3) == (0, 1000)
-    assert geometry.section_bounds(3001, 1, 3) == (1000, 2000)
-    assert geometry.section_bounds(3001, 2, 3) == (2000, 3000)
+def test_section_bounds_is_a_full_height_crop_at_the_output_aspect() -> None:
+    start, end = geometry.section_bounds(2000, 1000, 0.0, geometry.PORTRAIT)
+    assert (start, end) == (0, 800)
 
 
-def test_section_bounds_validates_index() -> None:
-    with pytest.raises(ValueError):
-        geometry.section_bounds(3000, 3, 3)
-    with pytest.raises(ValueError):
-        geometry.section_bounds(3000, -1, 3)
+def test_section_bounds_moves_with_the_position() -> None:
+    start, end = geometry.section_bounds(2000, 1000, 0.25, geometry.PORTRAIT)
+    assert (start, end) == (500, 1300)
+
+
+def test_section_bounds_clamps_at_the_right_edge() -> None:
+    start, end = geometry.section_bounds(2000, 1000, 1.0, geometry.PORTRAIT)
+    assert (start, end) == (1200, 2000)
+
+
+def test_section_bounds_on_a_narrow_source_takes_the_whole_width() -> None:
+    start, end = geometry.section_bounds(1500, 1000, 0.5, geometry.LANDSCAPE)
+    assert (start, end) == (0, 1500)
+
+
+def test_make_section_at_the_output_size() -> None:
+    source = conftest.synthetic_panorama(2000, 1000)
+    frame = geometry.make_section(source, 0.25, geometry.PORTRAIT)
+    assert frame.size == (geometry.PORTRAIT.width, geometry.PORTRAIT.height)
+
+
+def test_make_section_keeps_the_full_height_of_the_source() -> None:
+    # The crop is already the output aspect, so the cover-scale discards
+    # nothing: the top-left source pixel is the frame's top-left pixel.
+    source = conftest.synthetic_panorama(2000, 1000)
+    frame = geometry.make_section(source, 0.0, geometry.PORTRAIT)
+    assert frame.getpixel((0, 0)) == source.getpixel((0, 0))
+
+
+def test_two_positions_give_different_pictures() -> None:
+    source = conftest.synthetic_panorama(2000, 1000)
+    left = geometry.make_section(source, 0.0, geometry.PORTRAIT)
+    right = geometry.make_section(source, 0.6, geometry.PORTRAIT)
+    assert left.tobytes() != right.tobytes()
 
 
 def test_sections_are_exactly_the_target_size() -> None:
     panorama = synthetic_panorama(7205, 2997)
     for ratio in geometry.RATIOS.values():
         count = geometry.section_count(7205, 2997, ratio)
-        for index in range(count):
-            section = geometry.make_section(panorama, index, count, ratio)
+        positions = geometry.default_positions(7205, 2997, ratio, count)
+        for index, position in enumerate(positions):
+            section = geometry.make_section(panorama, position, ratio)
             assert section.size == (ratio.width, ratio.height), (ratio.name, index)
 
 
@@ -206,27 +236,33 @@ def test_section_center_crop_uses_the_computed_offset_not_zero() -> None:
     # nonzero. A 3000x800 panorama split into 2 does NOT exercise this: the
     # height axis binds exactly, giving a legitimately-zero offset.
     panorama = synthetic_panorama(300, 900)
-    section = geometry.make_section(panorama, 0, 3, geometry.PORTRAIT)
+    section = geometry.make_section(panorama, 0.0, geometry.PORTRAIT)
     top_left = section.getpixel((0, 0))
     assert isinstance(top_left, tuple)
     assert top_left[1] != 0, "green channel 0 means source row 0 -- offset was not applied"
 
 
-def test_section_center_crop_uses_the_computed_x_offset_not_zero() -> None:
-    # Wide crop: cover-scaling binds on height and overflows horizontally,
-    # so the x-offset must be nonzero. Red channel encodes the source column.
-    panorama = synthetic_panorama(3000, 800)
-    section = geometry.make_section(panorama, 0, 3, geometry.SQUARE)
+def test_section_center_crop_offset_when_the_source_is_narrower_than_the_frame() -> None:
+    # A source narrower than SQUARE's frame_width is clamped in
+    # section_bounds to the source's own width, giving a crop narrower than
+    # the target aspect -- cover-scaling then overflows vertically, exactly
+    # like the unclamped case above, but only if make_section re-derives its
+    # crop dimensions from the clamped bounds rather than assuming the ratio.
+    # (An x-offset is no longer reachable at all: the crop's width can never
+    # exceed frame_width, so its aspect can never be wider than the target's,
+    # and cover-scaling can only ever overflow vertically.)
+    panorama = synthetic_panorama(300, 800)
+    section = geometry.make_section(panorama, 0.5, geometry.SQUARE)
     top_left = section.getpixel((0, 0))
     assert isinstance(top_left, tuple)
-    assert top_left[0] != 0, "red channel 0 means source column 0 -- x offset was not applied"
+    assert top_left[1] != 0, "green channel 0 means source row 0 -- offset was not applied"
 
 
-def test_adjacent_sections_show_different_parts_of_the_panorama() -> None:
-    # Kills a mutation that ignores `index` and always crops the same region.
+def test_adjacent_positions_show_different_parts_of_the_panorama() -> None:
+    # Kills a mutation that ignores `position` and always crops the same region.
     panorama = synthetic_panorama(3000, 800)
-    first = geometry.make_section(panorama, 0, 3, geometry.SQUARE)
-    second = geometry.make_section(panorama, 1, 3, geometry.SQUARE)
+    first = geometry.make_section(panorama, 0.0, geometry.SQUARE)
+    second = geometry.make_section(panorama, 0.5, geometry.SQUARE)
     assert first.getpixel((0, 0)) != second.getpixel((0, 0))
 
 
@@ -374,7 +410,7 @@ def test_rgb_is_a_three_tuple() -> None:
 
 def test_section_is_full_bleed_by_default() -> None:
     pano = Image.new("RGB", (3000, 1000), "black")
-    frame = geometry.make_section(pano, 0, 3, geometry.PORTRAIT)
+    frame = geometry.make_section(pano, 0.0, geometry.PORTRAIT)
     assert frame.size == (geometry.PORTRAIT.width, geometry.PORTRAIT.height)
     assert frame.getpixel((0, 0)) == (0, 0, 0)
 
@@ -385,7 +421,7 @@ def test_section_gets_a_border_when_the_style_asks_for_one() -> None:
     )
     pano = Image.new("RGB", (3000, 1000), "black")
     ratio = geometry.PORTRAIT
-    frame = geometry.make_section(pano, 0, 3, ratio, style)
+    frame = geometry.make_section(pano, 0.0, ratio, style)
     border = style.border_px(ratio)
 
     assert frame.size == (ratio.width, ratio.height)
@@ -398,7 +434,7 @@ def test_section_gets_a_border_when_the_style_asks_for_one() -> None:
 def test_bordered_section_with_a_zero_border_is_full_bleed() -> None:
     style = geometry.FrameStyle(border_percent=0.0, border_detail_frames=True)
     pano = Image.new("RGB", (3000, 1000), "black")
-    frame = geometry.make_section(pano, 0, 3, geometry.PORTRAIT, style)
+    frame = geometry.make_section(pano, 0.0, geometry.PORTRAIT, style)
     assert frame.getpixel((0, 0)) == (0, 0, 0)
 
 

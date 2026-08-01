@@ -258,30 +258,33 @@ def make_padded_frame(
     return canvas
 
 
-def section_bounds(width: int, index: int, count: int) -> tuple[int, int]:
-    """Return the horizontal crop bounds of one detail frame.
+def section_bounds(
+    pano_width: int, pano_height: int, position: float, ratio: AspectRatio
+) -> tuple[int, int]:
+    """The horizontal crop bounds of the detail frame at `position`.
 
-    Uses integer division, so when the width is not divisible by `count`
-    the remaining pixels on the right edge are discarded.
+    Full height and exactly the output aspect, so the cover-scale in
+    `make_section` discards nothing vertically. `position` is the left edge
+    as a fraction of the width; it is clamped, so a caller cannot ask for a
+    crop that runs off an edge.
     """
-    if not 0 <= index < count:
-        raise ValueError(f"index must be 0..{count - 1}, got {index}")
-    section_width = width // count
-    start = index * section_width
-    return start, start + section_width
+    width = min(frame_width(pano_height, ratio), pano_width)
+    clamped = clamp_position(position, pano_width, pano_height, ratio)
+    start = math.floor(clamped * pano_width + 0.5)
+    start = min(start, pano_width - width)
+    return start, start + width
 
 
 def make_section(
     image: Image.Image,
-    index: int,
-    count: int,
+    position: float,
     ratio: AspectRatio,
     style: FrameStyle = DEFAULT_STYLE,
 ) -> Image.Image:
-    """Crop one detail frame and scale it to fill the target ratio.
+    """Crop one detail frame at `position` and scale it to fill the ratio.
 
-    Scales by whichever axis keeps the target fully covered, then
-    center-crops the overflow.
+    The crop is already the output aspect, so the cover-scale is close to a
+    straight resize and the centre crop takes at most a rounding pixel.
 
     A detail frame is full-bleed by default: the border is what makes frame
     1 the establishing shot, and giving every frame one flattens that
@@ -294,7 +297,7 @@ def make_section(
     inner_height = max(1, ratio.height - 2 * border)
 
     width, height = image.size
-    start, end = section_bounds(width, index, count)
+    start, end = section_bounds(width, height, position, ratio)
     crop = image.crop((start, 0, end, height))
     crop_width, crop_height = crop.size
 

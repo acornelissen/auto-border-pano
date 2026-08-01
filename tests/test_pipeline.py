@@ -105,6 +105,39 @@ def test_process_image_rejects_portrait_input(tmp_path: Path) -> None:
         pipeline.process_image(source, tmp_path / "out")
 
 
+def test_process_image_honours_explicit_positions(tmp_path: Path) -> None:
+    source = tmp_path / "pano.jpg"
+    synthetic_panorama(2000, 1000).save(source, "JPEG", quality=95)
+
+    left = pipeline.process_image(source, tmp_path / "left", positions=(0.0, 0.0))
+    spread = pipeline.process_image(source, tmp_path / "spread", positions=(0.0, 0.6))
+
+    # Both runs asked for two detail frames, so both wrote three files.
+    assert len(left) == 3 and len(spread) == 3
+    # Same position, same picture; different position, different picture.
+    assert left[1].read_bytes() == left[2].read_bytes()
+    assert spread[1].read_bytes() != spread[2].read_bytes()
+
+
+def geometry_default_positions(width: int, height: int) -> tuple[float, ...]:
+    from maskingframe import geometry
+
+    return geometry.default_positions(width, height, pipeline.DEFAULT_RATIO)
+
+
+def test_process_image_without_positions_uses_the_even_default(tmp_path: Path) -> None:
+    source = tmp_path / "pano.jpg"
+    synthetic_panorama(2000, 1000).save(source, "JPEG", quality=95)
+
+    implicit = pipeline.process_image(source, tmp_path / "implicit")
+    explicit = pipeline.process_image(
+        source,
+        tmp_path / "explicit",
+        positions=geometry_default_positions(2000, 1000),
+    )
+    assert [p.read_bytes() for p in implicit] == [p.read_bytes() for p in explicit]
+
+
 def test_find_panoramas_matches_all_jpeg_spellings(tmp_path: Path) -> None:
     for name in ("a.jpg", "b.JPG", "c.jpeg", "d.JPEG", "ignore.png"):
         (tmp_path / name).touch()
@@ -200,11 +233,12 @@ def test_process_folder_continues_past_a_non_oserror_failure(
         output_prefix: Path,
         ratio: pipeline.AspectRatio = pipeline.DEFAULT_RATIO,
         on_frame: pipeline.FrameCallback | None = None,
+        positions: object = None,
         style: pipeline.FrameStyle = pipeline.DEFAULT_STYLE,
     ) -> list[Path]:
         if Path(input_path).name == "huge.jpg":
             raise Image.DecompressionBombError("synthetic bomb")
-        return real_process_image(input_path, output_prefix, ratio, on_frame, style)
+        return real_process_image(input_path, output_prefix, ratio, on_frame, style=style)
 
     monkeypatch.setattr(pipeline, "process_image", fake_process_image)
 
@@ -260,11 +294,16 @@ def test_batch_result_counts_sources_not_files(tmp_path: Path) -> None:
 #           print(name, p.name, hashlib.sha256(p.read_bytes()).hexdigest())
 #   "
 # and confirm the change is expected before updating.
+#
+# Re-baselined on 2026-08-01: a detail frame is now a full-height crop at
+# exactly the output aspect (`pano_height * ratio`) rather than a
+# `width // count` tile, so the section digests moved. The padded-frame
+# digests did not, and must not.
 GOLDEN_HASHES: dict[str, dict[str, str]] = {
     "1:1": {
         "1-1_1_padded.jpg": "b04d5f8f04006521a690d517aa63a6a07a523892ccc1eea16f82783405a0a4ad",
-        "1-1_2_section1.jpg": "fdfca9e094879cd5d933c158a3f76c4f129c73bd9e52bc393243d76fad022b94",
-        "1-1_3_section2.jpg": "91b87093c890ebb3ccc796464862357d2d3fa7059136710a21f47bc74c7dc579",
+        "1-1_2_section1.jpg": "1754339d45c7d4a7c4bb4621e5a105c8f474c38f66b6450660768495fce9fcab",
+        "1-1_3_section2.jpg": "270bdf23c3aee8b2324d2cdd67a77e850de29458271f18bf4f0821e2550e59a0",
     },
     "4:5": {
         "4-5_1_padded.jpg": "5ae4dfa62c8e83d6f753c5c2c78ce1b00da341ed137a08ab57bbec65731cec34",
@@ -274,8 +313,8 @@ GOLDEN_HASHES: dict[str, dict[str, str]] = {
     },
     "1.91:1": {
         "1.91-1_1_padded.jpg": "f58e8f599ea7ea905f3cb40c041c3b2d0fdaa8e99eb73a3c00903b611fcb816f",
-        "1.91-1_2_section1.jpg": "bc555a4f1f3b3e6634cdfbe467557829aa142babf9611cf125bb14b786a1bdfd",
-        "1.91-1_3_section2.jpg": "72a3de48dd1f5453f92c77a8756c4a9b97f83edc3b70e83d70905096f8f247f3",
+        "1.91-1_2_section1.jpg": "079ff919cfc95d7475fb20c54f3e067bbad4413af92d1ad2bf207bed14465c93",
+        "1.91-1_3_section2.jpg": "9f7c29ed6ab1b95fad1761a935411e619f20d6288a2a91986d52ac6581eec7b9",
     },
 }
 
@@ -412,7 +451,7 @@ RED_STYLE = pipeline.FrameStyle(border_percent=12.0, border_colour="#c9302a")
 
 def test_process_image_honours_the_style(tmp_path: Path) -> None:
     written = pipeline.process_image(
-        PANORAMA_FIXTURE, tmp_path / "out", pipeline.DEFAULT_RATIO, None, RED_STYLE
+        PANORAMA_FIXTURE, tmp_path / "out", pipeline.DEFAULT_RATIO, None, style=RED_STYLE
     )
     with Image.open(written[0]) as padded:
         assert padded.convert("RGB").getpixel((0, 0)) == (201, 48, 42)

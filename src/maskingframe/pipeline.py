@@ -105,12 +105,18 @@ def process_image(
     output_prefix: Path | str,
     ratio: AspectRatio = DEFAULT_RATIO,
     on_frame: FrameCallback | None = None,
+    positions: Sequence[float] | None = None,
     style: FrameStyle = DEFAULT_STYLE,
 ) -> list[Path]:
     """Split one panorama into a whole-panorama frame plus detail frames.
 
     `style` is a parameter with a default rather than module state, so a
     preview and the run that follows it cannot disagree about the border.
+
+    `positions` places each detail frame along the panorama: one left edge
+    per frame, as a fraction of the width, ascending. Omitted, the frames
+    are spread evenly, which is what the CLI and every batch run do -- a
+    position is chosen by looking at one photograph.
 
     `on_frame` is called once per output file, immediately after that file
     is written, with (frame_index, total_frames, path). The index is
@@ -132,15 +138,20 @@ def process_image(
             "maskingframe expects a landscape panorama"
         )
 
-    count = geometry.section_count(width, height, ratio)
+    places = (
+        geometry.default_positions(width, height, ratio)
+        if positions is None
+        else geometry.normalise_positions(positions, width, height, ratio)
+    )
+    count = len(places)
     targets = output_paths(output_prefix, count)
     targets[0].parent.mkdir(parents=True, exist_ok=True)
 
     total = len(targets)
     geometry.make_padded_frame(source, ratio, style).save(targets[0], "JPEG", quality=JPEG_QUALITY)
     _report_frame(on_frame, 0, total, targets[0])
-    for index in range(count):
-        geometry.make_section(source, index, count, ratio, style).save(
+    for index, place in enumerate(places):
+        geometry.make_section(source, place, ratio, style).save(
             targets[index + 1], "JPEG", quality=JPEG_QUALITY
         )
         _report_frame(on_frame, index + 1, total, targets[index + 1])
@@ -247,6 +258,7 @@ def preview_frames(
     ratio: AspectRatio = DEFAULT_RATIO,
     style: FrameStyle = DEFAULT_STYLE,
     cached: bool = False,
+    positions: Sequence[float] | None = None,
 ) -> list[Image.Image]:
     """Render every frame in memory, without writing anything.
 
@@ -280,9 +292,13 @@ def preview_frames(
             "maskingframe expects a landscape panorama"
         )
 
-    count = geometry.section_count(width, height, ratio)
+    places = (
+        geometry.default_positions(width, height, ratio)
+        if positions is None
+        else geometry.normalise_positions(positions, width, height, ratio)
+    )
     frames = [geometry.make_padded_frame(source, ratio, style)]
-    frames += [geometry.make_section(source, index, count, ratio, style) for index in range(count)]
+    frames += [geometry.make_section(source, place, ratio, style) for place in places]
     return frames
 
 
@@ -538,7 +554,7 @@ def process_folder(
             on_progress(done, len(sources), source)
         prefix = output_folder / source.stem
         try:
-            written = process_image(source, prefix, ratio, None, style)
+            written = process_image(source, prefix, ratio, None, style=style)
         except Exception as error:
             result.failed.append((source, str(error)))
         else:

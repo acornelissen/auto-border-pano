@@ -261,7 +261,7 @@ def main(argv: list[str] | None = None) -> int:
             if result.failed:
                 return 1
         else:
-            written = pipeline.process_image(args.input, args.output, ratio, None, style)
+            written = pipeline.process_image(args.input, args.output, ratio, None, style=style)
             print(f"Wrote {len(written) - 1} detail frames at {ratio.display}")
             for path in written:
                 print(f"  {path}")
