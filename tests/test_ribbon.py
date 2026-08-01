@@ -7,10 +7,10 @@ QT_QPA_PLATFORM before Qt is imported.
 from collections.abc import Sequence
 
 import pytest
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QPoint, QRect, Qt
 from pytestqt.qtbot import QtBot
 
-from maskingframe.gui.ribbon import RIBBON_HEIGHT, FrameRibbon
+from maskingframe.gui.ribbon import RIBBON_HEIGHT, FrameRibbon, _uncovered
 from tests import conftest
 
 
@@ -101,6 +101,24 @@ def test_a_frame_cannot_be_dragged_off_the_left_edge(qtbot: QtBot) -> None:
     qtbot.mouseMove(ribbon, QPoint(picture.left() - 200, start.y()))  # type: ignore[no-untyped-call]
 
     assert ribbon.positions()[0] == 0.0
+
+
+def test_uncovered_bands_include_the_pictures_rightmost_column() -> None:
+    # A picture spanning x in [0, 99] (right() == 99) with the last window
+    # ending at edge = 90 should get a trailing band covering [90, 99],
+    # width 10 -- not [90, 98], which leaves the rightmost pixel undimmed.
+    picture = QRect(0, 0, 100, 10)
+    windows = [QRect(0, 0, 90, 10)]
+
+    bands = _uncovered(picture, windows)
+
+    covered_columns: set[int] = set()
+    for window in windows:
+        covered_columns.update(range(window.left(), window.right() + 1))
+    for band in bands:
+        covered_columns.update(range(band.left(), band.right() + 1))
+
+    assert covered_columns == set(range(picture.left(), picture.right() + 1))
 
 
 def test_with_no_source_it_draws_nothing_and_does_not_crash(qtbot: QtBot) -> None:

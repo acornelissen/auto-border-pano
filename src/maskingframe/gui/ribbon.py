@@ -232,6 +232,6 @@ def _uncovered(picture: QRect, windows: Sequence[QRect]) -> list[QRect]:
         if start > edge:
             bands.append(QRect(edge, picture.top(), start - edge, picture.height()))
         edge = max(edge, end + 1)
-    if edge < picture.right():
-        bands.append(QRect(edge, picture.top(), picture.right() - edge, picture.height()))
+    if edge <= picture.right():
+        bands.append(QRect(edge, picture.top(), picture.right() - edge + 1, picture.height()))
     return bands
