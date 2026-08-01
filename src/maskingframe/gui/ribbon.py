@@ -1,0 +1,237 @@
+"""The ribbon: the whole panorama once, with a window per detail frame.
+
+The contact strip shows what each frame *is*; the ribbon shows where each
+one *came from*, which is the thing you cannot see by looking at the frames
+alone -- how close two crops are, and what the panorama has left over.
+
+Fixed height with the picture fitted inside it, never cropped. A height
+that followed the picture would be 275px for a 2.3:1 panorama and a 49px
+sliver for a 13:1 one, and the whole tab would jump every time a different
+file was loaded.
+
+Presentation only, like `strip.py`. It knows a picture, how wide one window
+is as a fraction of the panorama, and where the windows are. It has never
+heard of a FrameStyle, an AspectRatio or a file.
+"""
+
+from collections.abc import Sequence
+
+from PIL import Image
+from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal
+from PySide6.QtGui import QColor, QFont, QMouseEvent, QPainter, QPaintEvent, QPixmap
+from PySide6.QtWidgets import QSizePolicy, QWidget
+
+from maskingframe.gui import theme
+from maskingframe.gui.strip import pil_to_pixmap
+
+RIBBON_HEIGHT = 96
+"""Tall enough to judge a crop by, short enough to leave the strip the room."""
+
+DIM = QColor(theme.INK)
+"""The wash over everything no frame covers. Alpha is set where it is used."""
+
+DIM_ALPHA = 110
+
+HANDLE = 2
+"""The window's edge. A hairline, like every other edge in this interface."""
+
+
+class FrameRibbon(QWidget):
+    """The panorama with a draggable window per detail frame."""
+
+    positions_changed = Signal(tuple)
+    """Every movement of a drag. Cheap work only -- this drives the overlay,
+    not a re-render."""
+
+    positions_settled = Signal(tuple)
+    """Once, when the hand stops. This is what a re-render hangs off, and it
+    is the same split `PercentSlider` makes for the border controls."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._pixmap: QPixmap | None = None
+        self._aspect = 1.0
+        self._positions: tuple[float, ...] = ()
+        self._window = 0.0
+        self._dragging: int | None = None
+        self._grab_offset = 0.0
+        self._font: QFont = theme.stencil_font(10, tracking=1.4)
+        self.setFixedHeight(RIBBON_HEIGHT)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+    # --- what it is showing -------------------------------------------------
+
+    def set_source(self, image: Image.Image | None) -> None:
+        """The panorama to draw, or nothing."""
+        if image is None:
+            self._pixmap = None
+            self._aspect = 1.0
+        else:
+            self._pixmap = pil_to_pixmap(image)
+            self._aspect = image.width / max(1, image.height)
+        self.update()
+
+    def set_plan(self, positions: Sequence[float], window_fraction: float) -> None:
+        """Where the frames are and how wide one is. Emits nothing.
+
+        Silent on purpose: a tab that saves on `positions_changed` would
+        otherwise write back what it has just read.
+        """
+        self._positions = tuple(positions)
+        self._window = max(0.0, min(1.0, window_fraction))
+        self.update()
+
+    def positions(self) -> tuple[float, ...]:
+        return self._positions
+
+    # --- geometry, exposed so it can be checked without sampling pixels -----
+
+    def picture_rect(self) -> QRect:
+        """Where the panorama lands, fitted inside the ribbon."""
+        if self._pixmap is None:
+            return QRect()
+        available_width = max(1, self.width() - 2 * theme.S)
+        available_height = max(1, self.height() - 2 * theme.S)
+        width = available_width
+        height = max(1, round(width / self._aspect))
+        if height > available_height:
+            height = available_height
+            width = max(1, round(height * self._aspect))
+        left = theme.S + (available_width - width) // 2
+        top = theme.S + (available_height - height) // 2
+        return QRect(left, top, width, height)
+
+    def window_rects(self) -> list[QRect]:
+        """One rectangle per frame, in widget pixels."""
+        picture = self.picture_rect()
+        if picture.isNull() or not self._positions:
+            return []
+        span = picture.width()
+        width = max(1, round(self._window * span))
+        return [
+            QRect(picture.left() + round(position * span), picture.top(), width, picture.height())
+            for position in self._positions
+        ]
+
+    # --- dragging -----------------------------------------------------------
+
+    def _window_at(self, point: QPoint) -> int | None:
+        """Which window the cursor is in, latest first.
+
+        Latest first so that when two frames overlap the one drawn on top is
+        the one you grab -- anything else would feel like the interface
+        picking a different frame from the one under the cursor.
+        """
+        for index in reversed(range(len(self.window_rects()))):
+            if self.window_rects()[index].contains(point):
+                return index
+        return None
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
+        point = event.position().toPoint()
+        index = self._window_at(point)
+        if index is None:
+            return
+        picture = self.picture_rect()
+        grabbed = (point.x() - picture.left()) / max(1, picture.width())
+        self._dragging = index
+        self._grab_offset = grabbed - self._positions[index]
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if self._dragging is None:
+            return
+        picture = self.picture_rect()
+        point = event.position().toPoint()
+        wanted = (point.x() - picture.left()) / max(1, picture.width()) - self._grab_offset
+        self._positions = self._moved(self._dragging, wanted)
+        self.update()
+        self.positions_changed.emit(self._positions)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if self._dragging is None:
+            return
+        self._dragging = None
+        self.positions_settled.emit(self._positions)
+
+    def _moved(self, index: int, wanted: float) -> tuple[float, ...]:
+        """One frame moved to `wanted`, clamped by the edges and its neighbours.
+
+        Neighbours clamp rather than swap: the frames are numbered, and a
+        carousel that runs backwards along the picture is confusing. Overlap
+        is fine, so the bound is the neighbour's position itself, not a
+        minimum separation.
+        """
+        lower = self._positions[index - 1] if index > 0 else 0.0
+        upper = (
+            self._positions[index + 1]
+            if index + 1 < len(self._positions)
+            else max(0.0, 1.0 - self._window)
+        )
+        upper = min(upper, max(0.0, 1.0 - self._window))
+        placed = min(max(wanted, lower), max(lower, upper))
+        return tuple(
+            placed if position_index == index else position
+            for position_index, position in enumerate(self._positions)
+        )
+
+    # --- drawing ------------------------------------------------------------
+
+    def sizeHint(self) -> QSize:
+        return QSize(480, RIBBON_HEIGHT)
+
+    def paintEvent(self, _event: QPaintEvent) -> None:
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor(theme.TABLE))
+        if self._pixmap is None:
+            return
+        picture = self.picture_rect()
+        painter.drawPixmap(picture, self._pixmap)
+
+        # Everything no frame covers goes under a wash, so the windows read
+        # as the part of the picture that will actually be printed.
+        wash = QColor(DIM)
+        wash.setAlpha(DIM_ALPHA)
+        windows = self.window_rects()
+        for band in _uncovered(picture, windows):
+            painter.fillRect(band, wash)
+
+        painter.setFont(self._font)
+        for index, window in enumerate(windows):
+            painter.setPen(QColor(theme.INK))
+            for offset in range(HANDLE):
+                painter.drawRect(window.adjusted(offset, offset, -offset - 1, -offset - 1))
+            painter.setPen(QColor(theme.CHINAGRAPH))
+            painter.drawText(
+                window.adjusted(theme.S // 2, 1, 0, 0),
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
+                str(index + 2),
+            )
+        painter.end()
+
+
+def _uncovered(picture: QRect, windows: Sequence[QRect]) -> list[QRect]:
+    """The parts of the picture no window covers.
+
+    Merged first, because windows may overlap and washing an overlap twice
+    would make it darker than the rest of the dimmed area.
+    """
+    if not windows:
+        return [picture] if not picture.isNull() else []
+    merged: list[list[int]] = []
+    for window in sorted(windows, key=lambda w: w.left()):
+        if merged and window.left() <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], window.right())
+        else:
+            merged.append([window.left(), window.right()])
+
+    bands: list[QRect] = []
+    edge = picture.left()
+    for start, end in merged:
+        if start > edge:
+            bands.append(QRect(edge, picture.top(), start - edge, picture.height()))
+        edge = max(edge, end + 1)
+    if edge < picture.right():
+        bands.append(QRect(edge, picture.top(), picture.right() - edge, picture.height()))
+    return bands

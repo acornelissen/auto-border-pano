@@ -1,0 +1,113 @@
+"""Tests for the ribbon: the whole panorama with a window per detail frame.
+
+Offscreen, like every other widget test here -- `conftest` sets
+QT_QPA_PLATFORM before Qt is imported.
+"""
+
+from collections.abc import Sequence
+
+import pytest
+from PySide6.QtCore import QPoint, Qt
+from pytestqt.qtbot import QtBot
+
+from maskingframe.gui.ribbon import RIBBON_HEIGHT, FrameRibbon
+from tests import conftest
+
+
+def build(qtbot: QtBot, positions: Sequence[float] = (0.0, 0.6)) -> FrameRibbon:
+    ribbon = FrameRibbon()
+    qtbot.addWidget(ribbon)
+    ribbon.resize(600, RIBBON_HEIGHT)
+    ribbon.set_source(conftest.synthetic_panorama(1000, 400))
+    ribbon.set_plan(positions, 0.4)
+    return ribbon
+
+
+def test_the_picture_is_letterboxed_not_cropped(qtbot: QtBot) -> None:
+    ribbon = build(qtbot)
+    rect = ribbon.picture_rect()
+    # A 2.5:1 picture in a 600-wide, fixed-height ribbon fits on width and
+    # leaves space above and below rather than losing the top and bottom.
+    assert rect.width() / rect.height() == pytest.approx(2.5, rel=0.02)
+    assert rect.width() <= 600
+    assert rect.height() <= RIBBON_HEIGHT
+
+
+def test_one_window_per_position(qtbot: QtBot) -> None:
+    ribbon = build(qtbot, (0.0, 0.3, 0.6))
+    assert len(ribbon.window_rects()) == 3
+
+
+def test_a_window_sits_where_its_position_says(qtbot: QtBot) -> None:
+    ribbon = build(qtbot, (0.0, 0.6))
+    picture = ribbon.picture_rect()
+    first, second = ribbon.window_rects()
+    assert first.left() == picture.left()
+    assert second.left() == pytest.approx(picture.left() + 0.6 * picture.width(), abs=2)
+    assert first.width() == pytest.approx(0.4 * picture.width(), abs=2)
+
+
+def test_set_plan_is_silent(qtbot: QtBot) -> None:
+    ribbon = build(qtbot)
+    with qtbot.assertNotEmitted(ribbon.positions_changed):
+        ribbon.set_plan((0.1, 0.5), 0.4)
+
+
+def test_dragging_a_window_moves_only_that_frame(qtbot: QtBot) -> None:
+    ribbon = build(qtbot, (0.0, 0.6))
+    picture = ribbon.picture_rect()
+    start = QPoint(picture.left() + 5, picture.center().y())
+
+    qtbot.mousePress(ribbon, Qt.MouseButton.LeftButton, pos=start)  # type: ignore[no-untyped-call]
+    qtbot.mouseMove(ribbon, QPoint(start.x() + int(0.2 * picture.width()), start.y()))  # type: ignore[no-untyped-call]
+
+    moved = ribbon.positions()
+    assert moved[0] == pytest.approx(0.2, abs=0.02)
+    assert moved[1] == pytest.approx(0.6)
+
+
+def test_a_drag_emits_while_moving_and_once_on_release(qtbot: QtBot) -> None:
+    ribbon = build(qtbot, (0.0, 0.6))
+    picture = ribbon.picture_rect()
+    start = QPoint(picture.left() + 5, picture.center().y())
+
+    with qtbot.waitSignal(ribbon.positions_changed, timeout=1000):
+        qtbot.mousePress(ribbon, Qt.MouseButton.LeftButton, pos=start)  # type: ignore[no-untyped-call]
+        qtbot.mouseMove(ribbon, QPoint(start.x() + 40, start.y()))  # type: ignore[no-untyped-call]
+
+    with qtbot.waitSignal(ribbon.positions_settled, timeout=1000):
+        qtbot.mouseRelease(ribbon, Qt.MouseButton.LeftButton, pos=QPoint(start.x() + 40, start.y()))  # type: ignore[no-untyped-call]
+
+
+def test_a_frame_cannot_be_dragged_past_its_neighbour(qtbot: QtBot) -> None:
+    ribbon = build(qtbot, (0.0, 0.3))
+    picture = ribbon.picture_rect()
+    start = QPoint(picture.left() + 5, picture.center().y())
+
+    qtbot.mousePress(ribbon, Qt.MouseButton.LeftButton, pos=start)  # type: ignore[no-untyped-call]
+    qtbot.mouseMove(ribbon, QPoint(picture.right() - 5, start.y()))  # type: ignore[no-untyped-call]
+
+    moved = ribbon.positions()
+    assert moved[0] == pytest.approx(0.3, abs=0.02)
+    assert moved[1] == pytest.approx(0.3)
+
+
+def test_a_frame_cannot_be_dragged_off_the_left_edge(qtbot: QtBot) -> None:
+    ribbon = build(qtbot, (0.2, 0.6))
+    picture = ribbon.picture_rect()
+    start = QPoint(picture.left() + int(0.2 * picture.width()) + 5, picture.center().y())
+
+    qtbot.mousePress(ribbon, Qt.MouseButton.LeftButton, pos=start)  # type: ignore[no-untyped-call]
+    qtbot.mouseMove(ribbon, QPoint(picture.left() - 200, start.y()))  # type: ignore[no-untyped-call]
+
+    assert ribbon.positions()[0] == 0.0
+
+
+def test_with_no_source_it_draws_nothing_and_does_not_crash(qtbot: QtBot) -> None:
+    ribbon = FrameRibbon()
+    qtbot.addWidget(ribbon)
+    ribbon.resize(600, RIBBON_HEIGHT)
+    ribbon.set_source(None)
+    ribbon.set_plan((0.0, 0.5), 0.4)
+    ribbon.repaint()
+    assert ribbon.window_rects() == []
