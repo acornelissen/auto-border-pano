@@ -19,11 +19,15 @@ from maskingframe import compose, geometry, layout
 # is still caught by the per-file exception handling in process_folder.
 Image.MAX_IMAGE_PIXELS = None
 
-# Re-exported so cli.py and gui.py can offer ratio selection without
-# importing geometry directly -- they depend on pipeline only.
+# Re-exported so cli.py and gui/ can offer ratio and border selection
+# without importing geometry directly -- they depend on pipeline only.
 AspectRatio = geometry.AspectRatio
 RATIOS = geometry.RATIOS
 DEFAULT_RATIO = geometry.DEFAULT_RATIO
+FrameStyle = geometry.FrameStyle
+DEFAULT_STYLE = geometry.DEFAULT_STYLE
+parse_colour = geometry.parse_colour
+MAX_PERCENT = geometry.MAX_PERCENT
 
 JPEG_QUALITY = 95
 JPEG_EXTENSIONS = (".jpg", ".jpeg")
@@ -100,8 +104,12 @@ def process_image(
     output_prefix: Path | str,
     ratio: AspectRatio = DEFAULT_RATIO,
     on_frame: FrameCallback | None = None,
+    style: FrameStyle = DEFAULT_STYLE,
 ) -> list[Path]:
     """Split one panorama into a whole-panorama frame plus detail frames.
+
+    `style` is a parameter with a default rather than module state, so a
+    preview and the run that follows it cannot disagree about the border.
 
     `on_frame` is called once per output file, immediately after that file
     is written, with (frame_index, total_frames, path). The index is
@@ -128,10 +136,10 @@ def process_image(
     targets[0].parent.mkdir(parents=True, exist_ok=True)
 
     total = len(targets)
-    geometry.make_padded_frame(source, ratio).save(targets[0], "JPEG", quality=JPEG_QUALITY)
+    geometry.make_padded_frame(source, ratio, style).save(targets[0], "JPEG", quality=JPEG_QUALITY)
     _report_frame(on_frame, 0, total, targets[0])
     for index in range(count):
-        geometry.make_section(source, index, count, ratio).save(
+        geometry.make_section(source, index, count, ratio, style).save(
             targets[index + 1], "JPEG", quality=JPEG_QUALITY
         )
         _report_frame(on_frame, index + 1, total, targets[index + 1])
@@ -141,8 +149,12 @@ def process_image(
 def preview_frames(
     input_path: Path | str,
     ratio: AspectRatio = DEFAULT_RATIO,
+    style: FrameStyle = DEFAULT_STYLE,
 ) -> list[Image.Image]:
     """Render every frame in memory, without writing anything.
+
+    `style` is a parameter with a default rather than module state, so the
+    preview shows the same border the run will write.
 
     The same split `process_image` performs, stopping short of saving, so a
     user can see what a ratio will do to a panorama before committing it to
@@ -163,8 +175,8 @@ def preview_frames(
         )
 
     count = geometry.section_count(width, height, ratio)
-    frames = [geometry.make_padded_frame(source, ratio)]
-    frames += [geometry.make_section(source, index, count, ratio) for index in range(count)]
+    frames = [geometry.make_padded_frame(source, ratio, style)]
+    frames += [geometry.make_section(source, index, count, ratio, style) for index in range(count)]
     return frames
 
 
@@ -206,8 +218,16 @@ def inspect_source(path: Path | str, ratio: AspectRatio = DEFAULT_RATIO) -> Sour
     )
 
 
-def name_layout(input_paths: Sequence[Path | str], ratio: AspectRatio = DEFAULT_RATIO) -> str:
+def name_layout(
+    input_paths: Sequence[Path | str],
+    ratio: AspectRatio = DEFAULT_RATIO,
+    style: FrameStyle = DEFAULT_STYLE,
+) -> str:
     """Name the arrangement these sources will get, without rendering it.
+
+    `style` is a parameter with a default rather than module state: a wide
+    gutter can change which arrangement wins, so the name must be solved
+    with the same style the render will use.
 
     The solver only needs each source's aspect ratio, so this reads headers
     and stops. `compose_preview` renders through the same `layout.solve`
@@ -223,7 +243,7 @@ def name_layout(input_paths: Sequence[Path | str], ratio: AspectRatio = DEFAULT_
         with Image.open(path) as opened:
             width, height = opened.size
         aspects.append(width / height)
-    return layout.solve(aspects, ratio, geometry.DEFAULT_STYLE).name
+    return layout.solve(aspects, ratio, style).name
 
 
 @dataclass(frozen=True)
@@ -272,8 +292,12 @@ def _load_for_box(path: Path, box: layout.Box) -> Image.Image:
 def compose_preview(
     input_paths: Sequence[Path | str],
     ratio: AspectRatio = DEFAULT_RATIO,
+    style: FrameStyle = DEFAULT_STYLE,
 ) -> tuple[Image.Image, str]:
     """Solve and render a composite in memory, without writing anything.
+
+    `style` is a parameter with a default rather than module state, so the
+    preview and the saved composite cannot disagree about border or gutter.
 
     Returns the rendered image and the name of the winning layout, so the
     GUI can let a user compare arrangements before committing one to disk.
@@ -290,10 +314,10 @@ def compose_preview(
             with_sizes.append(opened.size)
 
     aspects = [width / height for width, height in with_sizes]
-    solved = layout.solve(aspects, ratio, geometry.DEFAULT_STYLE)
+    solved = layout.solve(aspects, ratio, style)
 
     images = [_load_for_box(path, box) for path, box in zip(paths, solved.boxes, strict=True)]
-    canvas = compose.render(images, solved, ratio)
+    canvas = compose.render(images, solved, ratio, style)
     return canvas, solved.name
 
 
@@ -301,9 +325,14 @@ def compose_images(
     input_paths: Sequence[Path | str],
     output_prefix: Path | str,
     ratio: AspectRatio = DEFAULT_RATIO,
+    style: FrameStyle = DEFAULT_STYLE,
 ) -> CompositeResult:
-    """Compose two or three images into one frame at the target ratio."""
-    canvas, layout_name = compose_preview(input_paths, ratio)
+    """Compose two or three images into one frame at the target ratio.
+
+    `style` is a parameter with a default rather than module state, so a run
+    and the preview it followed cannot disagree about border or gutter.
+    """
+    canvas, layout_name = compose_preview(input_paths, ratio, style)
 
     prefix = Path(output_prefix)
     target = prefix.with_name(prefix.name + COMPOSITE_SUFFIXES[len(input_paths)])
@@ -326,8 +355,12 @@ def process_folder(
     output_folder: Path | str,
     ratio: AspectRatio = DEFAULT_RATIO,
     on_progress: ProgressCallback | None = None,
+    style: FrameStyle = DEFAULT_STYLE,
 ) -> BatchResult:
     """Split every panorama in a folder.
+
+    `style` is a parameter with a default rather than module state, so every
+    file in a batch is framed exactly as the preview promised.
 
     Individual failures are skipped so one unreadable or non-landscape file
     cannot abort a long batch. `on_progress` is called before each file with
@@ -345,7 +378,7 @@ def process_folder(
             on_progress(done, len(sources), source)
         prefix = output_folder / source.stem
         try:
-            written = process_image(source, prefix, ratio)
+            written = process_image(source, prefix, ratio, None, style)
         except Exception as error:
             result.failed.append((source, str(error)))
         else:

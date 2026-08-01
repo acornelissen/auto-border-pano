@@ -941,7 +941,7 @@ separators be inflated a pixel against rounding without ever showing."
 
 `style` goes **last** in every signature, so no existing positional call breaks.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/test_pipeline.py`:
 
@@ -1006,12 +1006,12 @@ def test_style_is_re_exported() -> None:
 
 If `PANORAMA_FIXTURE` / `FIXTURE_FOLDER` are named differently in the existing file, use the existing names — read the top of `tests/test_pipeline.py` first.
 
-- [ ] **Step 2: Run the tests and verify they fail**
+- [x] **Step 2: Run the tests and verify they fail**
 
 Run: `uv run pytest tests/test_pipeline.py -v`
 Expected: FAIL, `module 'maskingframe.pipeline' has no attribute 'FrameStyle'`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 In `src/maskingframe/pipeline.py`, extend the re-export block:
 
@@ -1036,15 +1036,15 @@ Then add `style: FrameStyle = DEFAULT_STYLE` as the final parameter of the six f
 
 Add one line to each docstring saying the style is a parameter rather than module state so a preview and a run cannot disagree.
 
-- [ ] **Step 4: Run the tests and verify they pass**
+- [x] **Step 4: Run the tests and verify they pass**
 
 Run: `uv run pytest -v`
 
-- [ ] **Step 5: Run the full gate**
+- [x] **Step 5: Run the full gate**
 
 Run: `mise run check`
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add -A

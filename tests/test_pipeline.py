@@ -199,10 +199,12 @@ def test_process_folder_continues_past_a_non_oserror_failure(
         input_path: Path,
         output_prefix: Path,
         ratio: pipeline.AspectRatio = pipeline.DEFAULT_RATIO,
+        on_frame: pipeline.FrameCallback | None = None,
+        style: pipeline.FrameStyle = pipeline.DEFAULT_STYLE,
     ) -> list[Path]:
         if Path(input_path).name == "huge.jpg":
             raise Image.DecompressionBombError("synthetic bomb")
-        return real_process_image(input_path, output_prefix, ratio)
+        return real_process_image(input_path, output_prefix, ratio, on_frame, style)
 
     monkeypatch.setattr(pipeline, "process_image", fake_process_image)
 
@@ -401,3 +403,68 @@ def test_composite_outputs_are_byte_identical(tmp_path: Path) -> None:
         )
         actual = hashlib.sha256(result.path.read_bytes()).hexdigest()
         assert actual == expected, f"composite changed at {name}"
+
+
+PANORAMA_FIXTURE = Path(__file__).parent / "fixtures" / "golden_wide.jpg"
+
+RED_STYLE = pipeline.FrameStyle(border_percent=12.0, border_colour="#c9302a")
+
+
+def test_process_image_honours_the_style(tmp_path: Path) -> None:
+    written = pipeline.process_image(
+        PANORAMA_FIXTURE, tmp_path / "out", pipeline.DEFAULT_RATIO, None, RED_STYLE
+    )
+    with Image.open(written[0]) as padded:
+        assert padded.convert("RGB").getpixel((0, 0)) == (201, 48, 42)
+
+
+def test_process_folder_honours_the_style(tmp_path: Path) -> None:
+    sources = tmp_path / "in"
+    sources.mkdir()
+    _write_panorama(sources / "pano.jpg")
+    result = pipeline.process_folder(
+        sources, tmp_path / "out", pipeline.DEFAULT_RATIO, None, RED_STYLE
+    )
+    assert result.written
+    with Image.open(result.written[0]) as padded:
+        assert padded.convert("RGB").getpixel((0, 0)) == (201, 48, 42)
+
+
+def test_preview_frames_honours_the_style() -> None:
+    frames = pipeline.preview_frames(PANORAMA_FIXTURE, pipeline.DEFAULT_RATIO, RED_STYLE)
+    assert frames[0].getpixel((0, 0)) == (201, 48, 42)
+
+
+def test_compose_images_honours_the_style(tmp_path: Path) -> None:
+    style = pipeline.FrameStyle(border_colour="#000000", gutter_colour="#c9302a")
+    result = pipeline.compose_images(
+        COMPOSE_FIXTURES[:2], tmp_path / "out", pipeline.DEFAULT_RATIO, style
+    )
+    with Image.open(result.path) as composite:
+        assert composite.convert("RGB").getpixel((0, 0)) == (0, 0, 0)
+
+
+def test_compose_preview_and_compose_images_agree_under_a_style(tmp_path: Path) -> None:
+    style = pipeline.FrameStyle(border_percent=15.0, gutter_percent=8.0)
+    canvas, name = pipeline.compose_preview(COMPOSE_FIXTURES, pipeline.DEFAULT_RATIO, style)
+    result = pipeline.compose_images(
+        COMPOSE_FIXTURES, tmp_path / "out", pipeline.DEFAULT_RATIO, style
+    )
+    assert result.layout_name == name
+    with Image.open(result.path) as written:
+        assert written.size == canvas.size
+
+
+def test_name_layout_honours_the_style() -> None:
+    # A large gutter can change which arrangement wins; the name must follow
+    # the style the caller actually rendered with.
+    name = pipeline.name_layout(COMPOSE_FIXTURES, pipeline.DEFAULT_RATIO, RED_STYLE)
+    solved_name = pipeline.compose_preview(COMPOSE_FIXTURES, pipeline.DEFAULT_RATIO, RED_STYLE)[1]
+    assert name == solved_name
+
+
+def test_style_is_re_exported() -> None:
+    assert pipeline.FrameStyle is not None
+    assert pipeline.DEFAULT_STYLE.border_percent == 9.0
+    assert pipeline.parse_colour("#FFF") == "#ffffff"
+    assert pipeline.MAX_PERCENT == 40.0
