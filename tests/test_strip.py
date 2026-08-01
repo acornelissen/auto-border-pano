@@ -529,3 +529,103 @@ def test_a_rendered_composite_shows_its_border_exactly_once(qtbot: QtBot) -> Non
     assert shown * scale == pytest.approx(
         baseline, abs=3 * scale
     ), f"the border ran {shown * scale:.0f}px of the render, which holds {baseline}px"
+
+
+def test_the_composite_overlay_matches_what_a_render_actually_produces(
+    qtbot: QtBot, tmp_path: Path
+) -> None:
+    """The exactness this overlay exists for, measured against a real render.
+
+    `layout.evaluate` fits the panel block inside the frame's inset box and
+    then centres it, so on whichever axis the block does not fill the box
+    there is leftover slack -- and `compose.render` paints that slack in the
+    border colour too. A nominal band of `border_percent` around the edge
+    therefore understates the finished border, sometimes by more than twice.
+
+    So this compares the overlay against the render rather than against a
+    restatement of the formula: render a composite, drive the strip's
+    overlay for the same sources and style with nothing loaded, and walk a
+    grid across the frame asserting the two agree at every point about
+    whether that point is border. Points near a panel or gap edge are
+    skipped -- the two are drawn at different scales, so a boundary lands
+    within a pixel or so either way and proves nothing.
+
+    The sources are flat rather than the photographic fixtures, and the two
+    shapes are the fixtures' own (600x250 beside 400x400, the pair the
+    measurement in the plan was taken from). A photograph contains a few
+    pixels of any colour you name, including the border's, so "is this
+    point border?" has to be a question about the composition rather than
+    about the picture.
+    """
+    ratio = pipeline.RATIOS["4:5"]
+    style = pipeline.FrameStyle(
+        border_percent=6.0,
+        border_colour="#ff00ff",
+        gutter_percent=4.0,
+        gutter_colour="#00ff00",
+    )
+    sources = []
+    for name, size in (("wide", (600, 250)), ("square", (400, 400))):
+        path = tmp_path / f"{name}.png"
+        Image.new("RGB", size, (30, 30, 30)).save(path)
+        sources.append(path)
+    rendered, _name = pipeline.compose_preview(sources, ratio, style)
+    rendered = rendered.convert("RGB")
+
+    aspects = []
+    for path in sources:
+        with Image.open(path) as opened:
+            aspects.append(opened.width / opened.height)
+    solved = pipeline.composite_rects(aspects, ratio, style)
+
+    built = _built(qtbot, frames=1)
+    built.resize(600, 700)
+    built.set_border_preview(
+        strip.BorderPreview(
+            aspect=ratio.width / ratio.height,
+            border=style.border_percent / 100,
+            colour=style.border_colour,
+            gaps=tuple(strip.Rect(*gap) for gap in solved.gaps),
+            gap_colour=style.gutter_colour,
+            panels=tuple(strip.Rect(*panel) for panel in solved.panels),
+        )
+    )
+
+    frame = built.frame_rect_at(0)
+    grabbed = built.grab().toImage()
+
+    def is_border(red: int, green: int, blue: int) -> bool:
+        return (red, green, blue) == (255, 0, 255)
+
+    def near_an_edge(u: float, v: float) -> bool:
+        """Within a pixel or so of any panel or gap boundary, at strip scale."""
+        margin = 3 / min(frame.width(), frame.height())
+        for x, y, width, height in solved.panels + solved.gaps:
+            for value, low, high in ((u, x, x + width), (v, y, y + height)):
+                if abs(value - low) < margin or abs(value - high) < margin:
+                    return True
+        return False
+
+    checked = 0
+    for step_u in range(1, 60):
+        for step_v in range(1, 60):
+            u, v = step_u / 60, step_v / 60
+            if near_an_edge(u, v):
+                continue
+            pixel = rendered.getpixel((int(u * rendered.width), int(v * rendered.height)))
+            assert isinstance(pixel, tuple)
+            in_render = is_border(*pixel[:3])
+            colour = grabbed.pixelColor(
+                frame.x() + int(u * frame.width()), frame.y() + int(v * frame.height())
+            )
+            on_screen = is_border(colour.red(), colour.green(), colour.blue())
+            assert on_screen == in_render, (
+                f"at ({u:.2f}, {v:.2f}) the render says "
+                f"{'border' if in_render else 'panel'} and the overlay says "
+                f"{'border' if on_screen else 'panel'}"
+            )
+            checked += 1
+
+    # Enough of the grid survived the edge margin to make the walk mean
+    # something, and enough of it is border to catch a missed axis of slack.
+    assert checked > 2000

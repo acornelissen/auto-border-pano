@@ -664,6 +664,31 @@ def test_the_gaps_between_panels_are_previewed_too(qtbot: QtBot) -> None:
     assert preview.gap_colour == style.gutter_colour
 
 
+def test_the_panels_are_handed_over_so_the_border_includes_its_slack(qtbot: QtBot) -> None:
+    """Where the pictures land decides where the border is.
+
+    The solver centres the assembled block inside the frame's inset box, so
+    the axis it does not fill leaves slack that the render paints in the
+    border colour. Only the panels say where that is, so the tab hands them
+    to the strip and the previewed border is the whole of the border.
+    """
+    tab = ComposeTab()
+    qtbot.addWidget(tab)
+    tab.previews.resize(600, 500)
+    tab._accept([WIDE, TALL])
+    _wait_for_sizes(qtbot, tab)
+
+    style = tab.border_controls.frame_style()
+    ratio = pipeline.RATIOS[tab._ratio_name()]
+    aspects = [tab._sizes[path][0] / tab._sizes[path][1] for path in tab.images]
+    expected = pipeline.composite_rects(aspects, ratio, style).panels
+
+    preview = tab.previews.border_preview
+    assert preview is not None
+    assert len(expected) == 2
+    assert tuple((p.x, p.y, p.width, p.height) for p in preview.panels) == expected
+
+
 def test_one_source_gets_the_outer_border_and_no_gaps(qtbot: QtBot) -> None:
     """With fewer than two sources there is no layout to solve."""
     tab = ComposeTab()
@@ -675,6 +700,7 @@ def test_one_source_gets_the_outer_border_and_no_gaps(qtbot: QtBot) -> None:
     preview = tab.previews.border_preview
     assert preview is not None
     assert preview.gaps == ()
+    assert preview.panels == ()
     assert tab.previews.border_rects(0)
 
 

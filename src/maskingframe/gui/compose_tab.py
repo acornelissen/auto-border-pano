@@ -433,21 +433,33 @@ class ComposeTab(QWidget):
 
         The gaps are as much of a composite as the outer border is, so they
         are shown in their own colour rather than left to the imagination.
-        With fewer than two sources there is no arrangement to solve, and
-        the outer border goes on alone.
+
+        The panels go over with them, and they are what makes the preview
+        exact. A composite's block is fitted inside the frame's inset box
+        and then centred, so one pair of edges carries the slack as well as
+        the border -- at 4:5 with a wide source above a square one the real
+        border ran to more than twice the band the setting names. Handing
+        the panels over lets the strip draw the frame the way the render
+        composes it, and then what is previewed as border is the border.
+
+        With fewer than two sources, or before their shapes are known,
+        there is no arrangement to solve and the outer band goes on alone --
+        all that can honestly be said at that point.
         """
         style = self._style()
         ratio = pipeline.RATIOS[self._ratio_name()]
         gaps: tuple[Rect, ...] = ()
+        panels: tuple[Rect, ...] = ()
         aspects = self._aspects()
         if aspects is not None:
             try:
                 solved = pipeline.composite_rects(aspects, ratio, style)
                 gaps = tuple(Rect(*gap) for gap in solved.gaps)
+                panels = tuple(Rect(*panel) for panel in solved.panels)
             except ValueError:
                 # No arrangement fits these shapes at this ratio. The outer
                 # border is still true, so it is still drawn.
-                gaps = ()
+                gaps, panels = (), ()
         self.previews.set_border_preview(
             BorderPreview(
                 aspect=ratio.width / ratio.height,
@@ -455,6 +467,7 @@ class ComposeTab(QWidget):
                 colour=style.border_colour,
                 gaps=gaps,
                 gap_colour=style.gutter_colour,
+                panels=panels,
             )
         )
 

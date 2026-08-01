@@ -125,6 +125,19 @@ class BorderPreview:
     border applies to frame 1 alone -- what the Split tab does until the
     detail frames are bordered too. `gaps` are the separators between
     composite panels, empty when there are none to draw.
+
+    `panels` is where a composite's pictures land, and supplying it changes
+    how the whole thing is drawn. A composite's border is not the nominal
+    band `border` describes: the solver fits the assembled block inside the
+    frame's inset box and centres it, so on whichever axis the block is
+    short there is leftover slack, and the render paints that slack in the
+    border colour too. At 4:5 with a wide source and a square one that can
+    more than double the border down one pair of edges. So when the panels
+    are known the overlay is drawn the way the render composes -- the whole
+    frame in the border colour, the gaps over it, and the panels knocked
+    back out -- and the previewed border is then exactly the border. With
+    no panels (the Split tab, or a composite whose shapes are not known
+    yet) it stays a band around the edge, which is all that can be said.
     """
 
     aspect: float
@@ -133,6 +146,7 @@ class BorderPreview:
     first_frame_only: bool = False
     gaps: tuple[Rect, ...] = ()
     gap_colour: str = ""
+    panels: tuple[Rect, ...] = ()
 
 
 def frame_rect(left: int, top: int, size: int, aspect: float) -> QRect:
@@ -354,7 +368,14 @@ class ContactStrip(QWidget):
             # A frame holding a render already has its border in the pixels.
             # Overlaying another would lay a second band over the first.
             return []
-        return border_bands(self._frame_rect(index), self._border.border)
+        rect = self._frame_rect(index)
+        if self._border.panels:
+            # A composite's border is everything the panels and gaps do not
+            # cover, which is not four bands: it is the whole frame, laid
+            # down first and then knocked back out. Reported as the one
+            # rectangle that is actually filled in the border colour.
+            return [rect]
+        return border_bands(rect, self._border.border)
 
     def set_frames(self, titles: Sequence[str]) -> None:
         """Lay out one frame per title, discarding everything from the last
@@ -660,13 +681,22 @@ class ContactStrip(QWidget):
             return
         rect = self._frame_rect(index)
         colour = theme.rgb(preview.colour)
-        for band in border_bands(rect, preview.border):
-            painter.fillRect(band, colour)
-        if not preview.gaps or not preview.gap_colour:
-            return
-        gap_colour = theme.rgb(preview.gap_colour)
-        for gap in preview.gaps:
-            painter.fillRect(scaled_rect(rect, gap), gap_colour)
+        if preview.panels:
+            # In the render's own order: the canvas in the border colour,
+            # the gaps over it, the panels on top. Here the panels hold no
+            # picture yet, so they are knocked back to the empty aperture --
+            # and what is left is the border, slack and all.
+            painter.fillRect(rect, colour)
+        else:
+            for band in border_bands(rect, preview.border):
+                painter.fillRect(band, colour)
+        if preview.gaps and preview.gap_colour:
+            gap_colour = theme.rgb(preview.gap_colour)
+            for gap in preview.gaps:
+                painter.fillRect(scaled_rect(rect, gap), gap_colour)
+        aperture = theme.rgb(theme.PANEL)
+        for panel in preview.panels:
+            painter.fillRect(scaled_rect(rect, panel), aperture)
 
     def _elide(self, text: str) -> str:
         """`text`, shortened from the end until it fits one frame.
