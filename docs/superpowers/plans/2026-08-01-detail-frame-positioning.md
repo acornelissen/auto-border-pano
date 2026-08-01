@@ -562,7 +562,7 @@ Pure arithmetic, so it is worth its own gate before any widget depends on it.
   - `geometry.insert_position(positions: Sequence[float], pano_width: int, pano_height: int, ratio: AspectRatio) -> tuple[float, ...]`
   - `geometry.drop_position(positions: Sequence[float]) -> tuple[float, ...]`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `tests/test_geometry.py`:
 
@@ -603,12 +603,12 @@ def test_drop_refuses_to_go_below_the_minimum() -> None:
         geometry.drop_position((0.0, 0.6))
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `mise exec -- uv run pytest tests/test_geometry.py -k "insert or drop" -v`
 Expected: FAIL with `AttributeError: module 'maskingframe.geometry' has no attribute 'insert_position'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Add after `default_positions` in `geometry.py`:
 
@@ -673,12 +673,12 @@ def drop_position(positions: Sequence[float]) -> tuple[float, ...]:
     return tuple(positions[:-1])
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `mise exec -- uv run pytest tests/test_geometry.py -v`
 Expected: PASS.
 
-- [ ] **Step 5: Run the full gate and commit**
+- [x] **Step 5: Run the full gate and commit**
 
 ```bash
 mise run check
