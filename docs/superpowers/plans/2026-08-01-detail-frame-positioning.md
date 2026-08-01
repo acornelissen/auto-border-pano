@@ -1452,7 +1452,7 @@ git commit -m "feat(gui): let a strip frame be dragged along the panorama"
 - Consumes: `pipeline.default_positions`, `pipeline.normalise_positions`, `pipeline.ribbon_thumbnail`, `SourceFacts.positions`, `SourceFacts.window_fraction` (Task 4); `FrameRibbon`, `RIBBON_HEIGHT` (Task 5); `ContactStrip.frame_dragged`, `ContactStrip.frame_drag_settled`, `ContactStrip.set_draggable` (Task 6).
 - Produces: `SplitTab.ribbon`, `SplitTab.ribbon_note`, `SplitTab.positions() -> tuple[float, ...]`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `tests/test_split_tab.py`:
 
@@ -1563,12 +1563,12 @@ def test_a_run_cuts_at_the_chosen_positions(
 
 Ensure the module imports `pytest`, `Path`, `pipeline`, `conftest` and `SplitTab` — most are already there; add what is missing.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `mise exec -- uv run pytest tests/test_split_tab.py -k "ribbon or position" -v`
 Expected: FAIL with `AttributeError: 'SplitTab' object has no attribute 'ribbon'`.
 
-- [ ] **Step 3: Build the ribbon into the tab**
+- [x] **Step 3: Build the ribbon into the tab**
 
 In `split_tab.py`, add to the imports:
 
@@ -1684,7 +1684,7 @@ Add the position handling, after `_refresh_border_preview`:
 
 Add `from collections.abc import Sequence` to the imports.
 
-- [ ] **Step 4: Fill the ribbon when a source is chosen**
+- [x] **Step 4: Fill the ribbon when a source is chosen**
 
 In `_apply_facts`, after the existing readout lines, adopt the plan and load the picture:
 
@@ -1735,7 +1735,7 @@ Add the loader next to the other workers:
         submit(read, done, lambda _error: None)
 ```
 
-- [ ] **Step 5: Pass the positions into the run and the preview**
+- [x] **Step 5: Pass the positions into the run and the preview**
 
 In `_start_single`, read the plan on the GUI thread beside the style and pass it in:
 
@@ -1778,7 +1778,7 @@ and
 
 `_start_batch` is left alone: folder mode uses the even default, which is what `positions=None` gives.
 
-- [ ] **Step 6: Add the frame-count control**
+- [x] **Step 6: Add the frame-count control**
 
 Task 3's add and remove rules need a way in, or the count stays a derived
 default the user cannot override — which the spec says it must be.
@@ -1920,7 +1920,7 @@ The buttons live in the rail's FORMAT section, beside the frame count they
 change, rather than on the ribbon: the ribbon is the picture, and hanging
 controls on it would put chrome over the photograph.
 
-- [ ] **Step 7: Run the tab's tests, then the full gate, then commit**
+- [x] **Step 7: Run the tab's tests, then the full gate, then commit**
 
 Run: `mise exec -- uv run pytest tests/test_split_tab.py -v`
 Expected: PASS, including every test that was already in the file.
