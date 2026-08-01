@@ -70,6 +70,14 @@ Two things that did *not* go away:
 - **Staleness.** A user can pick a second file before the first inspection returns, so every background answer carries a monotonically increasing token that the callback compares before it writes anything.
 - **Passing context with the answer.** `inspect_source` runs off the GUI thread; if the callback re-read the ratio combobox it could caption one ratio's frame count with another ratio's name. Whatever the job was computed *for* travels back with its result.
 
+### Re-rendering a preview in place
+
+A preview has its border rendered *into* the frames, so a changed setting makes it a picture of settings nobody has any more. It is made again rather than dropped, and three things keep that honest:
+
+- **Cheap on every move, expensive only when the hand stops.** `shell.PercentSlider` emits `valueChanged` on every movement and `settled` once the value is chosen (slider release, or any change arriving with the handle up — an arrow key, Page, Home/End, a programmatic `setValue`). `BorderControls` mirrors that split as `style_changed` (drives the live overlay) and `style_settled` (drives the re-render). `set_style()` is silent on both.
+- **The old picture stays up.** A settle never calls `clear_images()` when a re-render is coming; the new frames swap in when they land. The strip is only put back to the overlay when a re-render is impossible (source gone, a run in flight), and `shell.STALE_PREVIEW` says so. `shell.UPDATING_PREVIEW` covers the interval.
+- **The decoded source is cached.** `pipeline.cached_preview_source()` holds one decode, keyed on path plus mtime and size, bounded to `PREVIEW_MAX_PIXELS` (28MP, ~84MB, against ~400MB for a full 132MP decode). The bound is set by the detail frames, which are cut from the source and scaled *up* to the ratio's full width — see the comment on the constant for the arithmetic. Only `preview_frames(..., cached=True)` uses it; anything that writes to disk goes on reading the full-resolution original. `compose_preview` needs no cache of its own: `_load_for_box` already drafts each source down toward its solved box.
+
 ### The theme
 
 `gui/theme.py` is the design system, and it is presentation only. Two things about it are load-bearing:

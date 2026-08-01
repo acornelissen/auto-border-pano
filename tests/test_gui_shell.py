@@ -146,8 +146,73 @@ def test_border_controls_emit_when_a_swatch_changes(qtbot: QtBot) -> None:
 def test_set_style_does_not_re_emit(qtbot: QtBot) -> None:
     controls = shell.BorderControls(show_gutter=False, show_detail_toggle=False)
     qtbot.addWidget(controls)
-    with qtbot.assertNotEmitted(controls.style_changed):
+    with (
+        qtbot.assertNotEmitted(controls.style_changed),
+        qtbot.assertNotEmitted(controls.style_settled),
+    ):
         controls.set_style(pipeline.FrameStyle(border_percent=20.0))
+
+
+# --- settling: cheap on every move, expensive only when the hand stops -------
+
+
+def test_dragging_a_slider_changes_the_style_without_settling_it(qtbot: QtBot) -> None:
+    """A render per pixel of drag would make the app feel broken. The live
+    overlay follows every move; the re-render waits for the hand to stop."""
+    controls = shell.BorderControls(show_gutter=False, show_detail_toggle=False)
+    qtbot.addWidget(controls)
+    controls.border_slider.slider.setSliderDown(True)
+
+    with (
+        qtbot.assertNotEmitted(controls.style_settled),
+        qtbot.waitSignal(controls.style_changed),
+    ):
+        controls.border_slider.setValue(15.0)
+
+
+def test_releasing_a_dragged_slider_settles_it_once(qtbot: QtBot) -> None:
+    controls = shell.BorderControls(show_gutter=False, show_detail_toggle=False)
+    qtbot.addWidget(controls)
+    settled: list[float] = []
+    controls.style_settled.connect(lambda style: settled.append(style.border_percent))
+
+    controls.border_slider.slider.setSliderDown(True)
+    controls.border_slider.setValue(15.0)
+    controls.border_slider.slider.setSliderDown(False)
+
+    assert settled == [15.0]
+
+
+def test_a_keyboard_change_settles_the_style(qtbot: QtBot) -> None:
+    """Arrow and page keys produce no release event, so a settle that waited
+    for one would leave the keyboard unable to re-render anything."""
+    controls = shell.BorderControls(show_gutter=False, show_detail_toggle=False)
+    qtbot.addWidget(controls)
+    controls.show()
+    qtbot.waitExposed(controls)
+    controls.border_slider.slider.setFocus()
+
+    with qtbot.waitSignal(controls.style_settled) as blocker:
+        qtbot.keyClick(controls.border_slider.slider, Qt.Key.Key_Right)  # type: ignore[no-untyped-call]
+    assert blocker.args[0].border_percent == pytest.approx(9.5)
+
+
+def test_a_swatch_settles_immediately(qtbot: QtBot) -> None:
+    """There is nothing to drag, so there is nothing to wait for."""
+    controls = shell.BorderControls(show_gutter=False, show_detail_toggle=False)
+    qtbot.addWidget(controls)
+    with qtbot.waitSignal(controls.style_settled) as blocker:
+        controls.border_swatch.set_colour("#000000")
+    assert blocker.args[0].border_colour == "#000000"
+
+
+def test_the_detail_toggle_settles_immediately(qtbot: QtBot) -> None:
+    controls = shell.BorderControls(show_gutter=False, show_detail_toggle=True)
+    qtbot.addWidget(controls)
+    assert controls.detail_check is not None
+    with qtbot.waitSignal(controls.style_settled) as blocker:
+        controls.detail_check.setChecked(True)
+    assert blocker.args[0].border_detail_frames is True
 
 
 def test_gutter_controls_are_hidden_when_not_wanted(qtbot: QtBot) -> None:

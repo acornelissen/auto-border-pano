@@ -77,6 +77,9 @@ class SplitTab(QWidget):
         self._detail = ""
         # Monotonic; only the newest inspection may write to the readouts.
         self._inspect_token = 0
+        # Monotonic too, and for the same reason: a settle during a render
+        # starts a newer one, and the older answer must not land on top of it.
+        self._render_token = 0
         # True while a run or a preview is in flight. The single fact the
         # button states are derived from, so neither action can be started
         # twice.
@@ -149,6 +152,7 @@ class SplitTab(QWidget):
         self.border_controls = shell.BorderControls(show_gutter=False, show_detail_toggle=True)
         self.border_controls.set_style(settings.load_style(settings.SPLIT))
         self.border_controls.style_changed.connect(self._on_style_changed)
+        self.border_controls.style_settled.connect(self._on_style_settled)
         rail.addWidget(self.border_controls)
 
         rail.addSpacing(theme.L)
@@ -242,9 +246,20 @@ class SplitTab(QWidget):
         return self.border_controls.frame_style()
 
     def _on_style_changed(self, style: pipeline.FrameStyle) -> None:
-        """Persist the choice, so the next launch opens on the same border."""
+        """Every movement of a control. Cheap work only.
+
+        Persists the choice, so the next launch opens on the same border,
+        and moves the live overlay. It deliberately does not touch a render
+        already on the table: re-rendering per pixel of a drag is not
+        possible, and dropping the render instead would blank the table for
+        the length of the drag.
+        """
         settings.save_style(settings.SPLIT, style)
         self._refresh_border_preview()
+
+    def _on_style_settled(self, _style: pipeline.FrameStyle) -> None:
+        """The hand has stopped. Now the frames themselves can be redone."""
+        self._rerender()
 
     def _refresh_border_preview(self) -> None:
         """Show the border on the strip, as the rail currently describes it.
@@ -263,23 +278,29 @@ class SplitTab(QWidget):
                 first_frame_only=not style.border_detail_frames,
             )
         )
-        self._discard_stale_preview()
 
-    def _discard_stale_preview(self) -> None:
-        """Drop a render that the settings have moved on from.
+    def _rerender(self) -> None:
+        """Make the frames on the table again, under the settings now in force.
 
         The frames a preview puts on the strip have their border rendered
-        into them, so the moment the rail changes they are a picture of
-        settings nobody has any more. Dropping them puts the strip back to
-        empty apertures, where the live overlay draws what the rail now
-        says -- what is on screen and what the rail says are then the same
-        thing again, which is the whole point.
+        into them, so the moment the rail moves they are a picture of
+        settings nobody has any more. The answer is to render them again,
+        not to drop them: the old picture stays up, a moment out of date,
+        and the new frames swap in when they land. Blanking the strip on
+        every settle was the flicker this replaced.
 
-        The status line accounts for it, because a preview disappearing as
-        you drag a slider otherwise reads as a fault.
+        With nothing rendered there is nothing to redo -- the apertures are
+        empty and the live overlay is already drawing exactly what the rail
+        says. When a render *is* up and cannot be made again, the strip
+        does go back to the overlay, and the status line says so.
         """
-        if self.strip.clear_images():
-            self.status_label.setText(shell.STALE_PREVIEW)
+        if self.strip.exposed == 0:
+            return
+        if self._running or not self.can_preview():
+            if self.strip.clear_images():
+                self.status_label.setText(shell.STALE_PREVIEW)
+            return
+        self._render(updating=True)
 
     def _on_selection_changed(self, *_args: object) -> None:
         """Re-read the source's header. GUI thread only.
@@ -296,8 +317,9 @@ class SplitTab(QWidget):
         # The ratio arrives through here too, and the ratio decides the
         # shape of the frame the border is drawn around -- which also makes
         # any render already on the table a picture of the wrong shape, so
-        # the refresh drops it.
+        # it is made again.
         self._refresh_border_preview()
+        self._rerender()
         # The band names whatever is loaded, folder or file -- it is the one
         # thing on screen that says what you are working on.
         subject = Path(source).name if source else ""
@@ -568,34 +590,65 @@ class SplitTab(QWidget):
         if not self.can_preview() or self._running:
             return
         self._set_error("")
+        self._render(updating=False)
+
+    def _render(self, *, updating: bool) -> None:
+        """Render the frames off the GUI thread and show them when they land.
+
+        One path for both the button and a re-render; `updating` is the
+        difference between them, and it is only ever about what the user
+        sees. A pressed Preview owns the buttons and says it is working; a
+        re-render leaves the rail alone, because the user is still in the
+        middle of setting something and taking their controls away mid-drag
+        would be the interface fighting them.
+
+        The ratio and the style are read here, on the GUI thread, and
+        travel into the job. A worker re-reading them could render one
+        border and caption it with another. The token does the same job for
+        time: a settle during a render starts a newer one, and the older
+        answer is dropped rather than painted over the newer.
+        """
+        self._render_token += 1
+        token = self._render_token
         source = self.source_row.text()
         ratio_name = self._ratio_name()
         style = self._style()
-        self._running = True
-        self._apply_button_states()
-        self.status_label.setText("Rendering preview")
+        if updating:
+            self.status_label.setText(shell.UPDATING_PREVIEW)
+        else:
+            self._running = True
+            self._apply_button_states()
+            self.status_label.setText("Rendering preview")
 
         def render() -> list[Image.Image]:
             # Worker thread. Touches no widget; the frames come back as plain
-            # data and are shown on the GUI thread below.
-            return pipeline.preview_frames(source, pipeline.RATIOS[ratio_name], style)
+            # data and are shown on the GUI thread below. `cached` lets a
+            # second render of the same source skip the decode, which is
+            # what makes re-rendering a 132MP scan bearable.
+            return pipeline.preview_frames(source, pipeline.RATIOS[ratio_name], style, cached=True)
 
         def done(frames: list[Image.Image]) -> None:
-            self._running = False
+            if not updating:
+                self._running = False
+                self._apply_button_states()
+            if token != self._render_token:
+                return
             ratio = pipeline.RATIOS[ratio_name].name
             self.status_label.setText(f"Preview of {len(frames)} frames at {ratio}")
-            try:
-                self.strip.set_frames(preview_titles(len(frames) - 1))
-                self.strip.show_images(frames)
-            finally:
-                self._apply_button_states()
+            self.strip.set_frames(preview_titles(len(frames) - 1))
+            self.strip.show_images(frames)
 
         def failed(error: BaseException) -> None:
             # The same inline path a failed run takes. No modal, here or
-            # anywhere else in this tab.
-            self._running = False
+            # anywhere else in this tab. The frames already on the strip
+            # stay: they are out of date, but they are more use than an
+            # empty table.
+            if not updating:
+                self._running = False
+                self._apply_button_states()
+            if token != self._render_token:
+                return
             self.status_label.setText(f"Could not preview {Path(source).name} — {error}")
             self._set_error(str(error))
-            self._apply_button_states()
 
         submit(render, done, failed)

@@ -32,12 +32,21 @@ from PySide6.QtWidgets import (
 from maskingframe import pipeline
 from maskingframe.gui import theme
 
-STALE_PREVIEW = "Settings changed. Press Preview to render them."
-"""What both tabs say when a render is dropped for no longer matching.
+UPDATING_PREVIEW = "Updating the preview."
+"""What both tabs say while a loaded render is being made again.
 
-A preview vanishing as you drag a slider reads as a glitch unless
-something accounts for it. It is a plain statement, in the help voice, not
-an error -- nothing has gone wrong and there is nothing to fix.
+The old picture stays on the table until the new one lands, so this is the
+only sign that it is a moment out of date. Present tense, help voice: it
+reports work in hand, not a fault.
+"""
+
+STALE_PREVIEW = "Preview is out of date. Press Preview to render it again."
+"""What both tabs say when the render on the table cannot be made again.
+
+The usual answer to a changed setting is to render it again by itself. When
+that is not possible -- the source has gone, or something else is already
+running -- this says so plainly rather than leaving a picture of settings
+nobody has any more without comment.
 """
 
 
@@ -321,6 +330,19 @@ class PercentSlider(QWidget):
     PAGE_PERCENT = 5.0
 
     valueChanged = Signal(float)
+    """Every movement, including each pixel of a drag."""
+
+    settled = Signal(float)
+    """The value the hand stopped on.
+
+    `valueChanged` is right for anything cheap enough to redo on every
+    pixel of a drag; a re-render is not. This fires once the value is one
+    the user has actually chosen: on release after a drag, and immediately
+    for a change that had no drag to release -- an arrow key, Page Up,
+    Home, End, or a programmatic `setValue`. Those produce no release event
+    at all, so a settle that waited for one would leave the keyboard unable
+    to ask for anything.
+    """
 
     def __init__(
         self,
@@ -360,6 +382,7 @@ class PercentSlider(QWidget):
         self.setFocusProxy(self.slider)
 
         self.slider.valueChanged.connect(self._changed)
+        self.slider.sliderReleased.connect(self._released)
         self._describe()
         self.setValue(value)
 
@@ -384,6 +407,19 @@ class PercentSlider(QWidget):
     def _changed(self, _steps: int) -> None:
         self._describe()
         self.valueChanged.emit(self.value())
+        # A change arriving with the handle up had no drag behind it, so
+        # there is no release coming and this is already the chosen value.
+        if not self.slider.isSliderDown():
+            self.settled.emit(self.value())
+
+    def _released(self) -> None:
+        """The hand has come off the handle: whatever it landed on is chosen.
+
+        Emitted even when the value ended where it started, which is a
+        needless re-render at worst and never a wrong one -- Qt gives no way
+        to tell "dragged and returned" from "pressed and let go".
+        """
+        self.settled.emit(self.value())
 
     def _describe(self) -> None:
         reading = f"{self.value():.1f} %"
@@ -403,6 +439,17 @@ class BorderControls(QWidget):
     """
 
     style_changed = Signal(object)
+    """Every movement of every control, for whatever is cheap to redo."""
+
+    style_settled = Signal(object)
+    """The style the user has actually stopped on.
+
+    Both signals carry a whole `FrameStyle`. The split is by cost, not by
+    meaning: `style_changed` drives the live overlay, which is a few
+    rectangles and can follow a drag pixel by pixel, and `style_settled`
+    drives re-rendering the frames, which cannot. A control with nothing to
+    drag -- a swatch, a checkbox -- settles the moment it changes.
+    """
 
     def __init__(
         self,
@@ -463,6 +510,7 @@ class BorderControls(QWidget):
             self.detail_check = QCheckBox("Border the detail frames too")
             self.detail_check.setAccessibleName("Border the detail frames too")
             self.detail_check.toggled.connect(self._emit)
+            self.detail_check.toggled.connect(self._settle)
             column.addWidget(self.detail_check)
 
     def _field(
@@ -484,9 +532,11 @@ class BorderControls(QWidget):
 
         slider = PercentSlider(slider_label, slider_value)
         slider.valueChanged.connect(self._emit)
+        slider.settled.connect(self._settle)
 
         swatch = Swatch(swatch_value, swatch_label)
         swatch.colour_changed.connect(self._emit)
+        swatch.colour_changed.connect(self._settle)
 
         row.addWidget(slider, 1)
         row.addWidget(swatch)
@@ -573,3 +623,8 @@ class BorderControls(QWidget):
         if self._quiet:
             return
         self.style_changed.emit(self.frame_style())
+
+    def _settle(self, *_args: object) -> None:
+        if self._quiet:
+            return
+        self.style_settled.emit(self.frame_style())

@@ -218,6 +218,9 @@ class ComposeTab(QWidget):
         # was added cannot overwrite the newer answer.
         self._solved: str = ""
         self._solve_token = 0
+        # Monotonic too, and for the same reason: a settle during a render
+        # starts a newer one, and the older answer must not land on top of it.
+        self._render_token = 0
         # Pixel sizes by path. Cached because the same source is re-listed
         # on every add, remove and reorder, and re-reading its header each
         # time would be wasteful.
@@ -311,6 +314,7 @@ class ComposeTab(QWidget):
         self.border_controls = shell.BorderControls(show_gutter=True, show_detail_toggle=False)
         self.border_controls.set_style(settings.load_style(settings.COMPOSE))
         self.border_controls.style_changed.connect(self._on_style_changed)
+        self.border_controls.style_settled.connect(self._on_style_settled)
         rail.addWidget(self.border_controls)
 
         rail.addSpacing(theme.L)
@@ -391,13 +395,21 @@ class ComposeTab(QWidget):
         return self.border_controls.frame_style()
 
     def _on_style_changed(self, style: pipeline.FrameStyle) -> None:
-        """Persist the choice and re-solve: the gap can change which
-        arrangement wins, so the name in the rail would otherwise be
-        describing the previous solution."""
+        """Every movement of a control. Persist and re-solve, nothing more.
+
+        The gap can change which arrangement wins, so the name in the rail
+        would otherwise be describing the previous solution. The composite
+        on the table is left alone: rendering it again per pixel of a drag
+        is not possible, and dropping it instead would blank the table for
+        as long as the drag lasted.
+        """
         settings.save_style(settings.COMPOSE, style)
-        self._discard_stale_preview()
         self._request_layout_name()
         self._refresh_border_preview()
+
+    def _on_style_settled(self, _style: pipeline.FrameStyle) -> None:
+        """The hand has stopped. Now the composite itself can be redone."""
+        self._rerender()
 
     def _aspects(self) -> list[float] | None:
         """The sources' aspect ratios, or None while any is still unknown.
@@ -454,8 +466,9 @@ class ComposeTab(QWidget):
         settings nobody has any more. Dropping it puts the empty frame and
         the live overlay back, and those do agree with the rail.
 
-        Called from the handlers for the things that make a render stale --
-        the style, the ratio, the sources -- and deliberately not from
+        Called when the sources themselves change -- a composite of a set
+        nobody is composing any more is not a picture worth remaking, and
+        the new set may not even be composable -- and deliberately not from
         `_refresh_border_preview`, which also runs when a background solve
         lands. A solve landing is new information about the settings in
         force, not a change to them, and clearing there would pull a
@@ -467,6 +480,26 @@ class ComposeTab(QWidget):
         """
         if self.previews.clear_images():
             self._set_hint(shell.STALE_PREVIEW)
+
+    def _rerender(self) -> None:
+        """Compose the frame again, under the settings now in force.
+
+        The composite on the table has the border and the gaps rendered
+        into it, so a settled change makes it a picture of settings nobody
+        has any more. It is remade rather than dropped: the old image stays
+        up, a moment out of date, and the new one swaps in when it lands.
+
+        With nothing composed there is nothing to redo -- the empty frame
+        and the live overlay already agree with the rail. When there is
+        something up and it cannot be made again, the table does go back to
+        the overlay and the hint says so.
+        """
+        if self.previews.exposed == 0:
+            return
+        if not self.can_compose() or not self.preview_btn.isEnabled():
+            self._discard_stale_preview()
+            return
+        self._render(updating=True)
 
     @property
     def status(self) -> str:
@@ -721,17 +754,55 @@ class ComposeTab(QWidget):
         # Preview is disabled unless this holds; the guard is a safety net.
         if not self.can_compose():
             return
+        self._render(updating=False)
+
+    def _render(self, *, updating: bool) -> None:
+        """Render the composite off the GUI thread, showing it when it lands.
+
+        One path for the button and for a re-render; `updating` is only
+        about what the user sees. A pressed Preview owns the buttons and
+        says it is working; a re-render leaves the rail alone, because the
+        user is still setting something and taking the controls away
+        mid-adjustment would be the interface fighting them.
+
+        The ratio, the style and the source list are read here, on the GUI
+        thread, and travel into the job -- a worker re-reading them could
+        render one gap and caption it with another. The token does the same
+        for time: a settle during a render starts a newer one, and the
+        older answer is dropped rather than painted over the newer.
+        """
+        self._render_token += 1
+        token = self._render_token
         ratio = pipeline.RATIOS[self._ratio_name()]
         style = self._style()
         sources = list(self.images)
-        self._set_buttons_enabled(False)
-        self._set_status(WORKING)
+        if updating:
+            self._set_status(shell.UPDATING_PREVIEW)
+        else:
+            self._set_buttons_enabled(False)
+            self._set_status(WORKING)
 
         def job() -> _Previewed:
             image, layout_name = pipeline.compose_preview(sources, ratio, style)
             return _Previewed(image, layout_name, ratio.name, len(sources))
 
-        submit(job, self._finish_preview, self._failed)
+        def done(previewed: _Previewed) -> None:
+            if not updating:
+                self._apply_button_states()
+            if token != self._render_token:
+                return
+            self._finish_preview(previewed)
+
+        def failed(error: BaseException) -> None:
+            # The image already on the table stays: out of date is more use
+            # than an empty frame.
+            if not updating:
+                self._apply_button_states()
+            if token != self._render_token:
+                return
+            self._failed(error)
+
+        submit(job, done, failed)
 
     def _failed(self, error: BaseException) -> None:
         """One failure path for both actions. Inline, never modal."""
@@ -776,7 +847,7 @@ class ComposeTab(QWidget):
 
     def _on_ratio_change(self, _index: int = 0) -> None:
         # A new ratio is a new frame shape, so anything already rendered is
-        # a picture of the old one.
-        self._discard_stale_preview()
+        # a picture of the old one and is composed again.
         self._request_layout_name()
         self._refresh_border_preview()
+        self._rerender()

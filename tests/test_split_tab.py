@@ -13,7 +13,7 @@ from PIL import Image
 from PySide6.QtWidgets import QDialog, QLabel, QMessageBox, QRadioButton
 
 from maskingframe import pipeline
-from maskingframe.gui import settings, shell
+from maskingframe.gui import settings, shell, split_tab
 from maskingframe.gui.split_tab import NO_COUNT, UNCOUNTED_ACTION, SplitTab, preview_titles
 from tests.conftest import synthetic_panorama
 
@@ -532,6 +532,9 @@ def test_a_zero_border_previews_nothing(qtbot: Any, tab: SplitTab) -> None:
 
 
 # --- a render must never outlive the settings it was made under --------------
+#
+# It is remade rather than dropped: the old frames stay on the table, a
+# moment out of date, until the new ones land.
 
 
 def _previewed(qtbot: Any, tab: SplitTab, tmp_path: Path) -> None:
@@ -542,54 +545,158 @@ def _previewed(qtbot: Any, tab: SplitTab, tmp_path: Path) -> None:
     qtbot.waitUntil(lambda: tab.strip.exposed > 0, timeout=20000)
 
 
-def test_changing_the_border_drops_the_render_it_no_longer_matches(
+def _captured_renders(monkeypatch: pytest.MonkeyPatch) -> list[tuple[Any, Any, Any]]:
+    """Hold every submitted job instead of running it.
+
+    The only way to land two answers in a chosen order, which is what a
+    staleness test is about.
+    """
+    captured: list[tuple[Any, Any, Any]] = []
+    monkeypatch.setattr(
+        split_tab,
+        "submit",
+        lambda job, done, failed=None: captured.append((job, done, failed)),
+    )
+    return captured
+
+
+def test_changing_the_border_renders_the_frames_again(
     qtbot: Any, tab: SplitTab, tmp_path: Path
 ) -> None:
-    """The frames on screen have the old border rendered into them. Left
-    there, the rail and the strip would be describing different pictures."""
+    """The frames on screen have the old border rendered into them, so they
+    are made again under the new one."""
     _previewed(qtbot, tab, tmp_path)
     frames = tab.strip.frame_count
     caption = tab.strip.caption_at(0)
 
     tab.border_controls.border_slider.setValue(20)
 
-    assert tab.strip.exposed == 0
+    # No blanking: the old picture is still there while the new one is made.
+    assert tab.strip.exposed == frames
+    assert tab.status_label.text() == shell.UPDATING_PREVIEW
+    qtbot.waitUntil(lambda: tab.status_label.text() != shell.UPDATING_PREVIEW, timeout=20000)
+    assert tab.strip.exposed == frames
     # The run itself is untouched: same frames, same numbering, same names.
     assert tab.strip.frame_count == frames
     assert tab.strip.caption_at(0) == caption
-    # And the overlay is back, so the rail's setting is still shown.
-    assert tab.strip.border_rects(0)
-    assert tab.status_label.text() == shell.STALE_PREVIEW
+    # And a rendered frame still carries no overlay -- its border is in the
+    # pixels, and a second band over the first would be wrong.
+    assert tab.strip.border_rects(0) == []
 
 
-def test_changing_the_ratio_drops_the_render_too(qtbot: Any, tab: SplitTab, tmp_path: Path) -> None:
+def test_dragging_the_slider_does_not_render(
+    qtbot: Any, tab: SplitTab, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A render per pixel of drag is the thing the settle exists to stop."""
     _previewed(qtbot, tab, tmp_path)
+    captured = _captured_renders(monkeypatch)
+
+    slider = tab.border_controls.border_slider.slider
+    slider.setSliderDown(True)
+    tab.border_controls.border_slider.setValue(12.0)
+    tab.border_controls.border_slider.setValue(14.0)
+    assert captured == []
+    # The overlay still follows every move.
+    preview = tab.strip.border_preview
+    assert preview is not None and preview.border == pytest.approx(0.14)
+
+    slider.setSliderDown(False)
+    assert len(captured) == 1
+
+
+def test_changing_the_ratio_renders_the_frames_again(
+    qtbot: Any, tab: SplitTab, tmp_path: Path
+) -> None:
+    _previewed(qtbot, tab, tmp_path)
+    before = tab.strip.exposed
 
     tab.ratio_box.setCurrentText(pipeline.RATIOS["1:1"].display)
 
-    assert tab.strip.exposed == 0
-    assert tab.strip.border_rects(0)
+    assert tab.strip.exposed == before
+    qtbot.waitUntil(lambda: "1:1" in tab.status_label.text(), timeout=20000)
+    assert tab.strip.exposed > 0
+    assert tab.strip.border_rects(0) == []
 
 
-def test_the_detail_toggle_drops_the_render_and_reaches_every_frame(
+def test_the_detail_toggle_renders_the_frames_again(
     qtbot: Any, tab: SplitTab, tmp_path: Path
 ) -> None:
     _previewed(qtbot, tab, tmp_path)
     assert tab.strip.frame_count > 1
-
     detail_check = tab.border_controls.detail_check
     assert detail_check is not None
+
     detail_check.setChecked(True)
 
-    assert tab.strip.exposed == 0
-    assert tab.strip.border_rects(1)
+    assert tab.strip.exposed > 0
+    qtbot.waitUntil(lambda: tab.status_label.text() != shell.UPDATING_PREVIEW, timeout=20000)
+    assert tab.strip.border_rects(1) == []
 
 
-def test_nothing_is_said_when_there_was_no_render_to_drop(tab: SplitTab) -> None:
-    """A status line announcing a discard that never happened would be
-    narrating something the user never saw."""
+def test_nothing_is_rendered_when_there_is_nothing_on_the_table(
+    tab: SplitTab, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Empty apertures are already showing the live overlay, which is
+    exactly what the rail says. There is nothing to redo."""
+    captured = _captured_renders(monkeypatch)
     before = tab.status_label.text()
 
     tab.border_controls.border_slider.setValue(20)
 
+    assert captured == []
     assert tab.status_label.text() == before
+
+
+def test_a_render_that_cannot_be_made_again_says_so(
+    qtbot: Any, tab: SplitTab, tmp_path: Path
+) -> None:
+    """When the source has gone there is no way back to a true picture, so
+    the strip returns to the overlay and the status line accounts for it."""
+    _previewed(qtbot, tab, tmp_path)
+    (tmp_path / "pano.jpg").unlink()
+
+    tab.border_controls.border_slider.setValue(20)
+
+    assert tab.strip.exposed == 0
+    assert tab.strip.border_rects(0)
+    assert tab.status_label.text() == shell.STALE_PREVIEW
+
+
+def test_a_stale_render_does_not_overwrite_a_newer_one(
+    qtbot: Any, tab: SplitTab, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two settles in quick succession: the first answer is slower and must
+    not land on top of the second."""
+    _previewed(qtbot, tab, tmp_path)
+    captured = _captured_renders(monkeypatch)
+
+    tab.border_controls.border_slider.setValue(12.0)
+    tab.border_controls.border_slider.setValue(20.0)
+    assert len(captured) == 2
+
+    newest = pipeline.preview_frames(_panorama(tmp_path), cached=True)
+    captured[1][1](newest)
+    settled = [tab.strip.caption_at(index) for index in range(tab.strip.frame_count)]
+    status = tab.status_label.text()
+
+    # The older job returns last, and is dropped.
+    captured[0][1](pipeline.preview_frames(_panorama(tmp_path), pipeline.RATIOS["1:1"]))
+
+    assert tab.strip.frame_count == len(settled)
+    assert [tab.strip.caption_at(i) for i in range(tab.strip.frame_count)] == settled
+    assert tab.status_label.text() == status
+
+
+def test_a_failed_re_render_leaves_the_old_frames_up(
+    qtbot: Any, tab: SplitTab, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Out of date beats an empty table."""
+    _previewed(qtbot, tab, tmp_path)
+    captured = _captured_renders(monkeypatch)
+    tab.border_controls.border_slider.setValue(20.0)
+    exposed = tab.strip.exposed
+
+    captured[0][2](OSError("no"))
+
+    assert tab.strip.exposed == exposed
+    assert tab.error_label.text() == "no"

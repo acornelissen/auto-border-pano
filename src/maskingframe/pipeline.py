@@ -8,6 +8,7 @@ import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from threading import Lock
 
 from PIL import Image
 
@@ -146,12 +147,114 @@ def process_image(
     return targets
 
 
+# How large a decoded source the preview cache may hold, in pixels.
+#
+# A full decode of the user's largest scan is 132MP, about 400MB in RGB, and
+# holding that so a slider release feels quick would be paying for it in the
+# wrong currency. But a detail frame is *cut* from the source and scaled up
+# to the ratio's full width, so a copy bounded too hard comes out visibly
+# soft. That fixes the floor: with `count` detail frames the copy must be at
+# least `count * ratio.width` wide and `ratio.height` tall.
+#
+# `count` is roughly the source's aspect over the ratio's, so for a copy of
+# P pixels at aspect A the width is sqrt(P*A) and the requirement
+# sqrt(P*A) * ratio.value / A >= ratio.width reduces to
+# P >= (ratio.height)^2 * A. The worst ratio is Portrait (1350 tall), so a
+# 13:1 panorama -- wider than anything this tool has been pointed at, its
+# own samples being 2.33:1 -- needs 23.7MP. 28MP clears that with room, and
+# costs about 84MB rather than 400MB. `test_the_bound_never_softens_a_detail
+# _frame` checks the arithmetic against the real `section_count`.
+PREVIEW_MAX_PIXELS = 28_000_000
+
+
+def preview_source_size(width: int, height: int) -> tuple[int, int]:
+    """The size a source of this shape is cached at. Pure arithmetic.
+
+    Only ever shrinks: a source already inside the bound is cached exactly
+    as it was decoded, so a preview of it is the same picture a written run
+    would cut.
+    """
+    pixels = width * height
+    if pixels <= PREVIEW_MAX_PIXELS:
+        return width, height
+    scale = (PREVIEW_MAX_PIXELS / pixels) ** 0.5
+    return max(1, int(width * scale)), max(1, int(height * scale))
+
+
+_PreviewKey = tuple[str, int, int]
+
+_preview_key: _PreviewKey | None = None
+_preview_image: Image.Image | None = None
+_preview_lock = Lock()
+
+
+def _preview_cache_key(path: Path) -> _PreviewKey:
+    """Path, modification time and size together.
+
+    The path alone would go on showing the old picture for as long as the
+    app stayed open if the file were re-exported under the same name.
+    """
+    stat = path.stat()
+    return (str(path.resolve()), stat.st_mtime_ns, stat.st_size)
+
+
+def clear_preview_cache() -> None:
+    """Forget the decoded source. For tests, and for shutting down."""
+    global _preview_key, _preview_image
+    with _preview_lock:
+        _preview_key = None
+        _preview_image = None
+
+
+def cached_preview_source(input_path: Path | str) -> Image.Image:
+    """Decode a source for on-screen use, keeping the last one decoded.
+
+    Only the preview may use this. Anything that writes to disk goes on
+    opening the full-resolution original, because the copy here is bounded
+    to `PREVIEW_MAX_PIXELS` and a file on disk must never be cut from a
+    bounded copy.
+
+    One entry, not a dictionary: a user works on one source at a time, and
+    the point is to spare the *second* render of the *same* file, not to
+    accumulate decodes. Guarded by a lock because previews run on worker
+    threads.
+    """
+    global _preview_key, _preview_image
+    path = Path(input_path)
+    key = _preview_cache_key(path)
+    with _preview_lock:
+        if key == _preview_key and _preview_image is not None:
+            return _preview_image
+
+    with Image.open(path) as opened:
+        target = preview_source_size(*opened.size)
+        # libjpeg can decode straight to a reduced DCT scale, which is far
+        # cheaper than decoding in full and throwing the pixels away. A
+        # no-op for other formats and for anything already small enough.
+        opened.draft("RGB", target)
+        image = opened.convert("RGB")
+    if image.width > target[0] or image.height > target[1]:
+        image = image.resize(target, Image.Resampling.LANCZOS)
+
+    with _preview_lock:
+        _preview_key = key
+        _preview_image = image
+    return image
+
+
 def preview_frames(
     input_path: Path | str,
     ratio: AspectRatio = DEFAULT_RATIO,
     style: FrameStyle = DEFAULT_STYLE,
+    cached: bool = False,
 ) -> list[Image.Image]:
     """Render every frame in memory, without writing anything.
+
+    `cached` lets the on-screen preview render from `cached_preview_source`
+    rather than decoding the file again -- which is what makes re-rendering
+    on a slider release bearable on a 132MP scan. It is off by default so
+    that nothing acquires the bounded copy by accident; the CLI and every
+    written run read the original in full.
 
     `style` is a parameter with a default rather than module state, so the
     preview shows the same border the run will write.
@@ -164,8 +267,11 @@ def preview_frames(
     size, not the source's, so previewing a 132MP scan holds a handful of
     ~1080px images rather than a copy of the scan per frame.
     """
-    with Image.open(input_path) as opened:
-        source = opened.convert("RGB")
+    if cached:
+        source = cached_preview_source(input_path)
+    else:
+        with Image.open(input_path) as opened:
+            source = opened.convert("RGB")
 
     width, height = source.size
     if width < height:

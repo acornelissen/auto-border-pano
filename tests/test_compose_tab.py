@@ -696,33 +696,109 @@ def test_a_rendered_composite_carries_no_overlay(qtbot: QtBot, tab: ComposeTab) 
     assert tab.previews.border_rects(0) == []
 
 
-def test_changing_the_border_drops_the_composite_it_no_longer_matches(
-    qtbot: QtBot, tab: ComposeTab
-) -> None:
+def _captured_renders(monkeypatch: pytest.MonkeyPatch) -> list[tuple[Any, Any, Any]]:
+    """Hold every submitted job instead of running it, so two answers can
+    be landed in a chosen order."""
+    captured: list[tuple[Any, Any, Any]] = []
+    monkeypatch.setattr(
+        compose_tab,
+        "submit",
+        lambda job, done, failed=None: captured.append((job, done, failed)),
+    )
+    return captured
+
+
+def test_changing_the_border_composes_the_frame_again(qtbot: QtBot, tab: ComposeTab) -> None:
     _previewed(qtbot, tab)
 
     tab.border_controls.border_slider.setValue(20.0)
 
-    assert tab.previews.exposed == 0
-    assert tab.previews.border_rects(0)
-    assert tab.hint == shell.STALE_PREVIEW
+    # No blanking: the old composite is up while the new one is made.
+    assert tab.previews.exposed == 1
+    assert tab.status == shell.UPDATING_PREVIEW
+    qtbot.waitUntil(lambda: tab.status != shell.UPDATING_PREVIEW, timeout=15000)
+    assert tab.previews.exposed == 1
+    # A render carries its border in its pixels, so it takes no overlay.
+    assert tab.previews.border_rects(0) == []
 
 
-def test_changing_the_gap_drops_the_composite_too(qtbot: QtBot, tab: ComposeTab) -> None:
+def test_dragging_the_gap_slider_does_not_compose(
+    qtbot: QtBot, tab: ComposeTab, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _previewed(qtbot, tab)
+    captured = _captured_renders(monkeypatch)
+    slider = tab.border_controls.gutter_slider
+    assert slider is not None
 
-    tab.border_controls.gutter_slider.setValue(9.0)  # type: ignore[union-attr]
+    slider.slider.setSliderDown(True)
+    slider.setValue(9.0)
+    # The live solve still runs on every move; a compose does not.
+    assert all(call[1] != tab._finish_preview for call in captured)
+    before = len(captured)
 
-    assert tab.previews.exposed == 0
+    slider.slider.setSliderDown(False)
+    assert len(captured) > before
+    assert tab.status == shell.UPDATING_PREVIEW
 
 
-def test_changing_the_ratio_drops_the_composite(qtbot: QtBot, tab: ComposeTab) -> None:
+def test_changing_the_ratio_composes_the_frame_again(qtbot: QtBot, tab: ComposeTab) -> None:
     _previewed(qtbot, tab)
 
     tab.ratio_combo.setCurrentText(pipeline.RATIOS["1:1"].display)
 
+    assert tab.previews.exposed == 1
+    qtbot.waitUntil(lambda: "1:1" in tab.status, timeout=15000)
+    assert tab.previews.exposed == 1
+
+
+def test_nothing_is_composed_when_the_table_is_empty(
+    qtbot: QtBot, tab: ComposeTab, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An empty frame is already showing the live overlay, which is exactly
+    what the rail says."""
+    tab._accept([WIDE, TALL])
+    _wait_for_sizes(qtbot, tab)
+    captured = _captured_renders(monkeypatch)
+
+    tab.border_controls.border_slider.setValue(20.0)
+
     assert tab.previews.exposed == 0
-    assert tab.previews.border_rects(0)
+    assert all(call[1] != tab._finish_preview for call in captured)
+
+
+def test_removing_a_source_drops_the_composite(qtbot: QtBot, tab: ComposeTab) -> None:
+    """A composite of a set nobody is composing any more is not worth
+    remaking, and one source cannot be composed at all."""
+    _previewed(qtbot, tab)
+    tab.listbox.select(0)
+    tab._on_select(0)
+
+    tab.remove()
+
+    assert tab.previews.exposed == 0
+
+
+def test_a_stale_composite_does_not_overwrite_a_newer_one(
+    qtbot: QtBot, tab: ComposeTab, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _previewed(qtbot, tab)
+    captured = _captured_renders(monkeypatch)
+
+    tab.border_controls.border_slider.setValue(12.0)
+    tab.border_controls.border_slider.setValue(20.0)
+    renders = [call for call in captured if call[1].__name__ == "done"]
+    assert len(renders) == 2
+
+    newest = renders[1][0]()
+    renders[1][1](newest)
+    settled = tab.status
+
+    # The older job returns last, and is dropped.
+    older = renders[0][0]()
+    renders[0][1](older)
+
+    assert tab.status == settled
+    assert tab.previews.exposed == 1
 
 
 def test_a_solve_landing_does_not_pull_a_preview_off_the_table(
