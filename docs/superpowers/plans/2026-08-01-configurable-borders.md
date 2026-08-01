@@ -245,7 +245,7 @@ it yet; the constants it replaces are removed as each caller moves over."
 
 Bridge detail, so the tree keeps building: in `pipeline.py`, replace `geometry.SIDE_PADDING` with `geometry.DEFAULT_STYLE.border_px(ratio)` and `layout.GUTTER` stays as-is for now. In `compose.py`, replace `BACKGROUND` with `geometry.DEFAULT_STYLE.border_colour`.
 
-- [ ] **Step 1: Rewrite the existing padding tests against the percent contract**
+- [x] **Step 1: Rewrite the existing padding tests against the percent contract**
 
 In `tests/test_geometry.py`, replace every use of `geometry.SIDE_PADDING` with a style-derived value, and replace `geometry.BACKGROUND` with `geometry.DEFAULT_STYLE.border_colour`. The existing test bodies stay; only the expected margin changes:
 
@@ -289,12 +289,12 @@ def test_zero_border_fills_the_frame_edge_to_edge_on_the_binding_axis() -> None:
     assert right == frame.width
 ```
 
-- [ ] **Step 2: Run the tests and verify they fail**
+- [x] **Step 2: Run the tests and verify they fail**
 
 Run: `uv run pytest tests/test_geometry.py -v`
 Expected: FAIL, `make_padded_frame() takes 2 positional arguments but 3 were given`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Delete `SIDE_PADDING = 100` and `BACKGROUND = "white"` from `geometry.py`. Change the signature and body of `make_padded_frame`:
 
@@ -341,16 +341,16 @@ Then fix the two bridge call sites so the tree still builds:
 - `src/maskingframe/pipeline.py:226` and `:293`: change `geometry.SIDE_PADDING` to `geometry.DEFAULT_STYLE.border_px(ratio)`.
 - `tests/test_compose.py:8` and `tests/test_layout.py:12`: change `PADDING = geometry.SIDE_PADDING` to `PADDING = geometry.DEFAULT_STYLE.border_px(geometry.PORTRAIT)`.
 
-- [ ] **Step 4: Run the tests and verify they pass**
+- [x] **Step 4: Run the tests and verify they pass**
 
 Run: `uv run pytest -v`
 Expected: PASS.
 
-- [ ] **Step 5: Run the full gate**
+- [x] **Step 5: Run the full gate**
 
 Run: `mise run check`
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add -A

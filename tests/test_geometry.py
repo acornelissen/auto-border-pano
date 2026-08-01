@@ -1,7 +1,7 @@
 """Behavioural tests for the pure geometry transforms.
 
-Covers the padded whole-panorama frame (exact output size and ratio, exact
-SIDE_PADDING on whichever axis binds -- width for a wide panorama, height
+Covers the padded whole-panorama frame (exact output size and ratio, the
+style's border on whichever axis binds -- width for a wide panorama, height
 for a near-square one at a wide target ratio -- centring, and that the
 panorama survives uncropped), and section cropping/scaling (bounds,
 cover-scale, center-crop offsets on both axes, and exact output size) across
@@ -23,7 +23,7 @@ _BBOX_TOLERANCE = 4
 
 
 def _non_white_bbox(frame: Image.Image) -> tuple[int, int, int, int]:
-    white = Image.new("RGB", frame.size, geometry.BACKGROUND)
+    white = Image.new("RGB", frame.size, DEFAULT_STYLE.border_rgb)
     diff = ImageChops.difference(frame, white)
     bbox = diff.getbbox()
     assert bbox is not None, "frame is entirely white"
@@ -47,13 +47,65 @@ def test_padded_frame_is_exactly_the_target_size() -> None:
 
 def test_padded_frame_keeps_exact_side_padding_for_a_wide_panorama() -> None:
     # A wide panorama binds on width, so the left/right margin must be
-    # exactly SIDE_PADDING output pixels -- the whole point of the fix.
-    # Kills a mutation that pastes at (0, 0) instead of insetting/centering.
+    # exactly the style's border in output pixels -- the whole point of the
+    # fix. Kills a mutation that pastes at (0, 0) instead of
+    # insetting/centering.
     for ratio in geometry.RATIOS.values():
         frame = geometry.make_padded_frame(synthetic_panorama(3000, 800), ratio)
+        border = DEFAULT_STYLE.border_px(ratio)
         left, _top, right, _bottom = _non_white_bbox(frame)
-        assert abs(left - geometry.SIDE_PADDING) <= _BBOX_TOLERANCE, ratio.name
-        assert abs((frame.width - right) - geometry.SIDE_PADDING) <= _BBOX_TOLERANCE, ratio.name
+        assert abs(left - border) <= _BBOX_TOLERANCE, ratio.name
+        assert abs((frame.width - right) - border) <= _BBOX_TOLERANCE, ratio.name
+
+
+def test_padded_frame_border_matches_the_style() -> None:
+    # The border is a percent of the short side, so it differs per ratio;
+    # whichever axis binds gets exactly that, and the other gets more.
+    style = FrameStyle(border_percent=9.0)
+    pano = synthetic_panorama(2400, 1000)
+    for ratio in geometry.RATIOS.values():
+        frame = geometry.make_padded_frame(pano, ratio, style)
+        assert frame.size == (ratio.width, ratio.height)
+        left, top, _right, _bottom = _non_white_bbox(frame)
+        border = style.border_px(ratio)
+        bound_horizontally = abs(left - border) <= _BBOX_TOLERANCE
+        bound_vertically = abs(top - border) <= _BBOX_TOLERANCE
+        assert bound_horizontally or bound_vertically, ratio.name
+        assert left >= border - _BBOX_TOLERANCE, ratio.name
+        assert top >= border - _BBOX_TOLERANCE, ratio.name
+
+
+def test_padded_frame_border_tracks_the_percent() -> None:
+    # A wider percent must actually push the panorama further in.
+    pano = synthetic_panorama(2400, 1000)
+    ratio = geometry.PORTRAIT
+    narrow = geometry.make_padded_frame(pano, ratio, FrameStyle(border_percent=2.0))
+    wide = geometry.make_padded_frame(pano, ratio, FrameStyle(border_percent=20.0))
+    assert _non_white_bbox(narrow)[0] < _non_white_bbox(wide)[0]
+
+
+def test_padded_frame_uses_the_border_colour() -> None:
+    style = FrameStyle(border_percent=10.0, border_colour="#c9302a")
+    pano = Image.new("RGB", (2400, 1000), "black")
+    frame = geometry.make_padded_frame(pano, geometry.PORTRAIT, style)
+    assert frame.getpixel((0, 0)) == (201, 48, 42)
+    assert frame.getpixel((frame.width - 1, frame.height - 1)) == (201, 48, 42)
+
+
+def test_padded_frame_defaults_to_white() -> None:
+    pano = Image.new("RGB", (2400, 1000), "black")
+    frame = geometry.make_padded_frame(pano, geometry.PORTRAIT)
+    assert frame.getpixel((0, 0)) == (255, 255, 255)
+
+
+def test_zero_border_fills_the_frame_edge_to_edge_on_the_binding_axis() -> None:
+    style = FrameStyle(border_percent=0.0)
+    pano = Image.new("RGB", (2400, 1000), "black")
+    frame = geometry.make_padded_frame(pano, geometry.SQUARE, style)
+    # The panorama itself, not the canvas, must reach both edges.
+    left, _top, right, _bottom = _non_white_bbox(frame)
+    assert left == 0
+    assert right == frame.width
 
 
 def test_padded_frame_centers_the_panorama() -> None:
@@ -97,9 +149,9 @@ def test_padded_frame_preserves_the_whole_panorama_uncropped() -> None:
 
 
 def test_padded_frame_keeps_exact_top_padding_when_height_binds() -> None:
-    # 1200x1000 is nearly square (1.2:1). At 1.91:1 the inset box is
-    # 880x366 (2.4:1), flatter than the panorama, so height binds: the
-    # top/bottom margin comes out to exactly SIDE_PADDING and the side
+    # 1200x1000 is nearly square (1.2:1). At 1.91:1 the inset box is far
+    # flatter than the panorama, so height binds: the
+    # top/bottom margin comes out to exactly the border and the side
     # margins are larger. This is the mirror image of the width-binding
     # case exercised elsewhere in this file, and it's the only case in the
     # suite that would catch a fit-scale calculation that silently drops
@@ -113,10 +165,11 @@ def test_padded_frame_keeps_exact_top_padding_when_height_binds() -> None:
     other_side_margin = frame.width - right
     top_margin = top
     bottom_margin = frame.height - bottom
-    assert abs(top_margin - geometry.SIDE_PADDING) <= _BBOX_TOLERANCE
-    assert abs(bottom_margin - geometry.SIDE_PADDING) <= _BBOX_TOLERANCE
-    assert side_margin > geometry.SIDE_PADDING + _BBOX_TOLERANCE
-    assert other_side_margin > geometry.SIDE_PADDING + _BBOX_TOLERANCE
+    border = DEFAULT_STYLE.border_px(geometry.LANDSCAPE)
+    assert abs(top_margin - border) <= _BBOX_TOLERANCE
+    assert abs(bottom_margin - border) <= _BBOX_TOLERANCE
+    assert side_margin > border + _BBOX_TOLERANCE
+    assert other_side_margin > border + _BBOX_TOLERANCE
 
 
 def test_section_bounds_split_on_integer_division() -> None:

@@ -10,7 +10,7 @@ from collections.abc import Sequence
 
 from PIL import Image
 
-from maskingframe.geometry import BACKGROUND, AspectRatio
+from maskingframe.geometry import DEFAULT_STYLE, AspectRatio
 from maskingframe.layout import Layout
 
 
@@ -19,7 +19,7 @@ def render(images: Sequence[Image.Image], solved: Layout, ratio: AspectRatio) ->
     if len(images) != len(solved.boxes):
         raise ValueError(f"layout has {len(solved.boxes)} boxes for {len(images)} images")
 
-    canvas = Image.new("RGB", (ratio.width, ratio.height), BACKGROUND)
+    canvas = Image.new("RGB", (ratio.width, ratio.height), DEFAULT_STYLE.border_rgb)
     for image, box in zip(images, solved.boxes, strict=True):
         # layout._place rounds width and height independently. For a given box.height,
         # the pre-rounded height could have been anywhere in [height-0.5, height+0.5).

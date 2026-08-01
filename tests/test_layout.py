@@ -9,7 +9,7 @@ import pytest
 
 from maskingframe import geometry, layout
 
-PADDING = geometry.SIDE_PADDING
+PADDING = geometry.DEFAULT_STYLE.border_px(geometry.PORTRAIT)
 
 
 def _box_aspect(box: layout.Box) -> float:
@@ -155,10 +155,11 @@ def test_score_is_a_fraction_of_the_available_box() -> None:
     solved = layout.solve([2.33, 2.33], geometry.PORTRAIT, PADDING)
     assert 0.0 < solved.score <= 1.0
     # Pinned regression value: two equal 2.33:1 panels stacked in a column
-    # inside a 1080x1350 frame with 100px padding and a 40px gutter. If this
-    # drifts, the scoring formula (or the coefficient maths feeding it)
-    # changed -- not just the "somewhere between 0 and 1" shape of it.
-    assert solved.score == pytest.approx(0.6573913043478261)
+    # inside a 1080x1350 frame with the default 9% border (97px at 4:5) and
+    # a 40px gutter. If this drifts, the scoring formula (or the coefficient
+    # maths feeding it) changed -- not just the "somewhere between 0 and 1"
+    # shape of it.
+    assert solved.score == pytest.approx(0.657439446366782)
 
 
 def test_winning_candidate_fills_at_least_as_much_as_the_alternatives() -> None:

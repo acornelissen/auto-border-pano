@@ -10,9 +10,6 @@ from dataclasses import dataclass
 
 from PIL import Image
 
-SIDE_PADDING = 100
-BACKGROUND = "white"
-
 
 @dataclass(frozen=True)
 class AspectRatio:
@@ -157,35 +154,39 @@ def section_count(pano_width: int, pano_height: int, ratio: AspectRatio) -> int:
     return max(MIN_SECTIONS, math.floor(pano_width / tile + 0.5))
 
 
-def make_padded_frame(image: Image.Image, ratio: AspectRatio) -> Image.Image:
-    """Fit a panorama inside a white canvas of the target ratio, inset by SIDE_PADDING.
+def make_padded_frame(
+    image: Image.Image,
+    ratio: AspectRatio,
+    style: FrameStyle = DEFAULT_STYLE,
+) -> Image.Image:
+    """Fit a panorama inside a canvas of the target ratio, inset by the style's border.
 
-    SIDE_PADDING describes the finished frame, in output pixels, on
-    whichever axis binds -- not the source image. The panorama is scaled
-    (preserving its own aspect ratio) to fit inside a box inset by
-    SIDE_PADDING on all four sides, then centered on the full-size white
-    canvas.
+    The border describes the finished frame, in output pixels, on whichever
+    axis binds -- not the source image. The panorama is scaled (preserving
+    its own aspect ratio) to fit inside a box inset by that border on all
+    four sides, then centred on the full-size canvas.
 
     For a normal wide panorama the width binds, so the left and right
-    margins are exactly SIDE_PADDING and the vertical gap is whatever is
-    left over -- usually much larger. That asymmetry is inherent: the
-    panorama's aspect ratio does not match the frame's, and frame 1 must
-    show the whole panorama uncropped, so the border cannot be made even
-    without cropping content away.
+    margins are exactly the border and the vertical gap is whatever is left
+    over -- usually much larger. That asymmetry is inherent: the panorama's
+    aspect ratio does not match the frame's, and frame 1 must show the whole
+    panorama uncropped, so the border cannot be made even without cropping
+    content away.
 
     Scaling straight to the fitted size (rather than compositing at source
     scale and downscaling) also avoids building a huge intermediate canvas,
     which matters on multi-hundred-megapixel scans.
     """
+    border = style.border_px(ratio)
     pano_width, pano_height = image.size
-    box_width = ratio.width - 2 * SIDE_PADDING
-    box_height = ratio.height - 2 * SIDE_PADDING
+    box_width = max(1, ratio.width - 2 * border)
+    box_height = max(1, ratio.height - 2 * border)
     scale = min(box_width / pano_width, box_height / pano_height)
     fitted_width = max(1, math.floor(pano_width * scale + 0.5))
     fitted_height = max(1, math.floor(pano_height * scale + 0.5))
 
     fitted = image.resize((fitted_width, fitted_height), Image.Resampling.LANCZOS)
-    canvas = Image.new("RGB", (ratio.width, ratio.height), BACKGROUND)
+    canvas = Image.new("RGB", (ratio.width, ratio.height), style.border_rgb)
     canvas.paste(fitted, ((ratio.width - fitted_width) // 2, (ratio.height - fitted_height) // 2))
     return canvas
 

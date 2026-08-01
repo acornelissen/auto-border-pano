@@ -260,18 +260,18 @@ def test_batch_result_counts_sources_not_files(tmp_path: Path) -> None:
 # and confirm the change is expected before updating.
 GOLDEN_HASHES: dict[str, dict[str, str]] = {
     "1:1": {
-        "1-1_1_padded.jpg": "f9474e65db75b945deec39b8083625cbdd933c1acd1895152851dee1dc687c3f",
+        "1-1_1_padded.jpg": "b04d5f8f04006521a690d517aa63a6a07a523892ccc1eea16f82783405a0a4ad",
         "1-1_2_section1.jpg": "fdfca9e094879cd5d933c158a3f76c4f129c73bd9e52bc393243d76fad022b94",
         "1-1_3_section2.jpg": "91b87093c890ebb3ccc796464862357d2d3fa7059136710a21f47bc74c7dc579",
     },
     "4:5": {
-        "4-5_1_padded.jpg": "8e6f908127f3c88bf996dd85de34c836dd335250b94a9b1cb0c411e845103930",
+        "4-5_1_padded.jpg": "5ae4dfa62c8e83d6f753c5c2c78ce1b00da341ed137a08ab57bbec65731cec34",
         "4-5_2_section1.jpg": "2bb1d8d14889b0cc447844f93e974776d8e9c7162c501433293b47ed7d449dcb",
         "4-5_3_section2.jpg": "0d650c8b3fddfb51af1cf1db83fa09ed3268b3ceee340cde06e9354f8a240928",
         "4-5_4_section3.jpg": "9d72470b98e949a32635d0aeacbde45786ec1f5e672f8e2ec0a41d28a11a1812",
     },
     "1.91:1": {
-        "1.91-1_1_padded.jpg": "f703754fc7357a1778ac358d8452acc38618486f995fcea001dab1b6af4ecf64",
+        "1.91-1_1_padded.jpg": "f58e8f599ea7ea905f3cb40c041c3b2d0fdaa8e99eb73a3c00903b611fcb816f",
         "1.91-1_2_section1.jpg": "bc555a4f1f3b3e6634cdfbe467557829aa142babf9611cf125bb14b786a1bdfd",
         "1.91-1_3_section2.jpg": "72a3de48dd1f5453f92c77a8756c4a9b97f83edc3b70e83d70905096f8f247f3",
     },
@@ -386,9 +386,9 @@ def test_compose_creates_the_output_directory(tmp_path: Path) -> None:
 # Tied to the installed Pillow version's JPEG encoder; regenerate with the
 # command in the plan if a deliberate Pillow upgrade changes encoding.
 COMPOSITE_GOLDEN_HASHES: dict[str, str] = {
-    "4:5": "b7be8e252cbca29afd49ae081258b3fa5bc62659f33f26821405900ac2c7d1bf",
-    "1:1": "ecd4ccdc3bc210725400a05d87a0c647321ad27d4cf398be61890427dd539708",
-    "1.91:1": "db881ac7f735c97b3b40d8f6ef1cb023b93369c3d0769ed3393f0550d7043403",
+    "4:5": "4115ac8a65b3a2ffcec2a5027a58fe494ad7ffddd61698b0de47acd1218210fc",
+    "1:1": "c8f8f3347c99837d013f3e4427e3ed29c12be5e697130d97c826242b90c536fc",
+    "1.91:1": "038a7fbc3b57330c7f580bac763231ece8c1aa271b648858500943a862df999f",
 }
 
 

@@ -5,7 +5,7 @@ from PIL import Image
 
 from maskingframe import compose, geometry, layout
 
-PADDING = geometry.SIDE_PADDING
+PADDING = geometry.DEFAULT_STYLE.border_px(geometry.PORTRAIT)
 
 
 def _image(width: int, height: int, colour: tuple[int, int, int]) -> Image.Image:
