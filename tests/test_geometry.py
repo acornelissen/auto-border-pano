@@ -484,6 +484,29 @@ def test_normalise_allows_overlap() -> None:
     assert got == pytest.approx((0.20, 0.22))
 
 
+def test_moving_a_frame_stops_at_its_neighbour_instead_of_pushing_it() -> None:
+    # The whole point of the shared rule: frame 2 dragged to the far right
+    # stops where frame 3 stands, and frames 3 and 4 stay where they were.
+    got = geometry.move_position((0.0, 0.2, 0.4, 0.6), 1, 5.0, 3000, 1000, geometry.PORTRAIT)
+    assert got == pytest.approx((0.0, 0.4, 0.4, 0.6))
+
+
+def test_moving_a_frame_stops_at_the_neighbour_below_it() -> None:
+    got = geometry.move_position((0.2, 0.5), 1, -1.0, 3000, 1000, geometry.PORTRAIT)
+    assert got == pytest.approx((0.2, 0.2))
+
+
+def test_moving_the_last_frame_stops_at_the_right_edge() -> None:
+    travel = geometry.position_travel(3000, 1000, geometry.PORTRAIT)
+    got = geometry.move_position((0.0, 0.2), 1, 5.0, 3000, 1000, geometry.PORTRAIT)
+    assert got == pytest.approx((0.0, travel))
+
+
+def test_moving_a_frame_that_is_not_there_changes_nothing() -> None:
+    # Reachable from a drag whose plan has since shrunk; it must not raise.
+    assert geometry.move_position((0.0, 0.2), 7, 0.5, 3000, 1000, geometry.PORTRAIT) == (0.0, 0.2)
+
+
 def test_default_positions_span_the_whole_panorama() -> None:
     got = geometry.default_positions(2000, 1000, geometry.PORTRAIT, count=3)
     assert got[0] == 0.0

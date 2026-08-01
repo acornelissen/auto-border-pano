@@ -14,6 +14,7 @@ is as a fraction of the panorama, and where the windows are. It has never
 heard of a FrameStyle, an AspectRatio or a file.
 """
 
+import math
 from collections.abc import Sequence
 
 from PIL import Image
@@ -54,11 +55,18 @@ HANDLE = 2
 class FrameRibbon(QWidget):
     """The panorama with a draggable window per detail frame."""
 
-    positions_changed = Signal(tuple)
-    """Every movement of a drag. Cheap work only -- this drives the overlay,
-    not a re-render."""
+    frame_moved = Signal(int, float)
+    """(frame index, wanted left edge as a fraction of the width) on every
+    movement of a drag. Cheap work only -- this drives the overlay, not a
+    re-render.
 
-    positions_settled = Signal(tuple)
+    What the hand asked for, not what the plan becomes. Keeping the frames
+    in order needs the source's size and the target ratio, and the ribbon
+    knows neither; the tab owns that rule so the contact strip's drag can go
+    through the very same one. Whatever comes back arrives via `set_plan`.
+    """
+
+    frame_settled = Signal(int)
     """Once, when the hand stops. This is what a re-render hangs off, and it
     is the same split `PercentSlider` makes for the border controls."""
 
@@ -92,7 +100,7 @@ class FrameRibbon(QWidget):
     def set_plan(self, positions: Sequence[float], window_fraction: float) -> None:
         """Where the frames are and how wide one is. Emits nothing.
 
-        Silent on purpose: a tab that saves on `positions_changed` would
+        Silent on purpose: a tab that saves on `frame_moved` would
         otherwise write back what it has just read.
         """
         self._positions = tuple(positions)
@@ -116,10 +124,10 @@ class FrameRibbon(QWidget):
         available_width = max(1, self.width() - 2 * MARGIN)
         available_height = max(1, self.height() - 2 * MARGIN)
         width = available_width
-        height = max(1, round(width / self._aspect))
+        height = max(1, math.floor(width / self._aspect + 0.5))
         if height > available_height:
             height = available_height
-            width = max(1, round(height * self._aspect))
+            width = max(1, math.floor(height * self._aspect + 0.5))
         return QRect(MARGIN, MARGIN, width, height)
 
     def surface_rect(self) -> QRect:
@@ -140,9 +148,14 @@ class FrameRibbon(QWidget):
         if picture.isNull() or not self._positions:
             return []
         span = picture.width()
-        width = max(1, round(self._window * span))
+        width = max(1, math.floor(self._window * span + 0.5))
         return [
-            QRect(picture.left() + round(position * span), picture.top(), width, picture.height())
+            QRect(
+                picture.left() + math.floor(position * span + 0.5),
+                picture.top(),
+                width,
+                picture.height(),
+            )
             for position in self._positions
         ]
 
@@ -178,36 +191,14 @@ class FrameRibbon(QWidget):
         picture = self.picture_rect()
         point = event.position().toPoint()
         wanted = (point.x() - picture.left()) / max(1, picture.width()) - self._grab_offset
-        self._positions = self._moved(self._dragging, wanted)
-        self.update()
-        self.positions_changed.emit(self._positions)
+        self.frame_moved.emit(self._dragging, wanted)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if self._dragging is None:
             return
+        index = self._dragging
         self._dragging = None
-        self.positions_settled.emit(self._positions)
-
-    def _moved(self, index: int, wanted: float) -> tuple[float, ...]:
-        """One frame moved to `wanted`, clamped by the edges and its neighbours.
-
-        Neighbours clamp rather than swap: the frames are numbered, and a
-        carousel that runs backwards along the picture is confusing. Overlap
-        is fine, so the bound is the neighbour's position itself, not a
-        minimum separation.
-        """
-        lower = self._positions[index - 1] if index > 0 else 0.0
-        upper = (
-            self._positions[index + 1]
-            if index + 1 < len(self._positions)
-            else max(0.0, 1.0 - self._window)
-        )
-        upper = min(upper, max(0.0, 1.0 - self._window))
-        placed = min(max(wanted, lower), max(lower, upper))
-        return tuple(
-            placed if position_index == index else position
-            for position_index, position in enumerate(self._positions)
-        )
+        self.frame_settled.emit(index)
 
     # --- drawing ------------------------------------------------------------
 

@@ -201,6 +201,41 @@ def normalise_positions(
     return tuple(result)
 
 
+def move_position(
+    positions: Sequence[float],
+    index: int,
+    wanted: float,
+    pano_width: int,
+    pano_height: int,
+    ratio: AspectRatio,
+) -> tuple[float, ...]:
+    """One frame moved to `wanted`, clamped by the edges and its neighbours.
+
+    The one rule for moving a frame, wherever the hand was: the ribbon and
+    the contact strip both drag the same plan, and two views that ordered
+    the frames differently would be two different features.
+
+    Neighbours clamp rather than swap, and rather than push: the frames are
+    numbered, a carousel that runs backwards along the picture is confusing,
+    and a frame that shoved the rest of the plan along ahead of it would
+    undo placements the user had already made. Overlap is fine, so the bound
+    is the neighbour's own position, not a minimum separation.
+    """
+    if not 0 <= index < len(positions):
+        return tuple(positions)
+    lower = positions[index - 1] if index > 0 else 0.0
+    upper = (
+        positions[index + 1]
+        if index + 1 < len(positions)
+        else position_travel(pano_width, pano_height, ratio)
+    )
+    placed = clamp_position(wanted, pano_width, pano_height, ratio)
+    # `max(lower, upper)` because the incoming plan may already be out of
+    # order; the lower bound wins rather than producing a descending pair.
+    placed = min(max(placed, lower), max(lower, upper))
+    return tuple(placed if other == index else position for other, position in enumerate(positions))
+
+
 def default_positions(
     pano_width: int,
     pano_height: int,

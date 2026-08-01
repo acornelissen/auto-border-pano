@@ -759,6 +759,51 @@ def test_dragging_in_the_strip_moves_the_matching_position(qtbot: Any, tmp_path:
     assert tab.ribbon.positions() == after
 
 
+def test_a_strip_drag_stops_at_the_neighbour_instead_of_pushing_it(
+    qtbot: Any, tmp_path: Path
+) -> None:
+    """The far end of the same drag. A strip drag used to hand a raw list to
+    a running maximum, which carried every later frame along with it."""
+    source = tmp_path / "pano.jpg"
+    conftest.synthetic_panorama(3000, 1000).save(source, "JPEG", quality=95)
+
+    tab = SplitTab()
+    qtbot.addWidget(tab)
+    tab.show()
+    tab.source_row.setText(str(source))
+    qtbot.waitUntil(lambda: len(tab.positions()) > 2, timeout=3000)
+
+    before = tab.positions()
+    # Strip frame 2 is detail frame 1, dragged five frame widths right --
+    # well past frame 3.
+    tab.strip.frame_dragged.emit(2, 5.0)
+
+    after = tab.positions()
+    assert after[1] == pytest.approx(before[2])
+    assert after[2:] == before[2:]
+
+
+def test_a_ribbon_drag_stops_at_the_neighbour_instead_of_pushing_it(
+    qtbot: Any, tmp_path: Path
+) -> None:
+    """The same rule from the other view: one plan, one ordering."""
+    source = tmp_path / "pano.jpg"
+    conftest.synthetic_panorama(3000, 1000).save(source, "JPEG", quality=95)
+
+    tab = SplitTab()
+    qtbot.addWidget(tab)
+    tab.show()
+    tab.source_row.setText(str(source))
+    qtbot.waitUntil(lambda: len(tab.positions()) > 2, timeout=3000)
+
+    before = tab.positions()
+    tab.ribbon.frame_moved.emit(1, 5.0)
+
+    after = tab.positions()
+    assert after[1] == pytest.approx(before[2])
+    assert after[2:] == before[2:]
+
+
 def test_the_ribbon_and_the_tab_agree_after_a_ribbon_drag(qtbot: Any, tmp_path: Path) -> None:
     source = tmp_path / "pano.jpg"
     conftest.synthetic_panorama(2000, 1000).save(source, "JPEG", quality=95)
@@ -769,8 +814,7 @@ def test_the_ribbon_and_the_tab_agree_after_a_ribbon_drag(qtbot: Any, tmp_path: 
     tab.source_row.setText(str(source))
     qtbot.waitUntil(lambda: tab.positions() != (), timeout=3000)
 
-    moved = (0.1, *tab.positions()[1:])
-    tab.ribbon.positions_changed.emit(moved)
+    tab.ribbon.frame_moved.emit(0, 0.1)
 
     assert tab.positions()[0] == pytest.approx(0.1)
 
@@ -797,7 +841,7 @@ def test_a_run_cuts_at_the_chosen_positions(
     tab.show()
     tab.source_row.setText(str(source))
     qtbot.waitUntil(lambda: tab.positions() != (), timeout=3000)
-    tab.ribbon.positions_changed.emit((0.1, *tab.positions()[1:]))
+    tab.ribbon.frame_moved.emit(0, 0.1)
     tab.dest_row.setText(str(tmp_path / "out"))
     tab.process_images()
     qtbot.waitUntil(lambda: "positions" in seen, timeout=5000)

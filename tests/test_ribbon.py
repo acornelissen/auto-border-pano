@@ -10,17 +10,39 @@ import pytest
 from PySide6.QtCore import QPoint, QRect, Qt
 from pytestqt.qtbot import QtBot
 
+from maskingframe import geometry
 from maskingframe.gui.ribbon import MARGIN, RIBBON_HEIGHT, FrameRibbon, _uncovered
 from tests import conftest
+
+# A 1000x400 source at 1:1 gives a 400px frame -- 0.4 of the width, the
+# window fraction `build` sets -- so the ribbon's picture and this ratio
+# describe the same plan, and a frame may travel to 0.6.
+SOURCE = (1000, 400)
+RATIO = geometry.RATIOS["1:1"]
 
 
 def build(qtbot: QtBot, positions: Sequence[float] = (0.0, 0.6)) -> FrameRibbon:
     ribbon = FrameRibbon()
     qtbot.addWidget(ribbon)
     ribbon.resize(600, RIBBON_HEIGHT)
-    ribbon.set_source(conftest.synthetic_panorama(1000, 400))
+    ribbon.set_source(conftest.synthetic_panorama(*SOURCE))
     ribbon.set_plan(positions, 0.4)
     return ribbon
+
+
+def wire(ribbon: FrameRibbon) -> None:
+    """Stand in for the Split tab: apply the shared rule and hand it back.
+
+    The ribbon asks for a move and draws what it is given; the ordering rule
+    lives in `geometry` so the contact strip's drag obeys the same one.
+    """
+
+    def moved(index: int, wanted: float) -> None:
+        ribbon.set_plan(
+            geometry.move_position(ribbon.positions(), index, wanted, *SOURCE, RATIO), 0.4
+        )
+
+    ribbon.frame_moved.connect(moved)
 
 
 def test_the_picture_is_letterboxed_not_cropped(qtbot: QtBot) -> None:
@@ -49,12 +71,13 @@ def test_a_window_sits_where_its_position_says(qtbot: QtBot) -> None:
 
 def test_set_plan_is_silent(qtbot: QtBot) -> None:
     ribbon = build(qtbot)
-    with qtbot.assertNotEmitted(ribbon.positions_changed):
+    with qtbot.assertNotEmitted(ribbon.frame_moved):
         ribbon.set_plan((0.1, 0.5), 0.4)
 
 
 def test_dragging_a_window_moves_only_that_frame(qtbot: QtBot) -> None:
     ribbon = build(qtbot, (0.0, 0.6))
+    wire(ribbon)
     picture = ribbon.picture_rect()
     start = QPoint(picture.left() + 5, picture.center().y())
 
@@ -71,16 +94,17 @@ def test_a_drag_emits_while_moving_and_once_on_release(qtbot: QtBot) -> None:
     picture = ribbon.picture_rect()
     start = QPoint(picture.left() + 5, picture.center().y())
 
-    with qtbot.waitSignal(ribbon.positions_changed, timeout=1000):
+    with qtbot.waitSignal(ribbon.frame_moved, timeout=1000):
         qtbot.mousePress(ribbon, Qt.MouseButton.LeftButton, pos=start)  # type: ignore[no-untyped-call]
         qtbot.mouseMove(ribbon, QPoint(start.x() + 40, start.y()))  # type: ignore[no-untyped-call]
 
-    with qtbot.waitSignal(ribbon.positions_settled, timeout=1000):
+    with qtbot.waitSignal(ribbon.frame_settled, timeout=1000):
         qtbot.mouseRelease(ribbon, Qt.MouseButton.LeftButton, pos=QPoint(start.x() + 40, start.y()))  # type: ignore[no-untyped-call]
 
 
 def test_a_frame_cannot_be_dragged_past_its_neighbour(qtbot: QtBot) -> None:
     ribbon = build(qtbot, (0.0, 0.3))
+    wire(ribbon)
     picture = ribbon.picture_rect()
     start = QPoint(picture.left() + 5, picture.center().y())
 
@@ -94,6 +118,7 @@ def test_a_frame_cannot_be_dragged_past_its_neighbour(qtbot: QtBot) -> None:
 
 def test_a_frame_cannot_be_dragged_off_the_left_edge(qtbot: QtBot) -> None:
     ribbon = build(qtbot, (0.2, 0.6))
+    wire(ribbon)
     picture = ribbon.picture_rect()
     start = QPoint(picture.left() + int(0.2 * picture.width()) + 5, picture.center().y())
 

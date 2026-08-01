@@ -33,6 +33,7 @@ parse_colour = geometry.parse_colour
 MAX_PERCENT = geometry.MAX_PERCENT
 default_positions = geometry.default_positions
 normalise_positions = geometry.normalise_positions
+move_position = geometry.move_position
 insert_position = geometry.insert_position
 drop_position = geometry.drop_position
 frame_width = geometry.frame_width

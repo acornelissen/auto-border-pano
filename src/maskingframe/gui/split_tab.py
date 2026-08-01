@@ -241,8 +241,8 @@ class SplitTab(QWidget):
         # Source above, results below: the ribbon says where the frames come
         # from, the strip says what they are.
         self.ribbon = FrameRibbon(self.columns.table)
-        self.ribbon.positions_changed.connect(self._on_positions_changed)
-        self.ribbon.positions_settled.connect(self._on_positions_settled)
+        self.ribbon.frame_moved.connect(self._on_frame_moved)
+        self.ribbon.frame_settled.connect(self._on_frame_settled)
         self.ribbon.setVisible(False)
         self.columns.table_layout.addWidget(self.ribbon)
 
@@ -359,29 +359,49 @@ class SplitTab(QWidget):
         self.ribbon_note.setVisible(not visible)
         self.strip.set_draggable(visible)
 
-    def _on_positions_changed(self, positions: tuple[float, ...]) -> None:
-        """Every movement of a ribbon drag. Cheap work only."""
-        self._set_positions(positions)
+    def _move_position(
+        self, index: int, wanted: float, anchor: Sequence[float] | None = None
+    ) -> None:
+        """Move one frame, under the one ordering rule. GUI thread only.
 
-    def _on_positions_settled(self, positions: tuple[float, ...]) -> None:
+        Both drags come through here. The rule itself lives in `pipeline`
+        because it needs the source's size and the target ratio, which is
+        knowledge neither the ribbon nor the strip has and neither should
+        grow: the tab is the only place that holds both, so it is the only
+        place the rule can be applied once for both views.
+        """
+        if self._source_size is None:
+            return
+        width, height = self._source_size
+        base = self._positions if anchor is None else anchor
+        self._set_positions(
+            pipeline.move_position(
+                base, index, wanted, width, height, pipeline.RATIOS[self._ratio_name()]
+            )
+        )
+
+    def _on_frame_moved(self, index: int, wanted: float) -> None:
+        """Every movement of a ribbon drag. Cheap work only."""
+        self._move_position(index, wanted)
+
+    def _on_frame_settled(self, _index: int) -> None:
         """The hand has stopped. Now the frames themselves can be redone."""
-        self._set_positions(positions)
         self._rerender()
 
     def _on_frame_dragged(self, index: int, delta: float) -> None:
         """A drag inside strip frame `index`. Frame 0 is the whole panorama.
 
         The strip reports its delta in frame widths because it has no idea
-        how wide the panorama is; here it becomes a fraction of the width.
+        how wide the panorama is; here it becomes a fraction of the width,
+        measured from where the frame stood when the drag began.
         """
         detail = index - 1
         if not 0 <= detail < len(self._positions):
             return
         if not self._drag_anchor:
             self._drag_anchor = self._positions
-        anchored = list(self._drag_anchor)
-        anchored[detail] += delta * self._window_fraction
-        self._set_positions(anchored)
+        wanted = self._drag_anchor[detail] + delta * self._window_fraction
+        self._move_position(detail, wanted, anchor=self._drag_anchor)
 
     def _on_frame_drag_settled(self, _index: int) -> None:
         self._drag_anchor = ()
