@@ -19,7 +19,16 @@ from collections.abc import Sequence
 
 from PIL import Image
 from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QMouseEvent, QPainter, QPaintEvent, QPixmap
+from PySide6.QtGui import (
+    QColor,
+    QFocusEvent,
+    QFont,
+    QKeyEvent,
+    QMouseEvent,
+    QPainter,
+    QPaintEvent,
+    QPixmap,
+)
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from maskingframe.gui import theme
@@ -70,6 +79,17 @@ class FrameRibbon(QWidget):
     """Once, when the hand stops. This is what a re-render hangs off, and it
     is the same split `PercentSlider` makes for the border controls."""
 
+    frame_nudged = Signal(int, int)
+    """(frame index, step count). A count, not a distance: how far a step
+    moves is policy, and the tab is the only thing that knows what a percent
+    of this panorama is. Shift is ten steps; Home and End are a hundred,
+    which spans the whole width and lets the tab's clamp do the rest."""
+
+    selection_changed = Signal(int)
+    """(frame index) when the keys move the selection. The tab owns which
+    frame is selected -- the strip marks the same one -- so this asks rather
+    than decides."""
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._pixmap: QPixmap | None = None
@@ -79,6 +99,10 @@ class FrameRibbon(QWidget):
         self._dragging: int | None = None
         self._grab_offset = 0.0
         self._font: QFont = theme.stencil_font(10, tracking=1.4)
+        self._selected: int | None = None
+        # Reachable by Tab and by click. A window is a control, and a control
+        # you can only reach with a pointer is not reachable at all.
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setFixedHeight(RIBBON_HEIGHT)
         # Only the surface behind the picture is painted, so whatever the
         # widget stands on has to show through the rest of the cell.
@@ -109,6 +133,43 @@ class FrameRibbon(QWidget):
 
     def positions(self) -> tuple[float, ...]:
         return self._positions
+
+    def set_selected(self, index: int | None) -> None:
+        """Mark one frame, or none. Emits nothing.
+
+        Silent for the same reason `set_plan` is: the tab holds the one
+        copy, and a widget that announced what it had just been told would
+        write it straight back.
+        """
+        self._selected = index
+        self._name_selection()
+        self.update()
+
+    def selected(self) -> int | None:
+        return self._selected
+
+    def marked_rect(self) -> QRect:
+        """Where the selection is drawn, or a null rect. Exposed so the
+        marking can be checked without sampling pixels."""
+        if self._selected is None or not 0 <= self._selected < len(self._positions):
+            return QRect()
+        return self.window_rects()[self._selected]
+
+    def _name_selection(self) -> None:
+        """State the selection in words, for a screen reader.
+
+        Numbered as the carousel is: frame 1 is the whole panorama, so
+        detail frame 0 is frame 2. The rail says the same thing on screen,
+        because a selection carried by colour alone fails the floor this
+        project holds itself to.
+        """
+        if self._selected is None:
+            self.setAccessibleName("Panorama overview")
+            return
+        position = self._positions[self._selected] if self._positions else 0.0
+        self.setAccessibleName(
+            f"Frame {self._selected + 2}, {math.floor(position * 100 + 0.5)} percent along"
+        )
 
     # --- geometry, exposed so it can be checked without sampling pixels -----
 
@@ -200,6 +261,51 @@ class FrameRibbon(QWidget):
         self._dragging = None
         self.frame_settled.emit(index)
 
+    def focusInEvent(self, event: QFocusEvent) -> None:
+        # Nothing is marked until the user asks for it; asking for it is
+        # exactly what taking focus is.
+        if self._selected is None and self._positions:
+            self._selected = 0
+            self._name_selection()
+        super().focusInEvent(event)
+        self.update()
+
+    def focusOutEvent(self, event: QFocusEvent) -> None:
+        super().focusOutEvent(event)
+        self.update()
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if not self._positions:
+            super().keyPressEvent(event)
+            return
+        if self._selected is None:
+            self._selected = 0
+            self._name_selection()
+        key = event.key()
+        coarse = event.modifiers() & Qt.KeyboardModifier.ShiftModifier
+        steps: dict[int, int] = {
+            Qt.Key.Key_Left: -10 if coarse else -1,
+            Qt.Key.Key_Right: 10 if coarse else 1,
+            Qt.Key.Key_Home: -100,
+            Qt.Key.Key_End: 100,
+        }
+        step = steps.get(key)
+        if step is not None:
+            self.frame_nudged.emit(self._selected, step)
+            return
+        if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
+            wanted = self._selected + (1 if key == Qt.Key.Key_Down else -1)
+            # Stops rather than wraps: a selection that jumped from the last
+            # frame back to the first would lose your place on a picture you
+            # are reading left to right.
+            if 0 <= wanted < len(self._positions):
+                self._selected = wanted
+                self._name_selection()
+                self.update()
+                self.selection_changed.emit(wanted)
+            return
+        super().keyPressEvent(event)
+
     # --- drawing ------------------------------------------------------------
 
     def sizeHint(self) -> QSize:
@@ -229,7 +335,7 @@ class FrameRibbon(QWidget):
 
         painter.setFont(self._font)
         for index, window in enumerate(windows):
-            painter.setPen(QColor(theme.INK))
+            painter.setPen(QColor(theme.CHINAGRAPH if index == self._selected else theme.INK))
             for offset in range(HANDLE):
                 painter.drawRect(window.adjusted(offset, offset, -offset - 1, -offset - 1))
             painter.setPen(QColor(theme.CHINAGRAPH))

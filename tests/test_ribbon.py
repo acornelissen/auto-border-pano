@@ -7,7 +7,8 @@ QT_QPA_PLATFORM before Qt is imported.
 from collections.abc import Sequence
 
 import pytest
-from PySide6.QtCore import QPoint, QRect, Qt
+from PySide6.QtCore import QEvent, QPoint, QRect, Qt
+from PySide6.QtGui import QFocusEvent
 from pytestqt.qtbot import QtBot
 
 from maskingframe import geometry
@@ -191,3 +192,110 @@ def test_with_no_source_it_draws_nothing_and_does_not_crash(qtbot: QtBot) -> Non
     ribbon.set_plan((0.0, 0.5), 0.4)
     ribbon.repaint()
     assert ribbon.window_rects() == []
+
+
+def test_the_ribbon_takes_focus(qtbot: QtBot) -> None:
+    ribbon = build(qtbot)
+    assert ribbon.focusPolicy() == Qt.FocusPolicy.StrongFocus
+
+
+def test_taking_focus_selects_the_first_frame(qtbot: QtBot) -> None:
+    # Nothing is marked until the user asks for it, and once the keys can be
+    # pressed they always have something to act on.
+    ribbon = build(qtbot)
+    assert ribbon.selected() is None
+    ribbon.setFocus()
+    ribbon.focusInEvent(QFocusEvent(QEvent.Type.FocusIn))
+    assert ribbon.selected() == 0
+
+
+def test_set_selected_is_silent(qtbot: QtBot) -> None:
+    ribbon = build(qtbot)
+    with qtbot.assertNotEmitted(ribbon.selection_changed):
+        ribbon.set_selected(1)
+    assert ribbon.selected() == 1
+
+
+def test_right_arrow_nudges_the_selected_frame_by_one_step(qtbot: QtBot) -> None:
+    ribbon = build(qtbot, (0.0, 0.6))
+    ribbon.set_selected(1)
+    with qtbot.waitSignal(ribbon.frame_nudged, timeout=1000) as blocker:
+        qtbot.keyClick(ribbon, Qt.Key.Key_Right)  # type: ignore[no-untyped-call]
+    assert blocker.args == [1, 1]
+
+
+def test_left_arrow_nudges_the_other_way(qtbot: QtBot) -> None:
+    ribbon = build(qtbot, (0.0, 0.6))
+    ribbon.set_selected(1)
+    with qtbot.waitSignal(ribbon.frame_nudged, timeout=1000) as blocker:
+        qtbot.keyClick(ribbon, Qt.Key.Key_Left)  # type: ignore[no-untyped-call]
+    assert blocker.args == [1, -1]
+
+
+def test_shift_makes_the_step_ten_times_bigger(qtbot: QtBot) -> None:
+    ribbon = build(qtbot, (0.0, 0.6))
+    ribbon.set_selected(0)
+    with qtbot.waitSignal(ribbon.frame_nudged, timeout=1000) as blocker:
+        qtbot.keyClick(ribbon, Qt.Key.Key_Right, Qt.KeyboardModifier.ShiftModifier)  # type: ignore[no-untyped-call]
+    assert blocker.args == [0, 10]
+
+
+def test_home_and_end_span_the_whole_width(qtbot: QtBot) -> None:
+    # A hundred steps is the whole panorama; the tab's clamp does the rest.
+    ribbon = build(qtbot, (0.0, 0.6))
+    ribbon.set_selected(1)
+    with qtbot.waitSignal(ribbon.frame_nudged, timeout=1000) as blocker:
+        qtbot.keyClick(ribbon, Qt.Key.Key_Home)  # type: ignore[no-untyped-call]
+    assert blocker.args == [1, -100]
+    with qtbot.waitSignal(ribbon.frame_nudged, timeout=1000) as blocker:
+        qtbot.keyClick(ribbon, Qt.Key.Key_End)  # type: ignore[no-untyped-call]
+    assert blocker.args == [1, 100]
+
+
+def test_down_and_up_move_the_selection(qtbot: QtBot) -> None:
+    ribbon = build(qtbot, (0.0, 0.3, 0.6))
+    ribbon.set_selected(0)
+    with qtbot.waitSignal(ribbon.selection_changed, timeout=1000) as blocker:
+        qtbot.keyClick(ribbon, Qt.Key.Key_Down)  # type: ignore[no-untyped-call]
+    assert blocker.args == [1]
+    assert ribbon.selected() == 1
+    with qtbot.waitSignal(ribbon.selection_changed, timeout=1000) as blocker:
+        qtbot.keyClick(ribbon, Qt.Key.Key_Up)  # type: ignore[no-untyped-call]
+    assert blocker.args == [0]
+
+
+def test_the_selection_stops_at_the_ends_rather_than_wrapping(qtbot: QtBot) -> None:
+    # Wrapping from the last frame back to the first loses your place on a
+    # picture you are reading left to right.
+    ribbon = build(qtbot, (0.0, 0.3, 0.6))
+    ribbon.set_selected(2)
+    with qtbot.assertNotEmitted(ribbon.selection_changed):
+        qtbot.keyClick(ribbon, Qt.Key.Key_Down)  # type: ignore[no-untyped-call]
+    assert ribbon.selected() == 2
+    ribbon.set_selected(0)
+    with qtbot.assertNotEmitted(ribbon.selection_changed):
+        qtbot.keyClick(ribbon, Qt.Key.Key_Up)  # type: ignore[no-untyped-call]
+    assert ribbon.selected() == 0
+
+
+def test_keys_do_nothing_with_no_plan(qtbot: QtBot) -> None:
+    ribbon = FrameRibbon()
+    qtbot.addWidget(ribbon)
+    ribbon.resize(600, RIBBON_HEIGHT)
+    with qtbot.assertNotEmitted(ribbon.frame_nudged):
+        qtbot.keyClick(ribbon, Qt.Key.Key_Right)  # type: ignore[no-untyped-call]
+
+
+def test_the_selected_window_is_marked_in_chinagraph(qtbot: QtBot) -> None:
+    # Chinagraph is the marking-up layer: the frame you have picked.
+    ribbon = build(qtbot, (0.0, 0.6))
+    ribbon.set_selected(1)
+    assert ribbon.marked_rect() == ribbon.window_rects()[1]
+    ribbon.set_selected(None)
+    assert ribbon.marked_rect().isNull()
+
+
+def test_the_ribbon_names_what_is_selected(qtbot: QtBot) -> None:
+    ribbon = build(qtbot, (0.0, 0.6))
+    ribbon.set_selected(1)
+    assert "3" in ribbon.accessibleName()
