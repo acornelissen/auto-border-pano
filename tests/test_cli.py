@@ -305,3 +305,148 @@ def test_help_lists_the_new_flags() -> None:
     assert "--border-color" in help_text
     assert "--gutter-color" in help_text
     assert "composites only" in help_text
+
+
+# --- compose subcommand -------------------------------------------------
+#
+# The compose path shares every style flag with the split path, so these
+# tests concentrate on what is genuinely different: the variable-length
+# input list, the -o output, and the layout name reaching stdout.
+
+COMPOSE_FIXTURES = [
+    str(Path(__file__).parent / "fixtures" / name)
+    for name in ("compose_wide.jpg", "compose_square.jpg", "compose_tall.jpg")
+]
+
+
+def test_compose_two_inputs_writes_a_diptych(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    exit_code = cli.main(["compose", *COMPOSE_FIXTURES[:2], "-o", str(tmp_path / "out")])
+
+    assert exit_code == 0
+    assert (tmp_path / "out_diptych.jpg").exists()
+    assert "out_diptych.jpg" in capsys.readouterr().out
+
+
+def test_compose_three_inputs_writes_a_triptych(tmp_path: Path) -> None:
+    exit_code = cli.main(["compose", *COMPOSE_FIXTURES, "--output", str(tmp_path / "out")])
+
+    assert exit_code == 0
+    assert (tmp_path / "out_triptych.jpg").exists()
+
+
+def test_compose_prints_the_winning_layout(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    expected = pipeline.name_layout(COMPOSE_FIXTURES[:2])
+
+    assert cli.main(["compose", *COMPOSE_FIXTURES[:2], "-o", str(tmp_path / "out")]) == 0
+    assert expected in capsys.readouterr().out
+
+
+def test_compose_rejects_one_input(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit):
+        cli.main(["compose", COMPOSE_FIXTURES[0], "-o", str(tmp_path / "out")])
+
+
+def test_compose_rejects_four_inputs(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit):
+        cli.main(["compose", *COMPOSE_FIXTURES, COMPOSE_FIXTURES[0], "-o", str(tmp_path / "out")])
+    assert "4" in capsys.readouterr().err
+
+
+def test_compose_defaults_its_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert cli.main(["compose", *COMPOSE_FIXTURES[:2]]) == 0
+    assert (tmp_path / "output_diptych.jpg").exists()
+
+
+def test_compose_missing_input_is_an_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    missing = str(tmp_path / "nope.jpg")
+
+    exit_code = cli.main(["compose", COMPOSE_FIXTURES[0], missing, "-o", str(tmp_path / "out")])
+
+    assert exit_code == 1
+    assert "nope.jpg" in capsys.readouterr().err
+    assert not (tmp_path / "out_diptych.jpg").exists()
+
+
+def test_compose_accepts_portrait_input(tmp_path: Path) -> None:
+    tall = str(Path(__file__).parent / "fixtures" / "compose_tall.jpg")
+
+    assert cli.main(["compose", tall, tall, "-o", str(tmp_path / "out")]) == 0
+    assert (tmp_path / "out_diptych.jpg").exists()
+
+
+def test_compose_gutter_colour_reaches_the_written_pixels(tmp_path: Path) -> None:
+    exit_code = cli.main(
+        [
+            "compose",
+            *COMPOSE_FIXTURES[:2],
+            "-o",
+            str(tmp_path / "out"),
+            "--border",
+            "0",
+            "--gutter",
+            "6",
+            "--gutter-colour",
+            "#c9302a",
+        ]
+    )
+
+    assert exit_code == 0
+    with Image.open(tmp_path / "out_diptych.jpg") as composite:
+        raw = composite.convert("RGB").tobytes()
+    closest = min(
+        (raw[i] - 201) ** 2 + (raw[i + 1] - 48) ** 2 + (raw[i + 2] - 42) ** 2
+        for i in range(0, len(raw), 3)
+    )
+    assert closest < 200, "the gutter colour never landed in the composite"
+
+
+def test_compose_ratio_reaches_the_written_image(tmp_path: Path) -> None:
+    exit_code = cli.main(
+        ["compose", *COMPOSE_FIXTURES[:2], "-o", str(tmp_path / "out"), "--ratio", "square"]
+    )
+
+    assert exit_code == 0
+    with Image.open(tmp_path / "out_diptych.jpg") as composite:
+        assert composite.size == (pipeline.RATIOS["1:1"].width, pipeline.RATIOS["1:1"].height)
+
+
+def test_a_file_literally_named_compose_still_splits(tmp_path: Path) -> None:
+    # The bare form is dispatched by the first argument, so a source file
+    # whose own name is "compose" must not be mistaken for the subcommand.
+    monkeypatched = tmp_path / "compose"
+    synthetic_panorama(600, 200).save(monkeypatched, "JPEG", quality=95)
+
+    exit_code = cli.main([str(monkeypatched), str(tmp_path / "out")])
+
+    assert exit_code == 0
+    assert (tmp_path / "out_1_padded.jpg").exists()
+
+
+def test_bare_form_is_unchanged_by_the_subcommand(tmp_path: Path) -> None:
+    source = tmp_path / "pano.jpg"
+    synthetic_panorama(600, 200).save(source, "JPEG", quality=95)
+
+    exit_code = cli.main([str(source), str(tmp_path / "out"), "--ratio", "1:1"])
+
+    assert exit_code == 0
+    assert sorted(p.name for p in tmp_path.glob("out_*.jpg")) == [
+        "out_1_padded.jpg",
+        "out_2_section1.jpg",
+        "out_3_section2.jpg",
+        "out_4_section3.jpg",
+    ]
+
+
+def test_compose_help_mentions_the_subcommand() -> None:
+    assert "compose" in cli.build_parser().format_help()
+    compose_help = cli.build_compose_parser().format_help()
+    assert "--gutter" in compose_help
+    assert "-o" in compose_help

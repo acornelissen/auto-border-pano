@@ -55,10 +55,12 @@ and **Compose** for composing two or three photos into one frame
 ```bash
 mise run split -- input.jpg my_prefix      # single image
 mise run split -- ./panoramas ./output     # whole folder
+mise run split -- compose a.jpg b.jpg -o my_prefix   # diptych
 ```
 
-Run `uv run maskingframe --help` for all options. Folder mode writes to
-`./output` if you omit the output argument.
+Run `uv run maskingframe --help` for all options, and
+`uv run maskingframe compose --help` for the compose subcommand. Folder
+mode writes to `./output` if you omit the output argument.
 
 ### Examples
 
@@ -98,6 +100,15 @@ Run `uv run maskingframe --help` for all options. Folder mode writes to
    Processes every JPG in the folder once each and organizes outputs in the
    specified folder. If any file fails, the CLI exits non-zero and lists the
    failures on stderr; everything else in the batch still gets processed.
+
+5. **CLI - compose:**
+   ```bash
+   mise run split -- compose left.jpg right.jpg -o seaside --ratio 1:1
+   ```
+   Creates `seaside_diptych.jpg`, and prints which arrangement won. Give it a
+   third image and you get `seaside_triptych.jpg` instead. The output is the
+   `-o` option rather than a trailing path, because a bare path after a list
+   of images could be read as either another source or the destination.
 
 ## Aspect ratio
 
@@ -146,9 +157,9 @@ at `4:5` and `1:1`, 51px at `1.91:1`.
 | `--gutter-colour HEX` | `#ffffff` | Composites only: the colour of that gap |
 | `--border-detail-frames` | off | Border the zoomed detail frames too, not just the first frame |
 
-`--border-color` and `--gutter-color` work as well, if you prefer them. The
-CLI splits panoramas only, so the two gutter flags are there for parity with
-the GUI's Compose tab, which is where composites are made.
+`--border-color` and `--gutter-color` work as well, if you prefer them. Every
+flag in the table works on both `maskingframe` and `maskingframe compose`,
+though the two gutter flags only do anything on a composite.
 
 On a composite the two colours cover different things: the gutter colour
 fills only the strips between panels, and everything else — the outer margin
@@ -163,8 +174,8 @@ mise run split -- panorama.jpg my_prefix --border 12 --border-colour '#000000'
 
 ## Diptychs and triptychs
 
-The second tab composes two or three photographs into a single frame at any
-of the three ratios.
+The second tab, and the `compose` subcommand, join two or three photographs
+into a single frame at any of the three ratios.
 
 The layout is chosen for you. The tool tries each sensible arrangement — a
 row, a column, and for three images the variants with one large panel beside
@@ -173,7 +184,8 @@ cropped: each keeps its own aspect ratio, and whatever space is left over
 becomes border. That is what lets a 6x17 panorama, a square 6x6 and a
 35mm frame sit in one composite without any of them losing content.
 
-Images stay in the order you arrange them. Use Up and Down to change it.
+Images stay in the order you arrange them. In the GUI, use Up and Down to
+change it; on the command line, the order you list them is the order used.
 
 Unlike the splitter, portrait images are fine here — mixing orientations is
 much of the point.
