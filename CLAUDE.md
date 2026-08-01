@@ -34,7 +34,9 @@ Verify:
 mise run check   # ruff lint, mypy --strict, pytest — run this before committing
 ```
 
-`mise run check` is the single command that must pass. It runs `lint`, `typecheck`, and `test` (see `mise.toml` for the individual tasks).
+`mise run check` is the single command that must pass. It runs `lint`, `fmtcheck`, `typecheck`, and `test` (see `mise.toml` for the individual tasks).
+
+Every hook runs the project's own tool through `scripts/run-tool`, ruff included. There is deliberately no second, separately pinned ruff: when the commit hook had one and `mise run check` had another, they drifted, and a file the hook had just formatted would be reformatted the other way by the next manual run. `fmtcheck` is in the gate for the same reason -- without it the gate passed on a tree the hook would go on to rewrite. `docs` is excluded from ruff, because newer ruff formats Python inside Markdown fences and the plan documents are a record rather than source.
 
 ## Architecture
 

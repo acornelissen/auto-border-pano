@@ -526,9 +526,9 @@ def test_a_rendered_composite_shows_its_border_exactly_once(qtbot: QtBot) -> Non
     shown = run_of_magenta(on_screen, frame.height())
     scale = rendered.height / frame.height()
 
-    assert shown * scale == pytest.approx(
-        baseline, abs=3 * scale
-    ), f"the border ran {shown * scale:.0f}px of the render, which holds {baseline}px"
+    assert shown * scale == pytest.approx(baseline, abs=3 * scale), (
+        f"the border ran {shown * scale:.0f}px of the render, which holds {baseline}px"
+    )
 
 
 def test_the_composite_overlay_matches_what_a_render_actually_produces(

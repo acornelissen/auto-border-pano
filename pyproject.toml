@@ -31,6 +31,11 @@ dev = [
 [tool.ruff]
 line-length = 100
 src = ["src", "tests"]
+# Newer ruff formats Python inside Markdown fences, which would rewrite the
+# code samples in the plan and design documents. Those are a record of what
+# was decided and when, not source -- reflowing them churns history and makes
+# a plan disagree with the session that produced it.
+extend-exclude = ["docs"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]

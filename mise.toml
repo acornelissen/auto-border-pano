@@ -29,10 +29,16 @@ run = "uv run ruff check ."
 description = "Format"
 run = "uv run ruff format ."
 
+# The gate has to agree with the commit hook, which formats. Without this,
+# `mise run check` passed on a tree the hook would then rewrite.
+[tasks.fmtcheck]
+description = "Check formatting"
+run = "uv run ruff format --check ."
+
 [tasks.typecheck]
 description = "Type check"
 run = "uv run mypy src tests"
 
 [tasks.check]
-description = "Lint, type check and test"
-depends = ["lint", "typecheck", "test"]
+description = "Lint, check formatting, type check and test"
+depends = ["lint", "fmtcheck", "typecheck", "test"]
