@@ -18,6 +18,7 @@ token, and the ratio still travels with its own answer rather than being
 re-read from a combobox that may have moved on.
 """
 
+from collections.abc import Sequence
 from pathlib import Path
 
 from PIL import Image
@@ -33,9 +34,11 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from shiboken6 import isValid
 
 from maskingframe import pipeline
 from maskingframe.gui import settings, shell, theme
+from maskingframe.gui.ribbon import FrameRibbon
 from maskingframe.gui.strip import BorderPreview, ContactStrip
 from maskingframe.gui.work import submit
 
@@ -46,6 +49,11 @@ _RATIO_BY_DISPLAY: dict[str, str] = {r.display: r.name for r in pipeline.RATIOS.
 NO_COUNT = "Load a source to see the frame count"
 """Shown whenever the frame count is not known: no file, folder mode, or an
 unreadable file. Never a stale or guessed number."""
+
+NO_POSITIONS = "Frames are spread evenly. Load one panorama to place them by hand."
+"""What stands where the ribbon would be when there is nothing to place --
+folder mode, or no source. Silence would read as a missing feature rather
+than a decision."""
 
 UNCOUNTED_ACTION = "Cut frames"
 """The button's label while the count is unknown. Once it is known the
@@ -84,6 +92,14 @@ class SplitTab(QWidget):
         # button states are derived from, so neither action can be started
         # twice.
         self._running = False
+        self._positions: tuple[float, ...] = ()
+        self._source_size: tuple[int, int] | None = None
+        self._window_fraction = 0.0
+        # The positions as they were when a strip drag began. A strip drag
+        # reports displacement from the press point, so the tab adds it to
+        # where the frame started rather than to wherever it has got to --
+        # otherwise every move event would compound the last one.
+        self._drag_anchor: tuple[float, ...] = ()
 
         self._build()
         self._apply_button_states()
@@ -146,6 +162,27 @@ class SplitTab(QWidget):
         self.count_label = shell.help_label(NO_COUNT)
         rail.addWidget(self.count_label)
 
+        rail.addSpacing(theme.S)
+        counter = QWidget()
+        counter_row = QHBoxLayout(counter)
+        counter_row.setContentsMargins(0, 0, 0, 0)
+        counter_row.setSpacing(theme.S)
+        # Secondary, not primary: chinagraph is for marking up, and two more
+        # filled blocks of it beside the action would cost that action its
+        # primacy. These are chrome.
+        # A true minus, not a hyphen: beside a `+` at the same size a hyphen
+        # sits too high and reads as a dash rather than an operator.
+        self.remove_btn = QPushButton("−")  # noqa: RUF001
+        self.remove_btn.setObjectName("Secondary")
+        self.remove_btn.clicked.connect(self.remove_frame)
+        self.add_btn = QPushButton("+")
+        self.add_btn.setObjectName("Secondary")
+        self.add_btn.clicked.connect(self.add_frame)
+        counter_row.addWidget(self.remove_btn)
+        counter_row.addWidget(self.add_btn)
+        counter_row.addStretch(1)
+        rail.addWidget(counter)
+
         rail.addSpacing(theme.L)
         # No gap control: a split writes one frame at a time, so there is
         # nothing for a gap to sit between.
@@ -202,8 +239,23 @@ class SplitTab(QWidget):
 
         rail.addStretch(1)
 
+        # Source above, results below: the ribbon says where the frames come
+        # from, the strip says what they are.
+        self.ribbon = FrameRibbon(self.columns.table)
+        self.ribbon.positions_changed.connect(self._on_positions_changed)
+        self.ribbon.positions_settled.connect(self._on_positions_settled)
+        self.ribbon.setVisible(False)
+        self.columns.table_layout.addWidget(self.ribbon)
+
+        self.ribbon_note = shell.help_label(NO_POSITIONS)
+        self.columns.table_layout.addWidget(self.ribbon_note)
+
+        self.columns.table_layout.addSpacing(theme.M)
+
         # An object lying on the light table, not a panel filling it.
         self.strip = ContactStrip(self.columns.table)
+        self.strip.frame_dragged.connect(self._on_frame_dragged)
+        self.strip.frame_drag_settled.connect(self._on_frame_drag_settled)
         # No top alignment and no stretch under it: the strip fills the
         # table, so the frames are as large as the window allows.
         self.columns.table_layout.addWidget(self.strip, 1)
@@ -278,6 +330,130 @@ class SplitTab(QWidget):
                 first_frame_only=not style.border_detail_frames,
             )
         )
+
+    # --- Where the detail frames land ---------------------------------------
+
+    def positions(self) -> tuple[float, ...]:
+        """Where the detail frames land. The one copy; both views read it."""
+        return self._positions
+
+    def _set_positions(self, positions: Sequence[float]) -> None:
+        """Adopt a new plan and tell both views about it. GUI thread only.
+
+        Normalised through `pipeline` rather than trusted: a drag is clamped
+        by the widget that produced it, but the tab is the only thing that
+        knows the source's real size, so the last word on what is inside the
+        picture belongs here.
+        """
+        if self._source_size is None:
+            self._positions = tuple(positions)
+        else:
+            width, height = self._source_size
+            self._positions = pipeline.normalise_positions(
+                positions, width, height, pipeline.RATIOS[self._ratio_name()]
+            )
+        self.ribbon.set_plan(self._positions, self._window_fraction)
+
+    def _show_ribbon(self, visible: bool) -> None:
+        """The ribbon and the sentence explaining its absence are exclusive."""
+        self.ribbon.setVisible(visible)
+        self.ribbon_note.setVisible(not visible)
+        self.strip.set_draggable(visible)
+
+    def _on_positions_changed(self, positions: tuple[float, ...]) -> None:
+        """Every movement of a ribbon drag. Cheap work only."""
+        self._set_positions(positions)
+
+    def _on_positions_settled(self, positions: tuple[float, ...]) -> None:
+        """The hand has stopped. Now the frames themselves can be redone."""
+        self._set_positions(positions)
+        self._rerender()
+
+    def _on_frame_dragged(self, index: int, delta: float) -> None:
+        """A drag inside strip frame `index`. Frame 0 is the whole panorama.
+
+        The strip reports its delta in frame widths because it has no idea
+        how wide the panorama is; here it becomes a fraction of the width.
+        """
+        detail = index - 1
+        if not 0 <= detail < len(self._positions):
+            return
+        if not self._drag_anchor:
+            self._drag_anchor = self._positions
+        anchored = list(self._drag_anchor)
+        anchored[detail] += delta * self._window_fraction
+        self._set_positions(anchored)
+
+    def _on_frame_drag_settled(self, _index: int) -> None:
+        self._drag_anchor = ()
+        self._rerender()
+
+    def add_frame(self) -> None:
+        """One more detail frame, in the widest stretch nothing covers.
+
+        A new frame should land on something nobody is looking at yet, which
+        is a judgement `pipeline` already makes; this only supplies the size
+        of the source it needs to make it.
+        """
+        if self._source_size is None or not self._positions:
+            return
+        width, height = self._source_size
+        self._set_positions(
+            pipeline.insert_position(
+                self._positions, width, height, pipeline.RATIOS[self._ratio_name()]
+            )
+        )
+        self._apply_count_states()
+        self._rerender()
+
+    def remove_frame(self) -> None:
+        """One fewer, taken from the end. Never below two."""
+        if len(self._positions) <= 2:
+            return
+        self._set_positions(pipeline.drop_position(self._positions))
+        self._apply_count_states()
+        self._rerender()
+
+    def _apply_count_states(self) -> None:
+        """The one place that decides whether the pair is pressable.
+
+        Derived from the plan itself, so it cannot go out of date, and it
+        also updates the readouts the count feeds -- the label and the
+        button's number both count what a run will actually write.
+        """
+        placed = len(self._positions)
+        self.add_btn.setEnabled(placed > 0)
+        self.remove_btn.setEnabled(placed > 2)
+        if placed:
+            self.count_label.setText(f"{placed + 1} frames")
+            self.action_btn.setText(f"Cut {placed + 1} frames")
+
+    def _load_ribbon_picture(self, token: int) -> None:
+        """Decode a small copy of the panorama for the ribbon to draw.
+
+        Off the GUI thread like every other decode here, and behind the same
+        inspection token: a user can pick a second file before the first
+        picture arrives, and the older one must not land on the newer plan.
+        """
+        source = self.source_row.text()
+
+        def read() -> Image.Image | None:
+            # Worker thread. Returns plain data; touches no widget.
+            try:
+                return pipeline.ribbon_thumbnail(source)
+            except Exception:
+                return None
+
+        def done(image: Image.Image | None) -> None:
+            # `isValid` because this callback is a closure, not a bound
+            # method, so Qt has no receiver to drop it against: a decode
+            # still in flight when the tab is torn down would otherwise
+            # reach a widget whose C++ half has gone.
+            if token != self._inspect_token or not isValid(self.ribbon):
+                return
+            self.ribbon.set_source(image)
+
+        submit(read, done, lambda _error: None)
 
     def _rerender(self) -> None:
         """Make the frames on the table again, under the settings now in force.
@@ -366,12 +542,26 @@ class SplitTab(QWidget):
         self.count_label.setText(f"{facts.frame_count} frames")
         self.action_btn.setText(f"Cut {facts.frame_count} frames")
         self._set_band(subject, f"{ratio_name} · {facts.frame_count} frames" if ratio_name else "")
+        self._source_size = (facts.width, facts.height)
+        self._window_fraction = facts.window_fraction
+        self._set_positions(facts.positions)
+        self._show_ribbon(True)
+        self._load_ribbon_picture(token)
+        self._apply_count_states()
 
     def _clear_facts(self, subject: str = "") -> None:
         self.facts_label.setText("")
         self.count_label.setText(NO_COUNT)
         self.action_btn.setText(UNCOUNTED_ACTION)
         self._set_band(subject, "")
+        self._positions = ()
+        self._source_size = None
+        self._window_fraction = 0.0
+        self._drag_anchor = ()
+        self.ribbon.set_source(None)
+        self.ribbon.set_plan((), 0.0)
+        self._show_ribbon(False)
+        self._apply_count_states()
 
     def _set_error(self, message: str) -> None:
         self.error_label.setText(message)
@@ -512,6 +702,7 @@ class SplitTab(QWidget):
         # worker re-reading the controls could render one border and caption
         # it with another.
         style = self._style()
+        positions = self._positions or None
 
         def cut() -> list[Path]:
             # Worker thread. `frame_written.emit` is the only crossing, and
@@ -521,6 +712,7 @@ class SplitTab(QWidget):
                 prefix,
                 pipeline.RATIOS[ratio_name],
                 on_frame=lambda done, total, path: self.frame_written.emit(done, total, path),
+                positions=positions,
                 style=style,
             )
 
@@ -613,6 +805,7 @@ class SplitTab(QWidget):
         source = self.source_row.text()
         ratio_name = self._ratio_name()
         style = self._style()
+        positions = self._positions or None
         if updating:
             self.status_label.setText(shell.UPDATING_PREVIEW)
         else:
@@ -625,7 +818,13 @@ class SplitTab(QWidget):
             # data and are shown on the GUI thread below. `cached` lets a
             # second render of the same source skip the decode, which is
             # what makes re-rendering a 132MP scan bearable.
-            return pipeline.preview_frames(source, pipeline.RATIOS[ratio_name], style, cached=True)
+            return pipeline.preview_frames(
+                source,
+                pipeline.RATIOS[ratio_name],
+                style,
+                cached=True,
+                positions=positions,
+            )
 
         def done(frames: list[Image.Image]) -> None:
             if not updating:

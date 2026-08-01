@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QDialog, QLabel, QMessageBox, QRadioButton
 from maskingframe import pipeline
 from maskingframe.gui import settings, shell, split_tab
 from maskingframe.gui.split_tab import NO_COUNT, UNCOUNTED_ACTION, SplitTab, preview_titles
+from tests import conftest
 from tests.conftest import synthetic_panorama
 
 pytest.importorskip("pytestqt")
@@ -700,3 +701,164 @@ def test_a_failed_re_render_leaves_the_old_frames_up(
 
     assert tab.strip.exposed == exposed
     assert tab.error_label.text() == "no"
+
+
+NO_POSITIONS = "Frames are spread evenly. Load one panorama to place them by hand."
+
+
+def test_the_ribbon_is_hidden_until_a_panorama_is_loaded(qtbot: Any) -> None:
+    tab = SplitTab()
+    qtbot.addWidget(tab)
+    assert not tab.ribbon.isVisibleTo(tab)
+
+
+def test_loading_a_panorama_shows_the_ribbon(qtbot: Any, tmp_path: Path) -> None:
+    source = tmp_path / "pano.jpg"
+    conftest.synthetic_panorama(2000, 1000).save(source, "JPEG", quality=95)
+
+    tab = SplitTab()
+    qtbot.addWidget(tab)
+    tab.show()
+    tab.source_row.setText(str(source))
+    qtbot.waitUntil(lambda: tab.positions() != (), timeout=3000)
+
+    assert tab.ribbon.isVisibleTo(tab)
+    assert len(tab.positions()) >= 2
+
+
+def test_folder_mode_hides_the_ribbon_and_says_why(qtbot: Any, tmp_path: Path) -> None:
+    tab = SplitTab()
+    qtbot.addWidget(tab)
+    tab.show()
+    tab.folder_radio.setChecked(True)
+    tab.source_row.setText(str(tmp_path))
+
+    assert not tab.ribbon.isVisibleTo(tab)
+    assert tab.ribbon_note.isVisibleTo(tab)
+    assert tab.ribbon_note.text() == NO_POSITIONS
+
+
+def test_dragging_in_the_strip_moves_the_matching_position(qtbot: Any, tmp_path: Path) -> None:
+    source = tmp_path / "pano.jpg"
+    conftest.synthetic_panorama(2000, 1000).save(source, "JPEG", quality=95)
+
+    tab = SplitTab()
+    qtbot.addWidget(tab)
+    tab.show()
+    tab.source_row.setText(str(source))
+    qtbot.waitUntil(lambda: tab.positions() != (), timeout=3000)
+
+    before = tab.positions()
+    # Strip frame 1 is detail frame 0. A quarter of a frame width to the right.
+    tab.strip.frame_dragged.emit(1, 0.25)
+
+    after = tab.positions()
+    assert after[0] > before[0]
+    assert after[1:] == before[1:]
+    # And the ribbon was told, so the two views cannot disagree.
+    assert tab.ribbon.positions() == after
+
+
+def test_the_ribbon_and_the_tab_agree_after_a_ribbon_drag(qtbot: Any, tmp_path: Path) -> None:
+    source = tmp_path / "pano.jpg"
+    conftest.synthetic_panorama(2000, 1000).save(source, "JPEG", quality=95)
+
+    tab = SplitTab()
+    qtbot.addWidget(tab)
+    tab.show()
+    tab.source_row.setText(str(source))
+    qtbot.waitUntil(lambda: tab.positions() != (), timeout=3000)
+
+    moved = (0.1, *tab.positions()[1:])
+    tab.ribbon.positions_changed.emit(moved)
+
+    assert tab.positions()[0] == pytest.approx(0.1)
+
+
+def test_a_run_cuts_at_the_chosen_positions(
+    qtbot: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "pano.jpg"
+    conftest.synthetic_panorama(2000, 1000).save(source, "JPEG", quality=95)
+
+    seen: dict[str, object] = {}
+    real = pipeline.process_image
+
+    # `Any`, not `object`: the arguments are handed straight back to the real
+    # function, and --strict will not pass an unpacked `object` tuple to it.
+    def spy(*args: Any, **kwargs: Any) -> object:
+        seen.update(kwargs)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(pipeline, "process_image", spy)
+
+    tab = SplitTab()
+    qtbot.addWidget(tab)
+    tab.show()
+    tab.source_row.setText(str(source))
+    qtbot.waitUntil(lambda: tab.positions() != (), timeout=3000)
+    tab.ribbon.positions_changed.emit((0.1, *tab.positions()[1:]))
+    tab.dest_row.setText(str(tmp_path / "out"))
+    tab.process_images()
+    qtbot.waitUntil(lambda: "positions" in seen, timeout=5000)
+
+    assert seen["positions"] == tab.positions()
+
+    # The run is real, so it has to be let finish: a worker still writing
+    # frames when the tab is torn down would report progress to a widget
+    # that has gone, and the next test would wear the exception.
+    qtbot.waitUntil(lambda: tab.action_btn.isEnabled(), timeout=10000)
+
+
+def test_adding_a_frame_lands_it_between_the_others(qtbot: Any, tmp_path: Path) -> None:
+    source = tmp_path / "pano.jpg"
+    conftest.synthetic_panorama(2000, 1000).save(source, "JPEG", quality=95)
+
+    tab = SplitTab()
+    qtbot.addWidget(tab)
+    tab.show()
+    tab.source_row.setText(str(source))
+    qtbot.waitUntil(lambda: tab.positions() != (), timeout=3000)
+
+    before = tab.positions()
+    tab.add_frame()
+
+    after = tab.positions()
+    assert len(after) == len(before) + 1
+    assert list(after) == sorted(after)
+
+
+def test_removing_a_frame_takes_the_last_one(qtbot: Any, tmp_path: Path) -> None:
+    source = tmp_path / "pano.jpg"
+    conftest.synthetic_panorama(2000, 1000).save(source, "JPEG", quality=95)
+
+    tab = SplitTab()
+    qtbot.addWidget(tab)
+    tab.show()
+    tab.source_row.setText(str(source))
+    qtbot.waitUntil(lambda: tab.positions() != (), timeout=3000)
+
+    tab.add_frame()
+    before = tab.positions()
+    tab.remove_frame()
+
+    assert tab.positions() == before[:-1]
+
+
+def test_the_remove_button_is_dead_at_two_frames(qtbot: Any, tmp_path: Path) -> None:
+    # Two is the floor: one detail frame would just restate frame 1.
+    source = tmp_path / "pano.jpg"
+    conftest.synthetic_panorama(2000, 1000).save(source, "JPEG", quality=95)
+
+    tab = SplitTab()
+    qtbot.addWidget(tab)
+    tab.show()
+    tab.source_row.setText(str(source))
+    qtbot.waitUntil(lambda: tab.positions() != (), timeout=3000)
+
+    while len(tab.positions()) > 2:
+        tab.remove_frame()
+
+    assert not tab.remove_btn.isEnabled()
+    tab.remove_frame()
+    assert len(tab.positions()) == 2
