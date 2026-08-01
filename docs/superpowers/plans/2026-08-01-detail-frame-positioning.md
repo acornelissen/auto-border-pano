@@ -60,7 +60,7 @@ Pure arithmetic only. Nothing existing changes yet, so the suite stays green thr
   - `normalise_positions(positions: Sequence[float], pano_width: int, pano_height: int, ratio: AspectRatio) -> tuple[float, ...]`
   - `default_positions(pano_width: int, pano_height: int, ratio: AspectRatio, count: int | None = None) -> tuple[float, ...]`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to the end of `tests/test_geometry.py`:
 
@@ -132,12 +132,12 @@ def test_default_positions_on_a_narrow_source_are_all_zero() -> None:
     assert got == (0.0, 0.0)
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `mise exec -- uv run pytest tests/test_geometry.py -k "frame_width or travel or clamp or normalise or default_positions" -v`
 Expected: FAIL with `AttributeError: module 'maskingframe.geometry' has no attribute 'frame_width'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Add `from collections.abc import Sequence` to the imports at the top of `geometry.py`, then add this block immediately after `section_count()`:
 
@@ -210,17 +210,17 @@ def default_positions(
     return tuple(index * travel / (count - 1) for index in range(count))
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `mise exec -- uv run pytest tests/test_geometry.py -v`
 Expected: PASS, all of them.
 
-- [ ] **Step 5: Run the full gate**
+- [x] **Step 5: Run the full gate**
 
 Run: `mise run check`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/maskingframe/geometry.py tests/test_geometry.py
