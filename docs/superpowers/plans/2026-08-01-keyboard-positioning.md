@@ -325,7 +325,7 @@ The same behaviour in the strip, in strip indices. Do not run this concurrently 
   - `set_selected(index: int | None) -> None` — silent
   - `selected() -> int | None`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `tests/test_strip.py`:
 
@@ -408,12 +408,12 @@ def test_the_selected_strip_frame_is_marked(qtbot: QtBot) -> None:
 
 Add `QEvent` and `QFocusEvent` to the file's imports if they are not there.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `mise exec -- uv run pytest tests/test_strip.py -k "focus or selected or nudge or marked" -v`
 Expected: FAIL with `AttributeError: 'ContactStrip' object has no attribute 'selection_changed'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Add the signals under the existing ones:
 
@@ -525,12 +525,12 @@ under each frame says.
 
 Add `QFocusEvent` and `QKeyEvent` to the `PySide6.QtGui` import.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `mise exec -- uv run pytest tests/test_strip.py -v`
 Expected: PASS, including every test that was already in the file.
 
-- [ ] **Step 5: Run the full gate and commit**
+- [x] **Step 5: Run the full gate and commit**
 
 ```bash
 mise run check
