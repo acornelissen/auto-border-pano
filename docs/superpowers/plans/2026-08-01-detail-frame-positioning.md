@@ -703,7 +703,7 @@ The GUI may not import `geometry`, so everything it needs about positions has to
   - `SourceFacts.positions: tuple[float, ...]` and `SourceFacts.window_fraction: float`
   - `ribbon_thumbnail(path: Path | str, max_width: int = 1200) -> Image.Image`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `tests/test_inspect.py`:
 
@@ -755,12 +755,12 @@ def test_ribbon_thumbnail_is_bounded_and_keeps_its_shape(tmp_path: Path) -> None
 
 Make sure `tests/test_inspect.py` imports what it needs: `pytest`, `from pathlib import Path`, `from maskingframe import pipeline`, and `from tests import conftest`.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `mise exec -- uv run pytest tests/test_inspect.py -v`
 Expected: FAIL — `SourceFacts` has no attribute `positions`, and `pipeline` has no attribute `ribbon_thumbnail`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Find the existing re-export block in `pipeline.py` (the one bringing `AspectRatio`, `RATIOS`, `DEFAULT_RATIO`, `FrameStyle`, `DEFAULT_STYLE`, `parse_colour`, `MAX_PERCENT` across from `geometry`) and extend it with the six position functions, keeping whatever style it already uses. If it is a `from maskingframe.geometry import (...)` list, add the names to that list; if it is a series of assignments, add matching assignments. Extend the comment that guards it so the reason survives:
 
@@ -829,12 +829,12 @@ def ribbon_thumbnail(input_path: Path | str, max_width: int = 1200) -> Image.Ima
 
 If `pipeline.py` does not already `import math`, add it.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `mise exec -- uv run pytest tests/test_inspect.py -v`
 Expected: PASS.
 
-- [ ] **Step 5: Run the full gate and commit**
+- [x] **Step 5: Run the full gate and commit**
 
 ```bash
 mise run check
