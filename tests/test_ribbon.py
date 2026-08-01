@@ -10,7 +10,7 @@ import pytest
 from PySide6.QtCore import QPoint, QRect, Qt
 from pytestqt.qtbot import QtBot
 
-from maskingframe.gui.ribbon import RIBBON_HEIGHT, FrameRibbon, _uncovered
+from maskingframe.gui.ribbon import MARGIN, RIBBON_HEIGHT, FrameRibbon, _uncovered
 from tests import conftest
 
 
@@ -119,6 +119,43 @@ def test_uncovered_bands_include_the_pictures_rightmost_column() -> None:
         covered_columns.update(range(band.left(), band.right() + 1))
 
     assert covered_columns == set(range(picture.left(), picture.right() + 1))
+
+
+def test_a_scan_shaped_panorama_fills_half_the_ribbon(qtbot: QtBot) -> None:
+    # The shape this project actually scans, in a ribbon the width the Split
+    # tab gives it in a 1280-wide window. Half is the floor the height was
+    # chosen against: at 2.4:1 the height binds, so the picture is
+    # 2.4 * (RIBBON_HEIGHT - 2 * MARGIN) = 518px, and anything much under
+    # half a ribbon is too small to judge where two crops overlap in.
+    ribbon = FrameRibbon()
+    qtbot.addWidget(ribbon)
+    ribbon.resize(912, RIBBON_HEIGHT)
+    ribbon.set_source(conftest.synthetic_panorama(600, 250))
+
+    assert ribbon.picture_rect().height() == RIBBON_HEIGHT - 2 * MARGIN
+    assert ribbon.picture_rect().width() >= 0.5 * ribbon.width()
+
+
+def test_the_surface_stops_at_the_picture(qtbot: QtBot) -> None:
+    # Like `ContactStrip.span`: a pale tail past the picture reads as an
+    # empty panel rather than an object holding something.
+    ribbon = build(qtbot)
+    ribbon.resize(900, RIBBON_HEIGHT)
+    picture = ribbon.picture_rect()
+    surface = ribbon.surface_rect()
+
+    assert surface.contains(picture)
+    assert surface.width() < ribbon.width()
+    assert surface.right() - picture.right() == picture.left() - surface.left()
+
+
+def test_with_no_source_there_is_no_surface(qtbot: QtBot) -> None:
+    ribbon = FrameRibbon()
+    qtbot.addWidget(ribbon)
+    ribbon.resize(600, RIBBON_HEIGHT)
+    ribbon.set_source(None)
+
+    assert ribbon.surface_rect().isNull()
 
 
 def test_with_no_source_it_draws_nothing_and_does_not_crash(qtbot: QtBot) -> None:

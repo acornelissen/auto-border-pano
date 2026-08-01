@@ -24,8 +24,23 @@ from PySide6.QtWidgets import QSizePolicy, QWidget
 from maskingframe.gui import theme
 from maskingframe.gui.strip import pil_to_pixmap
 
-RIBBON_HEIGHT = 96
-"""Tall enough to judge a crop by, short enough to leave the strip the room."""
+RIBBON_HEIGHT = 240
+"""Tall enough to judge a crop by, short enough to leave the strip the room.
+
+Set from the shape this project actually scans. At 2.4:1 the height binds,
+so the picture comes out 2.4 * (240 - 2 * MARGIN) = 518px wide -- well over
+half a ribbon in a 1280-wide window, which is enough to see where two crops
+overlap. At 96 the same panorama was 202px, a thumbnail. The strip below
+loses what the ribbon takes: at this height it still gets ~200px frames in
+two rows, against a 72px floor.
+"""
+
+MARGIN = theme.M
+"""Surround between the picture and the edge of the ribbon's own surface.
+
+`theme.M` rather than `theme.S` so the ribbon's picture and the contact
+strip's film start at the same distance from the left.
+"""
 
 DIM = QColor(theme.INK)
 """The wash over everything no frame covers. Alpha is set where it is used."""
@@ -57,6 +72,9 @@ class FrameRibbon(QWidget):
         self._grab_offset = 0.0
         self._font: QFont = theme.stencil_font(10, tracking=1.4)
         self.setFixedHeight(RIBBON_HEIGHT)
+        # Only the surface behind the picture is painted, so whatever the
+        # widget stands on has to show through the rest of the cell.
+        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, False)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
     # --- what it is showing -------------------------------------------------
@@ -87,19 +105,34 @@ class FrameRibbon(QWidget):
     # --- geometry, exposed so it can be checked without sampling pixels -----
 
     def picture_rect(self) -> QRect:
-        """Where the panorama lands, fitted inside the ribbon."""
+        """Where the panorama lands, fitted inside the ribbon.
+
+        Pinned to the top left rather than centred: the ribbon's surface
+        reaches only as far as the picture, so there is nothing to centre it
+        in, and a left edge shared with the strip below reads as one stack.
+        """
         if self._pixmap is None:
             return QRect()
-        available_width = max(1, self.width() - 2 * theme.S)
-        available_height = max(1, self.height() - 2 * theme.S)
+        available_width = max(1, self.width() - 2 * MARGIN)
+        available_height = max(1, self.height() - 2 * MARGIN)
         width = available_width
         height = max(1, round(width / self._aspect))
         if height > available_height:
             height = available_height
             width = max(1, round(height * self._aspect))
-        left = theme.S + (available_width - width) // 2
-        top = theme.S + (available_height - height) // 2
-        return QRect(left, top, width, height)
+        return QRect(MARGIN, MARGIN, width, height)
+
+    def surface_rect(self) -> QRect:
+        """The ribbon's own background: the picture plus its surround.
+
+        Never the whole widget. A pale slab running out past the picture
+        reads as an empty panel, which is the same reason `ContactStrip.span`
+        stops at the film.
+        """
+        picture = self.picture_rect()
+        if picture.isNull():
+            return QRect()
+        return picture.adjusted(-MARGIN, -MARGIN, MARGIN, MARGIN)
 
     def window_rects(self) -> list[QRect]:
         """One rectangle per frame, in widget pixels."""
@@ -183,10 +216,16 @@ class FrameRibbon(QWidget):
 
     def paintEvent(self, _event: QPaintEvent) -> None:
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor(theme.TABLE))
         if self._pixmap is None:
+            # Nothing loaded is nothing to show. An empty band the width of
+            # the tab would be a panel with no content in it.
             return
         picture = self.picture_rect()
+        # Panel and hairline, exactly as the contact strip draws its sheet:
+        # the two are the same kind of object lying on the same table.
+        painter.fillRect(self.surface_rect(), QColor(theme.PANEL))
+        painter.setPen(QColor(theme.EDGE))
+        painter.drawRect(self.surface_rect().adjusted(0, 0, -1, -1))
         painter.drawPixmap(picture, self._pixmap)
 
         # Everything no frame covers goes under a wash, so the windows read
