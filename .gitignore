@@ -38,3 +38,9 @@ samples/
 
 # Agent scratch (reports, ledgers) - not project content
 .superpowers/
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.beads/proxieddb/
