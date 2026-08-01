@@ -244,7 +244,7 @@ This is the behaviour change. `section_bounds` and `make_section` stop taking an
   - `geometry.section_bounds(pano_width: int, pano_height: int, position: float, ratio: AspectRatio) -> tuple[int, int]`
   - `geometry.make_section(image: Image.Image, position: float, ratio: AspectRatio, style: FrameStyle = DEFAULT_STYLE) -> Image.Image`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Replace any existing `section_bounds` / `make_section` tests in `tests/test_geometry.py` that pass an index and a count (search for `section_bounds(` and `make_section(`) with these:
 
@@ -331,12 +331,12 @@ def geometry_default_positions(width: int, height: int) -> tuple[float, ...]:
     return geometry.default_positions(width, height, pipeline.DEFAULT_RATIO)
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `mise exec -- uv run pytest tests/test_geometry.py tests/test_pipeline.py -v`
 Expected: FAIL — `section_bounds()` takes different arguments, and `process_image()` got an unexpected keyword argument `positions`.
 
-- [ ] **Step 3: Rewrite `section_bounds` and `make_section`**
+- [x] **Step 3: Rewrite `section_bounds` and `make_section`**
 
 In `geometry.py`, replace the whole of `section_bounds` with:
 
@@ -392,7 +392,7 @@ Leave the rest of `make_section` — the cover-scale, the centre crop and the bo
     straight resize and the centre crop takes at most a rounding pixel.
 ```
 
-- [ ] **Step 4: Thread positions through `pipeline`**
+- [x] **Step 4: Thread positions through `pipeline`**
 
 In `process_image`, add the parameter and use it. The signature becomes:
 
@@ -491,7 +491,7 @@ with
 
 `Sequence` is already imported in `pipeline.py` (`from collections.abc import Sequence`); confirm with `grep -n "collections.abc" src/maskingframe/pipeline.py` and add it if not.
 
-- [ ] **Step 5: Regenerate the golden hashes**
+- [x] **Step 5: Regenerate the golden hashes**
 
 The detail frames change on purpose, so the byte-identity guard has to be re-baselined. First record the old values:
 
@@ -523,12 +523,12 @@ Add a sentence to the comment block above `GOLDEN_HASHES`:
 # digests did not, and must not.
 ```
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [x] **Step 6: Run the tests to verify they pass**
 
 Run: `mise run check`
 Expected: PASS. If `tests/test_preview_frames.py` or `tests/test_cli.py` fail on a changed frame count, they are asserting the old tiling — read the failure and update the expectation to the new full-height crop, do not weaken the assertion.
 
-- [ ] **Step 7: Record the behaviour change in CLAUDE.md**
+- [x] **Step 7: Record the behaviour change in CLAUDE.md**
 
 In the "Behaviour changes from the pre-refactor scripts" list in `CLAUDE.md`, add:
 
@@ -538,7 +538,7 @@ In the "Behaviour changes from the pre-refactor scripts" list in `CLAUDE.md`, ad
 
 Also update the `geometry.py` bullet in the Architecture section: replace "`make_section()` (takes an index, a count, a ratio, and a style)" with "`make_section()` (takes a position, a ratio, and a style)", and add after `section_count()`: "`frame_width()`, `position_travel()`, `clamp_position()`, `normalise_positions()` and `default_positions()` — the position model".
 
-- [ ] **Step 8: Run the full gate and commit**
+- [x] **Step 8: Run the full gate and commit**
 
 ```bash
 mise run check
