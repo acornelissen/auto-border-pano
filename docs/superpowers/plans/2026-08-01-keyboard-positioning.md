@@ -56,7 +56,7 @@
   - `set_selected(index: int | None) -> None` — silent
   - `selected() -> int | None`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `tests/test_ribbon.py`:
 
@@ -170,12 +170,12 @@ def test_the_ribbon_names_what_is_selected(qtbot: QtBot) -> None:
 
 Add whatever imports these need to the top of the file: `QEvent`, `QFocusEvent`, and `Qt` if it is not already there.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `mise exec -- uv run pytest tests/test_ribbon.py -v`
 Expected: FAIL with `AttributeError: 'FrameRibbon' object has no attribute 'selection_changed'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Add the two signals under the existing ones, keeping the same documentation voice:
 
@@ -294,12 +294,12 @@ In `paintEvent`, where each window's edge and numeral are drawn, make the select
 
 `Qt`, `QRect` and `math` are already imported; add `QFocusEvent` and `QKeyEvent` to the `PySide6.QtGui` import.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `mise exec -- uv run pytest tests/test_ribbon.py -v`
 Expected: PASS, including every test that was already in the file.
 
-- [ ] **Step 5: Run the full gate and commit**
+- [x] **Step 5: Run the full gate and commit**
 
 ```bash
 mise run check
