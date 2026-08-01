@@ -18,6 +18,7 @@ token, and the ratio still travels with its own answer rather than being
 re-read from a combobox that may have moved on.
 """
 
+import math
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -53,6 +54,16 @@ NO_POSITIONS = "Frames are spread evenly. Load one panorama to place them by han
 """What stands where the ribbon would be when there is nothing to place --
 folder mode, or no source. Silence would read as a missing feature rather
 than a decision."""
+
+KEY_STEP = 0.01
+"""How far one arrow press moves a frame, as a fraction of the panorama's
+width. Shift is ten of these and Home/End a hundred, which spans the whole
+width and lets the clamp do the rest.
+
+A round number in the unit a position is actually stored in, so the help
+text can state it exactly. The widgets emit a count of these rather than a
+distance: how far a step moves is policy, and the tab is the only thing that
+knows what a percent of this panorama is."""
 
 UNCOUNTED_ACTION = "Cut frames"
 """The button's label while the count is unknown. Once it is known the
@@ -99,6 +110,9 @@ class SplitTab(QWidget):
         # where the frame started rather than to wherever it has got to --
         # otherwise every move event would compound the last one.
         self._drag_anchor: tuple[float, ...] = ()
+        # Which detail frame is marked, in detail-frame indices. The one
+        # copy: both views are told, neither is asked.
+        self._selected: int | None = None
 
         self._build()
         self._apply_button_states()
@@ -182,6 +196,14 @@ class SplitTab(QWidget):
         counter_row.addStretch(1)
         rail.addWidget(counter)
 
+        rail.addSpacing(theme.S)
+        # The selection in words. The marking on the picture is chinagraph,
+        # and a state carried by colour alone fails the floor this project
+        # holds itself to -- so it is also said here, and handed to the
+        # widgets as their accessible name.
+        self.selection_label = shell.data_label()
+        rail.addWidget(self.selection_label)
+
         rail.addSpacing(theme.L)
         # No gap control: a split writes one frame at a time, so there is
         # nothing for a gap to sit between.
@@ -258,6 +280,13 @@ class SplitTab(QWidget):
         # No top alignment and no stretch under it: the strip fills the
         # table, so the frames are as large as the window allows.
         self.columns.table_layout.addWidget(self.strip, 1)
+
+        self.ribbon.frame_nudged.connect(self._on_frame_nudged)
+        self.ribbon.selection_changed.connect(self._on_ribbon_selection)
+        self.strip.frame_nudged.connect(self._on_strip_nudged)
+        self.strip.selection_changed.connect(self._on_strip_selection)
+        # Source, then results, matching how they sit on the table.
+        self.setTabOrder(self.ribbon, self.strip)
 
     # --- What the band should say ------------------------------------------
 
@@ -352,6 +381,13 @@ class SplitTab(QWidget):
                 positions, width, height, pipeline.RATIOS[self._ratio_name()]
             )
         self.ribbon.set_plan(self._positions, self._window_fraction)
+        # The ribbon drops a selection the new plan cannot hold, so the tab
+        # has to make the same decision or the two would disagree about
+        # which frame is marked.
+        if self._selected is not None and self._selected >= len(self._positions):
+            self._set_selected(None)
+        else:
+            self._state_selection()
 
     def _show_ribbon(self, visible: bool) -> None:
         """The ribbon and the sentence explaining its absence are exclusive."""
@@ -379,6 +415,61 @@ class SplitTab(QWidget):
                 base, index, wanted, width, height, pipeline.RATIOS[self._ratio_name()]
             )
         )
+
+    def selected(self) -> int | None:
+        """Which detail frame is marked, in detail-frame indices."""
+        return self._selected
+
+    def _set_selected(self, index: int | None) -> None:
+        """Mark one detail frame in both views, and say so in the rail.
+
+        The tab holds the one copy, as it does for the positions: two views
+        that disagreed about which frame was selected would be two features.
+        The ribbon speaks detail indices and the strip speaks strip indices,
+        so the conversion happens here -- the same place the drags convert.
+        """
+        self._selected = index
+        self.ribbon.set_selected(index)
+        self.strip.set_selected(None if index is None else index + 1)
+        self._state_selection()
+
+    def _state_selection(self) -> None:
+        if self._selected is None or not 0 <= self._selected < len(self._positions):
+            self.selection_label.setText("")
+            return
+        along = math.floor(self._positions[self._selected] * 100 + 0.5)
+        self.selection_label.setText(f"Frame {self._selected + 2} · {along}% along")
+
+    def _nudge(self, index: int, steps: int) -> None:
+        """Move one detail frame by `steps` of `KEY_STEP`. GUI thread only.
+
+        Straight through `_move_position`, so a key press and a drag obey
+        the one ordering rule and cannot disagree.
+        """
+        if not 0 <= index < len(self._positions):
+            return
+        # A view marks its first frame when it takes focus, without asking.
+        # The nudge is the tab hearing about it, so it adopts that frame
+        # rather than leaving the rail blank beside a marked picture.
+        self._set_selected(index)
+        self._move_position(index, self._positions[index] + steps * KEY_STEP)
+        # Told again, not just re-read: the frame has moved, so both views'
+        # accessible names have to be redone to match the rail.
+        self._set_selected(index)
+        self._rerender()
+
+    def _on_frame_nudged(self, index: int, steps: int) -> None:
+        self._nudge(index, steps)
+
+    def _on_strip_nudged(self, index: int, steps: int) -> None:
+        # Strip frame 1 is detail frame 0: frame 1 is the whole panorama.
+        self._nudge(index - 1, steps)
+
+    def _on_ribbon_selection(self, index: int) -> None:
+        self._set_selected(index)
+
+    def _on_strip_selection(self, index: int) -> None:
+        self._set_selected(index - 1)
 
     def _on_frame_moved(self, index: int, wanted: float) -> None:
         """Every movement of a ribbon drag. Cheap work only."""
@@ -583,6 +674,7 @@ class SplitTab(QWidget):
         self._show_ribbon(True)
         self._load_ribbon_picture(token)
         self._apply_count_states()
+        self._state_selection()
         self._rerender()
 
     def _clear_facts(self, subject: str = "") -> None:
@@ -597,6 +689,7 @@ class SplitTab(QWidget):
         self.ribbon.set_source(None)
         self.ribbon.set_plan((), 0.0)
         self._show_ribbon(False)
+        self._set_selected(None)
         self._apply_count_states()
 
     def _set_error(self, message: str) -> None:
@@ -663,8 +756,18 @@ class SplitTab(QWidget):
 
     # --- Running ------------------------------------------------------------
 
+    def _set_strip_frames(self, titles: list[str]) -> None:
+        """Relabel the strip and put the mark back where it was.
+
+        `set_frames` drops a selection the new frame list cannot hold, which
+        is right for the widget and wrong for the tab: rendering a preview
+        must not silently unmark the frame the user is placing.
+        """
+        self.strip.set_frames(titles)
+        self.strip.set_selected(None if self._selected is None else self._selected + 1)
+
     def update_preview(self, output_prefix: str, count: int) -> None:
-        self.strip.set_frames(preview_titles(count))
+        self._set_strip_frames(preview_titles(count))
         self.strip.show_paths(pipeline.output_paths(output_prefix, count))
 
     def _set_frame_progress(self, done: int, total: int, path: object) -> None:
@@ -674,7 +777,7 @@ class SplitTab(QWidget):
         longer a bar going 0 to 100 with nothing in between.
         """
         if self.strip.frame_count != total:
-            self.strip.set_frames(preview_titles(total - 1))
+            self._set_strip_frames(preview_titles(total - 1))
         self.strip.mark_written(done, Path(str(path)))
         self.progress_bar.setValue(int((done + 1) / total * 100) if total else 0)
         self.status_label.setText(f"Cutting frame {done + 1} of {total}")
@@ -870,7 +973,7 @@ class SplitTab(QWidget):
                 return
             ratio = pipeline.RATIOS[ratio_name].name
             self.status_label.setText(f"Preview of {len(frames)} frames at {ratio}")
-            self.strip.set_frames(preview_titles(len(frames) - 1))
+            self._set_strip_frames(preview_titles(len(frames) - 1))
             self.strip.show_images(frames)
 
         def failed(error: BaseException) -> None:

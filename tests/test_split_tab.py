@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 from PIL import Image
-from PySide6.QtWidgets import QDialog, QLabel, QMessageBox, QRadioButton
+from PySide6.QtWidgets import QDialog, QLabel, QMessageBox, QRadioButton, QWidget
 
 from maskingframe import pipeline
 from maskingframe.gui import settings, shell, split_tab
@@ -968,3 +968,170 @@ def test_changing_the_frame_count_restates_the_band(qtbot: Any, tmp_path: Path) 
 
     tab.remove_frame()
     assert tab.detail == f"4:5 · {loaded} frames"
+
+
+def loaded_tab(qtbot: Any, tmp_path: Path) -> SplitTab:
+    """A tab with a panorama loaded and its plan settled."""
+    source = tmp_path / "pano.jpg"
+    conftest.synthetic_panorama(3000, 1000).save(source, "JPEG", quality=95)
+    tab = SplitTab()
+    qtbot.addWidget(tab)
+    tab.show()
+    tab.source_row.setText(str(source))
+    qtbot.waitUntil(lambda: tab.positions() != (), timeout=3000)
+    return tab
+
+
+def test_a_step_moves_the_selected_frame_one_percent(qtbot: Any, tmp_path: Path) -> None:
+    tab = loaded_tab(qtbot, tmp_path)
+    tab.ribbon.set_selected(1)
+    before = tab.positions()
+
+    tab.ribbon.frame_nudged.emit(1, 1)
+
+    after = tab.positions()
+    assert after[1] == pytest.approx(before[1] + 0.01)
+    assert after[0] == before[0]
+    assert after[2:] == before[2:]
+
+
+def test_a_coarse_step_moves_it_ten_percent(qtbot: Any, tmp_path: Path) -> None:
+    tab = loaded_tab(qtbot, tmp_path)
+    before = tab.positions()
+
+    tab.ribbon.frame_nudged.emit(1, 10)
+
+    assert tab.positions()[1] == pytest.approx(before[1] + 0.10)
+
+
+def test_a_hundred_steps_reaches_the_end_of_the_travel(qtbot: Any, tmp_path: Path) -> None:
+    tab = loaded_tab(qtbot, tmp_path)
+    last = len(tab.positions()) - 1
+
+    tab.ribbon.frame_nudged.emit(last, 100)
+
+    # Clamped by the same rule a drag obeys, so it lands on the travel's end.
+    assert tab.positions()[last] == pytest.approx(
+        pipeline.position_travel(3000, 1000, pipeline.RATIOS[tab._ratio_name()])
+    )
+
+
+def test_a_key_press_clamps_at_a_neighbour_exactly_as_a_drag_does(
+    qtbot: Any, tmp_path: Path
+) -> None:
+    tab = loaded_tab(qtbot, tmp_path)
+    before = tab.positions()
+
+    tab.ribbon.frame_nudged.emit(0, 100)
+
+    after = tab.positions()
+    assert after[0] == pytest.approx(before[1])
+    assert after[1:] == before[1:]
+
+
+def test_a_strip_nudge_moves_the_same_frame(qtbot: Any, tmp_path: Path) -> None:
+    # Strip frame 2 is detail frame 1: frame 1 is the whole panorama.
+    tab = loaded_tab(qtbot, tmp_path)
+    before = tab.positions()
+
+    tab.strip.frame_nudged.emit(2, 1)
+
+    assert tab.positions()[1] == pytest.approx(before[1] + 0.01)
+
+
+def test_the_two_views_mark_the_same_frame(qtbot: Any, tmp_path: Path) -> None:
+    tab = loaded_tab(qtbot, tmp_path)
+
+    tab.ribbon.selection_changed.emit(2)
+
+    assert tab.selected() == 2
+    assert tab.ribbon.selected() == 2
+    # Strip indices are one further along: frame 1 is the whole panorama.
+    assert tab.strip.selected() == 3
+
+
+def test_a_strip_selection_reaches_the_ribbon(qtbot: Any, tmp_path: Path) -> None:
+    tab = loaded_tab(qtbot, tmp_path)
+
+    tab.strip.selection_changed.emit(3)
+
+    assert tab.selected() == 2
+    assert tab.ribbon.selected() == 2
+
+
+def test_the_rail_states_the_selection_without_relying_on_colour(
+    qtbot: Any, tmp_path: Path
+) -> None:
+    tab = loaded_tab(qtbot, tmp_path)
+
+    tab.ribbon.selection_changed.emit(1)
+
+    text = tab.selection_label.text()
+    # Numbered as the carousel is: detail frame 1 is frame 3.
+    assert "Frame 3" in text
+    assert "%" in text
+
+
+def test_the_rail_and_the_widgets_say_the_same_thing(qtbot: Any, tmp_path: Path) -> None:
+    """The readout is the non-colour statement of the selection, so it has
+    to agree with what a screen reader is told."""
+    tab = loaded_tab(qtbot, tmp_path)
+
+    tab.ribbon.selection_changed.emit(1)
+
+    along = tab.selection_label.text().split("·")[1].strip().removesuffix(" along")
+    assert tab.ribbon.accessibleName() == f"Frame 3, {along.removesuffix('%')} percent along"
+
+
+def test_the_readout_clears_when_the_source_goes(qtbot: Any, tmp_path: Path) -> None:
+    tab = loaded_tab(qtbot, tmp_path)
+    tab.ribbon.selection_changed.emit(1)
+    assert tab.selection_label.text() != ""
+
+    tab.source_row.setText("")
+
+    assert tab.selection_label.text() == ""
+    assert tab.selected() is None
+
+
+def test_a_shrinking_plan_drops_a_selection_it_can_no_longer_hold(
+    qtbot: Any, tmp_path: Path
+) -> None:
+    """Both views drop a selection their new plan cannot support, so the tab
+    must not be left holding a third opinion."""
+    tab = loaded_tab(qtbot, tmp_path)
+    last = len(tab.positions()) - 1
+    tab.ribbon.selection_changed.emit(last)
+    assert tab.selected() == last
+
+    while len(tab.positions()) > 2:
+        tab.remove_frame()
+
+    assert tab.selected() is None
+    assert tab.ribbon.selected() is None
+    assert tab.strip.selected() is None
+    assert tab.selection_label.text() == ""
+
+
+def test_a_shrinking_plan_keeps_a_selection_it_still_holds(qtbot: Any, tmp_path: Path) -> None:
+    tab = loaded_tab(qtbot, tmp_path)
+    tab.ribbon.selection_changed.emit(0)
+
+    tab.remove_frame()
+
+    assert tab.selected() == 0
+    assert tab.ribbon.selected() == 0
+    assert tab.strip.selected() == 1
+
+
+def test_the_ribbon_comes_before_the_strip_in_the_tab_order(qtbot: Any, tmp_path: Path) -> None:
+    # Source, then results, matching how they sit on the table.
+    tab = loaded_tab(qtbot, tmp_path)
+    widget: QWidget | None = tab.ribbon
+    for _ in range(20):
+        assert widget is not None
+        widget = widget.nextInFocusChain()
+        if widget is tab.strip:
+            break
+        assert widget is not tab.ribbon, "walked the whole chain without reaching the strip"
+    assert widget is tab.strip
