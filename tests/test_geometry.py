@@ -503,3 +503,39 @@ def test_default_positions_never_divide_by_zero_at_one_frame() -> None:
 def test_default_positions_on_a_narrow_source_are_all_zero() -> None:
     got = geometry.default_positions(1500, 1000, geometry.LANDSCAPE, count=2)
     assert got == (0.0, 0.0)
+
+
+def test_insert_lands_in_the_widest_uncovered_stretch() -> None:
+    # 2000x1000 at 4:5 -> an 800px frame, 0.4 of the width. Frames at 0.0
+    # and 0.6 cover 0.0-0.4 and 0.6-1.0, leaving 0.4-0.6 uncovered. The new
+    # frame is centred there: midpoint 0.5, minus half a frame = 0.3.
+    got = geometry.insert_position((0.0, 0.6), 2000, 1000, geometry.PORTRAIT)
+    assert got == pytest.approx((0.0, 0.3, 0.6))
+
+
+def test_insert_keeps_the_tuple_ascending() -> None:
+    got = geometry.insert_position((0.0, 0.6), 2000, 1000, geometry.PORTRAIT)
+    assert list(got) == sorted(got)
+
+
+def test_insert_falls_back_to_the_widest_gap_when_everything_is_covered() -> None:
+    # Frames at 0.0, 0.3 and 0.6 cover the whole width with no hole in it,
+    # so the new frame goes midway between the two furthest-apart edges.
+    got = geometry.insert_position((0.0, 0.3, 0.6), 2000, 1000, geometry.PORTRAIT)
+    assert len(got) == 4
+    assert list(got) == sorted(got)
+    assert 0.0 < got[1] < 0.6
+
+
+def test_insert_on_a_narrow_source_adds_another_zero() -> None:
+    got = geometry.insert_position((0.0, 0.0), 1500, 1000, geometry.LANDSCAPE)
+    assert got == (0.0, 0.0, 0.0)
+
+
+def test_drop_takes_the_last_frame() -> None:
+    assert geometry.drop_position((0.0, 0.3, 0.6)) == pytest.approx((0.0, 0.3))
+
+
+def test_drop_refuses_to_go_below_the_minimum() -> None:
+    with pytest.raises(ValueError, match="two"):
+        geometry.drop_position((0.0, 0.6))

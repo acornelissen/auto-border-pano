@@ -8,6 +8,7 @@ import math
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
+from itertools import pairwise
 
 from PIL import Image
 
@@ -219,6 +220,66 @@ def default_positions(
     if count == 1:
         return (0.0,)
     return tuple(index * travel / (count - 1) for index in range(count))
+
+
+def insert_position(
+    positions: Sequence[float], pano_width: int, pano_height: int, ratio: AspectRatio
+) -> tuple[float, ...]:
+    """Add one frame where the panorama is least covered.
+
+    A new frame should land on something nobody is looking at yet, so the
+    widest stretch no frame covers wins and the frame is centred in it.
+    When the frames already cover everything -- which they do as soon as
+    they are close together -- there is no such stretch, so it falls back
+    to halving the widest gap between two adjacent left edges.
+    """
+    width = frame_width(pano_height, ratio) / pano_width
+    places = sorted(positions)
+    if not places:
+        return (0.0,)
+
+    # Merge the covered intervals, then look at what is left over.
+    merged: list[list[float]] = []
+    for start in places:
+        end = start + width
+        if merged and start <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+
+    holes: list[tuple[float, float]] = []
+    edge = 0.0
+    for start, end in merged:
+        if start > edge:
+            holes.append((edge, start))
+        edge = max(edge, end)
+    if edge < 1.0:
+        holes.append((edge, 1.0))
+
+    if holes:
+        start, end = max(holes, key=lambda hole: hole[1] - hole[0])
+        chosen = (start + end) / 2 - width / 2
+    else:
+        gaps = list(pairwise(places))
+        if gaps:
+            start, end = max(gaps, key=lambda gap: gap[1] - gap[0])
+            chosen = (start + end) / 2
+        else:
+            chosen = places[0]
+
+    chosen = clamp_position(chosen, pano_width, pano_height, ratio)
+    return normalise_positions(sorted([*places, chosen]), pano_width, pano_height, ratio)
+
+
+def drop_position(positions: Sequence[float]) -> tuple[float, ...]:
+    """Remove the last frame. Never goes below two.
+
+    Two is the floor for the same reason `section_count` floors there: a
+    single detail frame would just restate the whole-panorama frame.
+    """
+    if len(positions) <= MIN_SECTIONS:
+        raise ValueError(f"a panorama keeps at least two detail frames, got {len(positions)}")
+    return tuple(positions[:-1])
 
 
 def make_padded_frame(
