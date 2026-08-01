@@ -13,6 +13,7 @@ import pytest
 import shiboken6
 from PySide6.QtWidgets import QWidget
 
+from maskingframe.gui import work
 from maskingframe.gui.work import submit
 
 pytest.importorskip("pytestqt")
@@ -49,22 +50,36 @@ def test_a_destroyed_owner_gets_no_callback(qtbot: Any) -> None:
     would reach a widget whose C++ half has gone and raise on the GUI
     thread. Qt cannot do this for us, because the callback is a closure."""
     seen: list[object] = []
+    ran: list[object] = []
 
-    submit(lambda: "late", seen.append, owner=_dead())
+    def late() -> str:
+        ran.append(None)
+        return "late"
 
-    qtbot.wait(300)
+    submit(late, seen.append, owner=_dead())
+
+    # Wait on the job, not on the clock: a fixed pause would pass just as
+    # happily if the job had never run at all, which proves nothing about
+    # the callback being declined. The answer has been delivered on the GUI
+    # thread by the time the job is let go of, so the callback has had its
+    # chance and passed it up.
+    qtbot.waitUntil(lambda: ran != [], timeout=3000)
+    qtbot.waitUntil(lambda: not work._in_flight, timeout=3000)
     assert seen == []
 
 
 def test_a_destroyed_owner_gets_no_failure_callback(qtbot: Any) -> None:
     seen: list[BaseException] = []
+    ran: list[object] = []
 
     def boom() -> None:
+        ran.append(None)
         raise OSError("no")
 
     submit(boom, lambda _value: None, seen.append, owner=_dead())
 
-    qtbot.wait(300)
+    qtbot.waitUntil(lambda: ran != [], timeout=3000)
+    qtbot.waitUntil(lambda: not work._in_flight, timeout=3000)
     assert seen == []
 
 
