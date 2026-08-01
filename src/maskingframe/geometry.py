@@ -6,6 +6,7 @@ opens or writes a file, which is what makes it fast to test.
 
 import math
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from PIL import Image
@@ -152,6 +153,72 @@ def section_count(pano_width: int, pano_height: int, ratio: AspectRatio) -> int:
     """
     tile = pano_height * ratio.value
     return max(MIN_SECTIONS, math.floor(pano_width / tile + 0.5))
+
+
+def frame_width(pano_height: int, ratio: AspectRatio) -> int:
+    """How wide one detail frame's crop is, in source pixels.
+
+    A detail frame is a full-height crop at exactly the output aspect
+    ratio, so nothing vertical is ever thrown away. The width deliberately
+    does not depend on how many frames there are: once the frames are
+    placed by hand, adding a sixth must not re-cut the first five.
+    """
+    return max(1, math.floor(pano_height * ratio.value + 0.5))
+
+
+def position_travel(pano_width: int, pano_height: int, ratio: AspectRatio) -> float:
+    """How far a frame's left edge may move, as a fraction of the width.
+
+    Zero when the source is narrower than a single frame -- a 1.5:1 image
+    at 1.91:1 -- in which case every frame is the whole width and there is
+    nothing to choose. Degenerate, but it must not raise.
+    """
+    return max(0.0, 1.0 - frame_width(pano_height, ratio) / pano_width)
+
+
+def clamp_position(position: float, pano_width: int, pano_height: int, ratio: AspectRatio) -> float:
+    """Hold one position inside the travel, so no frame hangs off an edge."""
+    return min(max(position, 0.0), position_travel(pano_width, pano_height, ratio))
+
+
+def normalise_positions(
+    positions: Sequence[float], pano_width: int, pano_height: int, ratio: AspectRatio
+) -> tuple[float, ...]:
+    """Clamp every position and hold the tuple ascending.
+
+    Ascending, not sorted: a frame dragged past its neighbour stops at the
+    neighbour rather than swapping with it. Sorting would renumber the
+    carousel under the user's hand. Overlap is allowed -- two tight crops
+    on one subject is a legitimate choice -- so this is a running maximum,
+    not a minimum separation.
+    """
+    running = 0.0
+    result: list[float] = []
+    for position in positions:
+        running = max(running, clamp_position(position, pano_width, pano_height, ratio))
+        result.append(running)
+    return tuple(result)
+
+
+def default_positions(
+    pano_width: int,
+    pano_height: int,
+    ratio: AspectRatio,
+    count: int | None = None,
+) -> tuple[float, ...]:
+    """Evenly spaced frames: the first flush left, the last flush right.
+
+    The count defaults to `section_count`, which is still the right first
+    guess -- how many exact tiles fit across the panorama -- but it is only
+    an opening position now, not a constraint.
+    """
+    if count is None:
+        count = section_count(pano_width, pano_height, ratio)
+    count = max(1, count)
+    travel = position_travel(pano_width, pano_height, ratio)
+    if count == 1:
+        return (0.0,)
+    return tuple(index * travel / (count - 1) for index in range(count))
 
 
 def make_padded_frame(

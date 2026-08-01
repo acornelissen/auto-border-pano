@@ -400,3 +400,70 @@ def test_bordered_section_with_a_zero_border_is_full_bleed() -> None:
     pano = Image.new("RGB", (3000, 1000), "black")
     frame = geometry.make_section(pano, 0, 3, geometry.PORTRAIT, style)
     assert frame.getpixel((0, 0)) == (0, 0, 0)
+
+
+def test_frame_width_is_the_output_aspect_at_full_source_height() -> None:
+    # 1000px tall at 1.91:1 -> 1000 * (1080/566) = 1908.1 -> 1908
+    assert geometry.frame_width(1000, geometry.LANDSCAPE) == 1908
+    # 1000px tall at 1:1 is exactly 1000
+    assert geometry.frame_width(1000, geometry.SQUARE) == 1000
+    # 1000px tall at 4:5 -> 1000 * (1080/1350) = 800
+    assert geometry.frame_width(1000, geometry.PORTRAIT) == 800
+
+
+def test_frame_width_never_collapses_to_zero() -> None:
+    assert geometry.frame_width(1, geometry.PORTRAIT) == 1
+
+
+def test_travel_is_what_is_left_after_one_frame() -> None:
+    # 800-wide frame in a 2000-wide panorama leaves 1200 of travel.
+    assert geometry.position_travel(2000, 1000, geometry.PORTRAIT) == pytest.approx(0.6)
+
+
+def test_travel_collapses_when_the_source_is_narrower_than_one_frame() -> None:
+    # 1500x1000 at 1.91:1 wants a 1908-wide frame: wider than the source.
+    assert geometry.position_travel(1500, 1000, geometry.LANDSCAPE) == 0.0
+
+
+def test_clamp_holds_a_position_inside_the_travel() -> None:
+    assert geometry.clamp_position(-0.5, 2000, 1000, geometry.PORTRAIT) == 0.0
+    assert geometry.clamp_position(0.9, 2000, 1000, geometry.PORTRAIT) == pytest.approx(0.6)
+    assert geometry.clamp_position(0.25, 2000, 1000, geometry.PORTRAIT) == pytest.approx(0.25)
+
+
+def test_clamp_on_a_narrow_source_pins_every_position_to_zero() -> None:
+    assert geometry.clamp_position(0.4, 1500, 1000, geometry.LANDSCAPE) == 0.0
+
+
+def test_normalise_keeps_positions_ascending_without_reordering_them() -> None:
+    # Frame 2 has been dragged past frame 3; it stops at frame 3 rather than
+    # swapping with it, so the carousel never runs backwards.
+    got = geometry.normalise_positions([0.1, 0.5, 0.3], 2000, 1000, geometry.PORTRAIT)
+    assert got == pytest.approx((0.1, 0.5, 0.5))
+
+
+def test_normalise_allows_overlap() -> None:
+    # Two tight crops on the same subject is a legitimate choice.
+    got = geometry.normalise_positions([0.20, 0.22], 2000, 1000, geometry.PORTRAIT)
+    assert got == pytest.approx((0.20, 0.22))
+
+
+def test_default_positions_span_the_whole_panorama() -> None:
+    got = geometry.default_positions(2000, 1000, geometry.PORTRAIT, count=3)
+    assert got[0] == 0.0
+    assert got[-1] == pytest.approx(geometry.position_travel(2000, 1000, geometry.PORTRAIT))
+    assert got == pytest.approx((0.0, 0.3, 0.6))
+
+
+def test_default_positions_use_the_derived_count_when_none_is_given() -> None:
+    count = geometry.section_count(2000, 1000, geometry.PORTRAIT)
+    assert len(geometry.default_positions(2000, 1000, geometry.PORTRAIT)) == count
+
+
+def test_default_positions_never_divide_by_zero_at_one_frame() -> None:
+    assert geometry.default_positions(2000, 1000, geometry.PORTRAIT, count=1) == (0.0,)
+
+
+def test_default_positions_on_a_narrow_source_are_all_zero() -> None:
+    got = geometry.default_positions(1500, 1000, geometry.LANDSCAPE, count=2)
+    assert got == (0.0, 0.0)
