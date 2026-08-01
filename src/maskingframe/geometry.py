@@ -5,6 +5,7 @@ opens or writes a file, which is what makes it fast to test.
 """
 
 import math
+import re
 from dataclasses import dataclass
 
 from PIL import Image
@@ -51,6 +52,90 @@ RATIOS: dict[str, AspectRatio] = {r.name: r for r in (PORTRAIT, SQUARE, LANDSCAP
 DEFAULT_RATIO = PORTRAIT
 
 MIN_SECTIONS = 2
+
+MAX_PERCENT = 40.0
+
+_HEX = re.compile(r"\A#(?:[0-9a-f]{3}|[0-9a-f]{6})\Z")
+
+
+def parse_colour(value: str) -> str:
+    """Normalise a colour to lowercase `#rrggbb`.
+
+    One parser, shared by `FrameStyle`, the CLI and the GUI's settings
+    loader, so a colour is validated once at the boundary and can never
+    reach PIL malformed. Accepts an optional leading `#` and the three-digit
+    shorthand, because both are what people actually type.
+    """
+    text = str(value).strip().lower()
+    if text and not text.startswith("#"):
+        text = "#" + text
+    if not _HEX.match(text):
+        raise ValueError(f"invalid colour {value!r}: expected a hex colour like #ffffff")
+    if len(text) == 4:
+        text = "#" + "".join(character * 2 for character in text[1:])
+    return text
+
+
+def _check_percent(name: str, value: float) -> float:
+    """Reject a width that is not a finite percent in range, naming the field."""
+    number = float(value)
+    if not math.isfinite(number) or not 0.0 <= number <= MAX_PERCENT:
+        raise ValueError(f"{name} percent must be between 0 and {MAX_PERCENT:g}, got {value!r}")
+    return number
+
+
+def _to_rgb(colour: str) -> tuple[int, int, int]:
+    """Split a normalised `#rrggbb` string into the tuple PIL wants."""
+    return (int(colour[1:3], 16), int(colour[3:5], 16), int(colour[5:7], 16))
+
+
+@dataclass(frozen=True)
+class FrameStyle:
+    """How much border to leave, and what colour to leave it.
+
+    Widths are a percent of the frame's *short* side rather than absolute
+    pixels, so one setting looks the same at 4:5 and at 1.91:1 -- a fixed
+    100px border is a modest edge on a 1350px-tall frame and a heavy one on
+    a 566px-tall frame. The style is always passed as an argument, never
+    read from module state, so a batch run and a preview cannot disagree
+    about it.
+    """
+
+    border_percent: float = 9.0
+    border_colour: str = "#ffffff"
+    gutter_percent: float = 4.0
+    gutter_colour: str = "#ffffff"
+    border_detail_frames: bool = False
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "border_percent", _check_percent("border", self.border_percent))
+        object.__setattr__(self, "gutter_percent", _check_percent("gutter", self.gutter_percent))
+        object.__setattr__(self, "border_colour", parse_colour(self.border_colour))
+        object.__setattr__(self, "gutter_colour", parse_colour(self.gutter_colour))
+
+    def _resolve(self, percent: float, ratio: AspectRatio) -> int:
+        return math.floor(percent / 100 * min(ratio.width, ratio.height) + 0.5)
+
+    def border_px(self, ratio: AspectRatio) -> int:
+        """The border, in output pixels, for this ratio."""
+        return self._resolve(self.border_percent, ratio)
+
+    def gutter_px(self, ratio: AspectRatio) -> int:
+        """The gap between adjacent composite panels, in output pixels."""
+        return self._resolve(self.gutter_percent, ratio)
+
+    @property
+    def border_rgb(self) -> tuple[int, int, int]:
+        """The border colour as an RGB tuple, ready for `Image.new`."""
+        return _to_rgb(self.border_colour)
+
+    @property
+    def gutter_rgb(self) -> tuple[int, int, int]:
+        """The gutter colour as an RGB tuple, ready for `Image.new`."""
+        return _to_rgb(self.gutter_colour)
+
+
+DEFAULT_STYLE = FrameStyle()
 
 
 def section_count(pano_width: int, pano_height: int, ratio: AspectRatio) -> int:

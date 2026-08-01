@@ -12,6 +12,7 @@ import pytest
 from PIL import Image, ImageChops
 
 from maskingframe import geometry
+from maskingframe.geometry import DEFAULT_STYLE, FrameStyle, parse_colour
 from tests.conftest import synthetic_panorama
 
 # LANCZOS resampling blurs a few pixels at the panorama's edge into a
@@ -248,3 +249,71 @@ def test_section_count_differs_by_ratio_for_the_golden_fixture() -> None:
     }
     assert counts["4:5"] > counts["1:1"], counts
     assert counts["1:1"] >= counts["1.91:1"], counts
+
+
+@pytest.mark.parametrize(
+    ("given", "expected"),
+    [
+        ("#ffffff", "#ffffff"),
+        ("#FFF", "#ffffff"),
+        ("ffffff", "#ffffff"),
+        ("#C9302A", "#c9302a"),
+        ("  #c9302a  ", "#c9302a"),
+    ],
+)
+def test_parse_colour_normalises(given: str, expected: str) -> None:
+    assert parse_colour(given) == expected
+
+
+@pytest.mark.parametrize("given", ["", "#", "#gggggg", "#ffff", "white", "#ffffff00"])
+def test_parse_colour_rejects_junk(given: str) -> None:
+    with pytest.raises(ValueError, match="colour"):
+        parse_colour(given)
+
+
+def test_frame_style_defaults() -> None:
+    assert DEFAULT_STYLE.border_percent == 9.0
+    assert DEFAULT_STYLE.gutter_percent == 4.0
+    assert DEFAULT_STYLE.border_colour == "#ffffff"
+    assert DEFAULT_STYLE.gutter_colour == "#ffffff"
+    assert DEFAULT_STYLE.border_detail_frames is False
+
+
+def test_frame_style_normalises_colours() -> None:
+    style = FrameStyle(border_colour="#FFF", gutter_colour="C9302A")
+    assert style.border_colour == "#ffffff"
+    assert style.gutter_colour == "#c9302a"
+
+
+@pytest.mark.parametrize("percent", [-0.1, 40.1, float("nan"), float("inf")])
+def test_frame_style_rejects_out_of_range_percent(percent: float) -> None:
+    with pytest.raises(ValueError, match="percent"):
+        FrameStyle(border_percent=percent)
+    with pytest.raises(ValueError, match="percent"):
+        FrameStyle(gutter_percent=percent)
+
+
+def test_frame_style_rejects_bad_colour() -> None:
+    with pytest.raises(ValueError, match="colour"):
+        FrameStyle(border_colour="chartreuse")
+
+
+def test_percent_resolves_against_the_short_side() -> None:
+    style = FrameStyle(border_percent=9.0, gutter_percent=4.0)
+    # 4:5 is 1080x1350, short side 1080; 1:1 is 1080x1080; 1.91:1 is 1080x566.
+    assert style.border_px(geometry.PORTRAIT) == 97
+    assert style.border_px(geometry.SQUARE) == 97
+    assert style.border_px(geometry.LANDSCAPE) == 51
+    assert style.gutter_px(geometry.PORTRAIT) == 43
+    assert style.gutter_px(geometry.LANDSCAPE) == 23
+
+
+def test_zero_percent_resolves_to_zero_pixels() -> None:
+    style = FrameStyle(border_percent=0.0, gutter_percent=0.0)
+    assert style.border_px(geometry.PORTRAIT) == 0
+    assert style.gutter_px(geometry.PORTRAIT) == 0
+
+
+def test_rgb_is_a_three_tuple() -> None:
+    assert FrameStyle(border_colour="#c9302a").border_rgb == (201, 48, 42)
+    assert FrameStyle(gutter_colour="#000000").gutter_rgb == (0, 0, 0)

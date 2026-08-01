@@ -39,7 +39,7 @@
 
 This task only adds. `SIDE_PADDING`, `GUTTER` and `BACKGROUND` are still in place and still used; they are removed in Tasks 2, 4 and 5.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/test_geometry.py`:
 
@@ -117,12 +117,12 @@ def test_rgb_is_a_three_tuple() -> None:
     assert FrameStyle(gutter_colour="#000000").gutter_rgb == (0, 0, 0)
 ```
 
-- [ ] **Step 2: Run the tests and verify they fail**
+- [x] **Step 2: Run the tests and verify they fail**
 
 Run: `uv run pytest tests/test_geometry.py -v`
 Expected: FAIL, `ImportError: cannot import name 'DEFAULT_STYLE' from 'maskingframe.geometry'`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Add to `src/maskingframe/geometry.py`, after the `RATIOS` / `DEFAULT_RATIO` block:
 
@@ -210,17 +210,17 @@ def _to_rgb(colour: str) -> tuple[int, int, int]:
 DEFAULT_STYLE = FrameStyle()
 ```
 
-- [ ] **Step 4: Run the tests and verify they pass**
+- [x] **Step 4: Run the tests and verify they pass**
 
 Run: `uv run pytest tests/test_geometry.py -v`
 Expected: PASS.
 
-- [ ] **Step 5: Run the full gate**
+- [x] **Step 5: Run the full gate**
 
 Run: `mise run check`
 Expected: clean.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/maskingframe/geometry.py tests/test_geometry.py
