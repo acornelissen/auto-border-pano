@@ -550,7 +550,7 @@ git commit -m "feat(gui): give the contact strip focus and keys"
 - Consumes: `FrameRibbon.frame_nudged(int, int)`, `FrameRibbon.selection_changed(int)`, `FrameRibbon.set_selected(int | None)`; `ContactStrip.frame_nudged(int, int)`, `ContactStrip.selection_changed(int)`, `ContactStrip.set_selected(int | None)`; the existing `SplitTab._move_position(index, wanted, anchor=None)` and `SplitTab._positions`.
 - Produces: `SplitTab.KEY_STEP`, `SplitTab.selected()`, `SplitTab.selection_label`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `tests/test_split_tab.py`:
 
@@ -686,12 +686,12 @@ The chain is walked rather than checked one step ahead because Qt puts a
 widget's own children in it, so the strip is not necessarily the very next
 entry after the ribbon.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `mise exec -- uv run pytest tests/test_split_tab.py -k "step or nudge or selection or readout or tab_order" -v`
 Expected: FAIL with `AttributeError: 'SplitTab' object has no attribute 'selection_label'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Add the constant near `NO_POSITIONS`:
 
@@ -805,12 +805,12 @@ In `_clear_facts`, drop the selection with everything else:
 
 Every re-render a nudge triggers goes through the existing `_rerender`, so the preview follows the keys exactly as it follows a drag settle.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `mise exec -- uv run pytest tests/test_split_tab.py -v`
 Expected: PASS, including every test that was already in the file.
 
-- [ ] **Step 5: Check it by hand, offscreen**
+- [x] **Step 5: Check it by hand, offscreen**
 
 ```bash
 QT_QPA_PLATFORM=offscreen mise exec -- uv run python - <<'PY'
@@ -840,7 +840,7 @@ PY
 
 Five presses must move the selected frame by 5% and the rail must name it. Open `/tmp/keyboard.png` and confirm the selected window is marked in chinagraph and the others are not. Report what you saw.
 
-- [ ] **Step 6: Run the full gate and commit**
+- [x] **Step 6: Run the full gate and commit**
 
 ```bash
 mise run check
