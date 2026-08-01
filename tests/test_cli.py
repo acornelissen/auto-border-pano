@@ -1,5 +1,6 @@
 """Tests for the argparse entry point."""
 
+import argparse
 from pathlib import Path
 from typing import Any
 
@@ -217,3 +218,90 @@ def test_portrait_input_exits_nonzero(tmp_path: Path) -> None:
     synthetic_panorama(800, 3000).save(source, "JPEG", quality=95)
 
     assert cli.main([str(source), str(tmp_path / "out")]) == 1
+
+
+def test_defaults_produce_the_default_style() -> None:
+    args = cli.build_parser().parse_args(["in.jpg"])
+    assert cli._style_from_args(args) == pipeline.DEFAULT_STYLE
+
+
+def test_flags_build_a_style() -> None:
+    args = cli.build_parser().parse_args(
+        [
+            "in.jpg",
+            "--border",
+            "12",
+            "--border-colour",
+            "#000",
+            "--gutter",
+            "2.5",
+            "--gutter-colour",
+            "c9302a",
+            "--border-detail-frames",
+        ]
+    )
+    style = cli._style_from_args(args)
+    assert style.border_percent == 12.0
+    assert style.border_colour == "#000000"
+    assert style.gutter_percent == 2.5
+    assert style.gutter_colour == "#c9302a"
+    assert style.border_detail_frames is True
+
+
+def test_american_spellings_are_accepted() -> None:
+    args = cli.build_parser().parse_args(["in.jpg", "--border-color", "#000000"])
+    assert cli._style_from_args(args).border_colour == "#000000"
+
+    args = cli.build_parser().parse_args(["in.jpg", "--gutter-color", "#000000"])
+    assert cli._style_from_args(args).gutter_colour == "#000000"
+
+
+@pytest.mark.parametrize("flag", ["--border", "--gutter"])
+@pytest.mark.parametrize("value", ["-1", "41", "banana"])
+def test_out_of_range_widths_are_rejected(flag: str, value: str) -> None:
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(["in.jpg", flag, value])
+
+
+def test_bad_colour_is_rejected() -> None:
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(["in.jpg", "--border-colour", "chartreuse"])
+
+
+def test_border_flags_reach_the_written_image(tmp_path: Path) -> None:
+    source = tmp_path / "pano.jpg"
+    synthetic_panorama(3000, 1250).save(source, "JPEG", quality=95)
+
+    exit_code = cli.main(
+        [str(source), str(tmp_path / "out"), "--border", "12", "--border-colour", "#c9302a"]
+    )
+
+    assert exit_code == 0
+    with Image.open(tmp_path / "out_1_padded.jpg") as padded:
+        assert padded.convert("RGB").getpixel((0, 0)) == (201, 48, 42)
+
+
+def test_border_flags_reach_a_batch_run(tmp_path: Path) -> None:
+    source_dir = tmp_path / "in"
+    source_dir.mkdir()
+    synthetic_panorama(3000, 1250).save(source_dir / "a.jpg", "JPEG", quality=95)
+
+    exit_code = cli.main([str(source_dir), str(tmp_path / "out"), "--border-colour", "#c9302a"])
+
+    assert exit_code == 0
+    with Image.open(tmp_path / "out" / "a_1_padded.jpg") as padded:
+        assert padded.convert("RGB").getpixel((0, 0)) == (201, 48, 42)
+
+
+def test_percent_type_rejects_out_of_range() -> None:
+    with pytest.raises(argparse.ArgumentTypeError):
+        cli._percent_type("41")
+
+
+def test_help_lists_the_new_flags() -> None:
+    help_text = cli.build_parser().format_help()
+    for flag in ("--border", "--border-colour", "--gutter", "--gutter-colour"):
+        assert flag in help_text
+    assert "--border-color" in help_text
+    assert "--gutter-color" in help_text
+    assert "composites only" in help_text

@@ -22,6 +22,50 @@ def _ratio_type(value: str) -> pipeline.AspectRatio:
     raise argparse.ArgumentTypeError(f"invalid ratio '{value}' (choose from {options})")
 
 
+def _percent_type(value: str) -> float:
+    """Resolve a --border or --gutter argument, as a percent of the short side.
+
+    Validated here rather than at render time so a typo fails immediately
+    with argparse's own clean, non-zero-exit message.
+    """
+    try:
+        number = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"invalid percent '{value}': expected a number") from None
+    if not 0.0 <= number <= pipeline.MAX_PERCENT:
+        raise argparse.ArgumentTypeError(
+            f"invalid percent '{value}': must be between 0 and {pipeline.MAX_PERCENT:g}"
+        )
+    return number
+
+
+def _colour_type(value: str) -> str:
+    """Resolve a colour argument to a normalised #rrggbb string.
+
+    Same reason as _percent_type: one parser at the boundary, so a bad
+    colour can never reach PIL.
+    """
+    try:
+        return pipeline.parse_colour(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(str(error)) from None
+
+
+def _style_from_args(args: argparse.Namespace) -> pipeline.FrameStyle:
+    """Assemble the frame style the run should use.
+
+    Built once and passed down, rather than read from module state, so a
+    single run cannot disagree with itself about the border.
+    """
+    return pipeline.FrameStyle(
+        border_percent=args.border,
+        border_colour=args.border_colour,
+        gutter_percent=args.gutter,
+        gutter_colour=args.gutter_colour,
+        border_detail_frames=args.border_detail_frames,
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="maskingframe",
@@ -51,12 +95,61 @@ def build_parser() -> argparse.ArgumentParser:
             "of detail frames is derived from this."
         ),
     )
+    parser.add_argument(
+        "--border",
+        type=_percent_type,
+        default=pipeline.DEFAULT_STYLE.border_percent,
+        metavar="PERCENT",
+        help=(
+            "border width as a percent of the frame's short side "
+            f"(default: {pipeline.DEFAULT_STYLE.border_percent:g})"
+        ),
+    )
+    parser.add_argument(
+        "--border-colour",
+        "--border-color",
+        dest="border_colour",
+        type=_colour_type,
+        default=pipeline.DEFAULT_STYLE.border_colour,
+        metavar="HEX",
+        help=f"border colour (default: {pipeline.DEFAULT_STYLE.border_colour})",
+    )
+    parser.add_argument(
+        "--gutter",
+        type=_percent_type,
+        default=pipeline.DEFAULT_STYLE.gutter_percent,
+        metavar="PERCENT",
+        help=(
+            "composites only: gap between panels, as a percent of the frame's "
+            f"short side (default: {pipeline.DEFAULT_STYLE.gutter_percent:g})"
+        ),
+    )
+    parser.add_argument(
+        "--gutter-colour",
+        "--gutter-color",
+        dest="gutter_colour",
+        type=_colour_type,
+        default=pipeline.DEFAULT_STYLE.gutter_colour,
+        metavar="HEX",
+        help=(
+            "composites only: colour of the gap between panels "
+            f"(default: {pipeline.DEFAULT_STYLE.gutter_colour})"
+        ),
+    )
+    parser.add_argument(
+        "--border-detail-frames",
+        action="store_true",
+        help=(
+            "draw the border around the zoomed detail frames too, not just the whole-panorama frame"
+        ),
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     ratio = args.ratio
+    style = _style_from_args(args)
 
     if not args.input.exists():
         print(f"Error: '{args.input}' not found", file=sys.stderr)
@@ -67,7 +160,7 @@ def main(argv: list[str] | None = None) -> int:
             if not pipeline.find_panoramas(args.input):
                 print(f"No JPG files found in '{args.input}'")
                 return 0
-            result = pipeline.process_folder(args.input, args.output, ratio)
+            result = pipeline.process_folder(args.input, args.output, ratio, None, style)
             print(
                 f"Wrote {result.succeeded_count} of {result.total_count} "
                 f"images to {args.output} at {ratio.display}"
@@ -77,7 +170,7 @@ def main(argv: list[str] | None = None) -> int:
             if result.failed:
                 return 1
         else:
-            written = pipeline.process_image(args.input, args.output, ratio)
+            written = pipeline.process_image(args.input, args.output, ratio, None, style)
             print(f"Wrote {len(written) - 1} detail frames at {ratio.display}")
             for path in written:
                 print(f"  {path}")
