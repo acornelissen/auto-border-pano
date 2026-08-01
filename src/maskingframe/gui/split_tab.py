@@ -514,17 +514,21 @@ class SplitTab(QWidget):
         # Everything this method reacts to -- the source, the mode, the ratio
         # -- also decides whether Preview is pressable.
         self._apply_button_states()
-        # The ratio arrives through here too, and the ratio decides the
-        # shape of the frame the border is drawn around -- which also makes
-        # any render already on the table a picture of the wrong shape, so
-        # it is made again.
+        # The ratio arrives through here too, and it decides the shape of the
+        # frame the border is drawn around. The overlay can be redrawn now;
+        # the frames cannot, because a new ratio gives the panorama a new
+        # count and new positions and those have not arrived yet. Rendering
+        # here would put frames on the strip that a run would not write, so
+        # the re-render waits for the facts that describe it.
         self._refresh_border_preview()
-        self._rerender()
         # The band names whatever is loaded, folder or file -- it is the one
         # thing on screen that says what you are working on.
         subject = Path(source).name if source else ""
         if not source or self.folder_radio.isChecked():
             self._clear_facts(subject)
+            # No facts are coming, so this is the last chance to say that
+            # whatever is on the strip is a picture of nothing selected.
+            self._rerender()
             return
         ratio_name = self._ratio_name()
 
@@ -557,11 +561,17 @@ class SplitTab(QWidget):
         facts were computed for THAT ratio, and the combobox may have moved
         on. Reading it again would caption one ratio's frame count with
         another ratio's name.
+
+        The re-render is here rather than where the selection changed, and
+        for the same reason: it draws the plan, and this is where the plan
+        arrives. The token check above is what keeps that honest -- an
+        answer that has been superseded starts no render at all.
         """
         if token != self._inspect_token:
             return
         if facts is None:
             self._clear_facts(subject)
+            self._rerender()
             return
         self.facts_label.setText(f"{facts.width} × {facts.height} · {facts.native_ratio}")  # noqa: RUF001
         self.count_label.setText(f"{facts.frame_count} frames")
@@ -573,6 +583,7 @@ class SplitTab(QWidget):
         self._show_ribbon(True)
         self._load_ribbon_picture(token)
         self._apply_count_states()
+        self._rerender()
 
     def _clear_facts(self, subject: str = "") -> None:
         self.facts_label.setText("")

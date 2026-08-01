@@ -619,6 +619,21 @@ def test_changing_the_ratio_renders_the_frames_again(
     assert tab.strip.border_rects(0) == []
 
 
+def test_a_ratio_change_leaves_the_strip_agreeing_with_the_plan(
+    qtbot: Any, tab: SplitTab, tmp_path: Path
+) -> None:
+    """What the preview shows is what a run writes. A new ratio gives the
+    panorama a new count, and the strip has to be rendered from that count
+    rather than from the one the old ratio had."""
+    _previewed(qtbot, tab, tmp_path)
+
+    tab.ratio_box.setCurrentText(pipeline.RATIOS["1.91:1"].display)
+
+    qtbot.waitUntil(lambda: "1.91:1" in tab.status_label.text(), timeout=20000)
+    assert tab.strip.frame_count == len(tab.positions()) + 1
+    assert tab.action_btn.text() == f"Cut {tab.strip.frame_count} frames"
+
+
 def test_the_detail_toggle_renders_the_frames_again(
     qtbot: Any, tab: SplitTab, tmp_path: Path
 ) -> None:
