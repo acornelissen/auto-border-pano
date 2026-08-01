@@ -4,7 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from auto_border_pano import pipeline
+from maskingframe import pipeline
 
 
 def _ratio_type(value: str) -> pipeline.AspectRatio:
@@ -24,7 +24,7 @@ def _ratio_type(value: str) -> pipeline.AspectRatio:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="pano-split",
+        prog="maskingframe",
         description=(
             "Split a panorama into a whole-panorama frame plus zoomed detail "
             "frames, sized for an Instagram carousel. Accepts a single image "
@@ -101,11 +101,11 @@ def gui_main() -> int:
             "PySide6 provides the GUI. Install it with:\n"
             "  uv sync            (inside a checkout of this project)\n"
             "  pip install PySide6\n\n"
-            "Alternatively use the command-line version: pano-split --help",
+            "Alternatively use the command-line version: maskingframe --help",
             file=sys.stderr,
         )
         return 1
-    from auto_border_pano.gui import run
+    from maskingframe.gui import run
 
     run()
     return 0

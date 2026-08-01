@@ -12,8 +12,8 @@ import pytest
 from PIL import Image
 from PySide6.QtWidgets import QDialog, QMessageBox, QRadioButton
 
-from auto_border_pano import pipeline
-from auto_border_pano.gui.split_tab import NO_COUNT, UNCOUNTED_ACTION, SplitTab, preview_titles
+from maskingframe import pipeline
+from maskingframe.gui.split_tab import NO_COUNT, UNCOUNTED_ACTION, SplitTab, preview_titles
 from tests.conftest import synthetic_panorama
 
 pytest.importorskip("pytestqt")
@@ -273,7 +273,7 @@ def test_a_batch_never_claims_success_when_a_source_failed(tab: SplitTab) -> Non
 def test_an_empty_folder_says_so(tab: SplitTab) -> None:
     tab._finish_batch(pipeline.BatchResult(), pipeline.DEFAULT_RATIO.name)
 
-    expected = "No JPGs in that folder. Auto Border Pano reads .jpg and .jpeg."
+    expected = "No JPGs in that folder. Masking Frame reads .jpg and .jpeg."
     assert tab.status_label.text() == expected
     assert tab.action_btn.isEnabled() is True
 

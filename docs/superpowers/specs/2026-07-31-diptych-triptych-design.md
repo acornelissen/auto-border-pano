@@ -151,7 +151,7 @@ of a panorama, and mixing orientations is exactly what this feature is for.
 becomes a package:
 
 ```text
-src/auto_border_pano/gui/
+src/maskingframe/gui/
   __init__.py      re-exports run() and PanoramaSplitterGUI for cli.gui_main
   app.py           the ttk.Notebook shell, owns the root window
   split_tab.py     today's splitter UI, moved essentially unchanged
@@ -163,7 +163,7 @@ src/auto_border_pano/gui/
 a row of thumbnail panes that rebuilds as the count changes, which is
 already the trickiest widget code in the project.
 
-`cli.gui_main` imports `run` from `auto_border_pano.gui`, so the package's
+`cli.gui_main` imports `run` from `maskingframe.gui`, so the package's
 `__init__` must keep that name working. The tkinter availability guard stays
 in `cli.py`; no module in the package may exit the process on import.
 

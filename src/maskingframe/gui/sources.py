@@ -43,7 +43,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from auto_border_pano.gui import theme
+from maskingframe.gui import theme
 
 BAR_WIDTH = 4
 """The chinagraph edge mark down the left of a row. Thin: it marks, it does

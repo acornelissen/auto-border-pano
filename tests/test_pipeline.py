@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from auto_border_pano import pipeline
+from maskingframe import pipeline
 from tests.conftest import synthetic_panorama
 
 
@@ -249,7 +249,7 @@ def test_batch_result_counts_sources_not_files(tmp_path: Path) -> None:
 # deliberate Pillow upgrade changes encoding, regenerate with:
 #   mise exec -- uv run python -c "
 #   import hashlib
-#   from auto_border_pano import pipeline
+#   from maskingframe import pipeline
 #   for name, ratio in pipeline.RATIOS.items():
 #       out = pipeline.process_image(
 #           'tests/fixtures/golden_wide.jpg', f'/tmp/g/{name}', ratio

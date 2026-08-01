@@ -28,11 +28,11 @@
 | ---- | -------------- |
 | `mise.toml` | Python + uv pins, task surface |
 | `pyproject.toml` | Package metadata, entry points, ruff/mypy/pytest config |
-| `src/auto_border_pano/__init__.py` | Package marker, version |
-| `src/auto_border_pano/geometry.py` | Pure image transforms. No paths, no disk |
-| `src/auto_border_pano/pipeline.py` | File I/O, output naming, batch loop |
-| `src/auto_border_pano/cli.py` | argparse entry points, tkinter import guard |
-| `src/auto_border_pano/gui.py` | tkinter front end |
+| `src/maskingframe/__init__.py` | Package marker, version |
+| `src/maskingframe/geometry.py` | Pure image transforms. No paths, no disk |
+| `src/maskingframe/pipeline.py` | File I/O, output naming, batch loop |
+| `src/maskingframe/cli.py` | argparse entry points, tkinter import guard |
+| `src/maskingframe/gui.py` | tkinter front end |
 | `tests/conftest.py` | Shared synthetic-panorama fixtures |
 | `tests/test_geometry.py` | Geometry unit tests |
 | `tests/test_pipeline.py` | I/O and batch tests against `tmp_path` |
@@ -48,7 +48,7 @@ Deleted at Task 7: `install.sh`, `run_gui.sh`, `requirements.txt`, `panorama_spl
 Nothing else can proceed safely until we can prove the refactor changed no pixels. This task creates the safety net first, then stands up mise, uv, and the empty harness.
 
 **Files:**
-- Create: `mise.toml`, `pyproject.toml`, `src/auto_border_pano/__init__.py`, `tests/conftest.py`, `tests/test_harness.py`
+- Create: `mise.toml`, `pyproject.toml`, `src/maskingframe/__init__.py`, `tests/conftest.py`, `tests/test_harness.py`
 - Create (untracked): `reference/` holding pre-refactor outputs
 
 **Interfaces:**
@@ -115,11 +115,11 @@ run = "uv sync"
 
 [tasks.gui]
 description = "Launch the GUI"
-run = "uv run pano-split-gui"
+run = "uv run maskingframe-gui"
 
 [tasks.split]
 description = "Run the CLI"
-run = "uv run pano-split"
+run = "uv run maskingframe"
 
 [tasks.test]
 description = "Run tests"
@@ -146,22 +146,22 @@ depends = ["lint", "typecheck", "test"]
 
 ```toml
 [project]
-name = "auto-border-pano"
+name = "maskingframe"
 version = "0.2.0"
 description = "Split panoramic images into social-media-ready square formats"
 requires-python = ">=3.13"
 dependencies = ["Pillow>=10.0.0"]
 
 [project.scripts]
-pano-split = "auto_border_pano.cli:main"
-pano-split-gui = "auto_border_pano.cli:gui_main"
+maskingframe = "maskingframe.cli:main"
+maskingframe-gui = "maskingframe.cli:gui_main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/auto_border_pano"]
+packages = ["src/maskingframe"]
 
 [dependency-groups]
 dev = ["pytest>=8.0", "ruff>=0.6", "mypy>=1.11", "pre-commit>=3.8"]
@@ -185,7 +185,7 @@ addopts = "-ra"
 
 - [ ] **Step 6: Create the package marker**
 
-`src/auto_border_pano/__init__.py`:
+`src/maskingframe/__init__.py`:
 
 ```python
 """Split panoramic images into social-media-ready square formats."""
@@ -198,7 +198,7 @@ __version__ = "0.2.0"
 `tests/conftest.py`:
 
 ```python
-"""Shared fixtures for the auto_border_pano test suite."""
+"""Shared fixtures for the maskingframe test suite."""
 
 from PIL import Image
 
@@ -225,7 +225,7 @@ def synthetic_panorama(width: int = 3000, height: int = 800) -> Image.Image:
 ```python
 """Proves the toolchain itself works before real tests are written."""
 
-from auto_border_pano import __version__
+from maskingframe import __version__
 from tests.conftest import synthetic_panorama
 
 
@@ -266,7 +266,7 @@ ad-hoc pip usage with a committed uv lockfile."
 ### Task 2: Extract padded-square geometry
 
 **Files:**
-- Create: `src/auto_border_pano/geometry.py`
+- Create: `src/maskingframe/geometry.py`
 - Create: `tests/test_geometry.py`
 
 **Interfaces:**
@@ -289,7 +289,7 @@ the vertical padding constant only influences canvas size and the panorama
 ends up vertically centered.
 """
 
-from auto_border_pano import geometry
+from maskingframe import geometry
 from tests.conftest import synthetic_panorama
 
 
@@ -324,11 +324,11 @@ def test_padded_square_background_is_white() -> None:
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `mise run test`
-Expected: FAIL, `ModuleNotFoundError: No module named 'auto_border_pano.geometry'`
+Expected: FAIL, `ModuleNotFoundError: No module named 'maskingframe.geometry'`
 
 - [ ] **Step 3: Write the minimal implementation**
 
-`src/auto_border_pano/geometry.py`:
+`src/maskingframe/geometry.py`:
 
 ```python
 """Pure image transforms.
@@ -375,7 +375,7 @@ Expected: 7 tests pass, ruff and mypy clean.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/auto_border_pano/geometry.py tests/test_geometry.py
+git add src/maskingframe/geometry.py tests/test_geometry.py
 git commit -m "refactor: extract padded-square geometry as a pure function
 
 Characterisation tests lock in the existing centering behaviour, including
@@ -387,7 +387,7 @@ the quirk that the vertical padding constant only affects canvas size."
 ### Task 3: Extract section-cropping geometry
 
 **Files:**
-- Modify: `src/auto_border_pano/geometry.py`
+- Modify: `src/maskingframe/geometry.py`
 - Modify: `tests/test_geometry.py`
 
 **Interfaces:**
@@ -438,11 +438,11 @@ def test_section_index_is_validated() -> None:
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `mise run test`
-Expected: FAIL with `AttributeError: module 'auto_border_pano.geometry' has no attribute 'section_bounds'`
+Expected: FAIL with `AttributeError: module 'maskingframe.geometry' has no attribute 'section_bounds'`
 
 - [ ] **Step 3: Write the minimal implementation**
 
-Append to `src/auto_border_pano/geometry.py`:
+Append to `src/maskingframe/geometry.py`:
 
 ```python
 SECTION_SIZE = 1080
@@ -501,7 +501,7 @@ Move the `import pytest` from inside the test body to the top of the file if ruf
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/auto_border_pano/geometry.py tests/test_geometry.py
+git add src/maskingframe/geometry.py tests/test_geometry.py
 git commit -m "refactor: extract section cropping as a pure function
 
 Locks in integer-division splitting, which discards remainder pixels on
@@ -513,7 +513,7 @@ the right edge, and the scale-then-center-crop behaviour."
 ### Task 4: Build the I/O pipeline
 
 **Files:**
-- Create: `src/auto_border_pano/pipeline.py`
+- Create: `src/maskingframe/pipeline.py`
 - Create: `tests/test_pipeline.py`
 
 **Interfaces:**
@@ -538,7 +538,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from auto_border_pano import pipeline
+from maskingframe import pipeline
 from tests.conftest import synthetic_panorama
 
 
@@ -624,11 +624,11 @@ def test_process_folder_continues_after_a_bad_file(tmp_path: Path) -> None:
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `mise run test`
-Expected: FAIL, `ModuleNotFoundError: No module named 'auto_border_pano.pipeline'`
+Expected: FAIL, `ModuleNotFoundError: No module named 'maskingframe.pipeline'`
 
 - [ ] **Step 3: Write the minimal implementation**
 
-`src/auto_border_pano/pipeline.py`:
+`src/maskingframe/pipeline.py`:
 
 ```python
 """File I/O for panorama splitting.
@@ -642,7 +642,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from auto_border_pano import geometry
+from maskingframe import geometry
 
 JPEG_QUALITY = 95
 JPEG_EXTENSIONS = (".jpg", ".jpeg")
@@ -728,7 +728,7 @@ Expected: 19 tests pass, ruff and mypy clean.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/auto_border_pano/pipeline.py tests/test_pipeline.py
+git add src/maskingframe/pipeline.py tests/test_pipeline.py
 git commit -m "refactor: centralise file I/O and the output-naming contract
 
 The four output filenames were previously built in two places, so renaming
@@ -744,7 +744,7 @@ globbing *.jpg and *.JPG separately returned each file twice."
 ### Task 5: Build the CLI
 
 **Files:**
-- Create: `src/auto_border_pano/cli.py`
+- Create: `src/maskingframe/cli.py`
 - Create: `tests/test_cli.py`
 
 **Interfaces:**
@@ -760,7 +760,7 @@ globbing *.jpg and *.JPG separately returned each file twice."
 
 from pathlib import Path
 
-from auto_border_pano import cli
+from maskingframe import cli
 from tests.conftest import synthetic_panorama
 
 
@@ -804,11 +804,11 @@ If mypy objects to the untyped `monkeypatch` parameter, type it as
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `mise run test`
-Expected: FAIL, `ModuleNotFoundError: No module named 'auto_border_pano.cli'`
+Expected: FAIL, `ModuleNotFoundError: No module named 'maskingframe.cli'`
 
 - [ ] **Step 3: Write the minimal implementation**
 
-`src/auto_border_pano/cli.py`:
+`src/maskingframe/cli.py`:
 
 ```python
 """Command-line entry points."""
@@ -817,12 +817,12 @@ import argparse
 import sys
 from pathlib import Path
 
-from auto_border_pano import pipeline
+from maskingframe import pipeline
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="pano-split",
+        prog="maskingframe",
         description=(
             "Split a panorama into a padded square plus three 1080x1080 "
             "sections. Accepts a single image or a folder of images."
@@ -866,7 +866,7 @@ def gui_main() -> int:
     importing the package can never terminate the host process.
     """
     try:
-        from auto_border_pano.gui import run
+        from maskingframe.gui import run
     except ImportError:
         print(
             "Error: tkinter is not available.\n\n"
@@ -876,7 +876,7 @@ def gui_main() -> int:
             "  Fedora:            sudo dnf install python3-tkinter\n"
             "  Arch:              sudo pacman -S tk\n"
             "  SUSE:              sudo zypper install python3-tk\n\n"
-            "Alternatively use the command-line version: pano-split --help",
+            "Alternatively use the command-line version: maskingframe --help",
             file=sys.stderr,
         )
         return 1
@@ -896,7 +896,7 @@ Expected: 23 tests pass, ruff and mypy clean.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/auto_border_pano/cli.py tests/test_cli.py
+git add src/maskingframe/cli.py tests/test_cli.py
 git commit -m "feat: replace hand-rolled argv parsing with argparse
 
 Adds a real --help, and moves the tkinter availability guard onto the GUI
@@ -908,14 +908,14 @@ entry point so that importing the package can no longer exit the process."
 ### Task 6: Port the GUI
 
 **Files:**
-- Create: `src/auto_border_pano/gui.py`
+- Create: `src/maskingframe/gui.py`
 - Reference: `panorama_splitter_gui.py` (source of the widget layout; deleted in Task 7)
 
 **Interfaces:**
 - Consumes: `pipeline.process_image`, `pipeline.process_folder`, `pipeline.output_paths`
 - Produces: `run() -> None`, `PanoramaSplitterGUI`
 
-- [ ] **Step 1: Write `src/auto_border_pano/gui.py`**
+- [ ] **Step 1: Write `src/maskingframe/gui.py`**
 
 Port the existing widget tree verbatim, with four changes: previews come from `pipeline.output_paths`, the batch loop calls `pipeline.process_folder` with a progress callback rather than reimplementing the glob, all widget mutation from the worker thread is marshalled through `root.after`, and the thread is a daemon so a closed window does not hang the process.
 
@@ -933,7 +933,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from PIL import Image, ImageTk
 
-from auto_border_pano import pipeline
+from maskingframe import pipeline
 
 PREVIEW_TITLES = ("Padded Square", "Left Section", "Middle Section", "Right Section")
 PREVIEW_MAX_PX = 150
@@ -1144,7 +1144,7 @@ remove that list.
 ```bash
 uv run python -c "
 import tkinter
-from auto_border_pano.gui import PanoramaSplitterGUI
+from maskingframe.gui import PanoramaSplitterGUI
 root = tkinter.Tk(); root.withdraw()
 app = PanoramaSplitterGUI(root)
 assert len(app.preview_labels) == 4
@@ -1166,7 +1166,7 @@ Pick a panorama, process it, confirm four previews appear. This is a manual gate
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/auto_border_pano/gui.py
+git add src/maskingframe/gui.py
 git commit -m "refactor: port the GUI onto the shared pipeline
 
 Previews now derive their paths from pipeline.output_paths instead of
@@ -1194,7 +1194,7 @@ previously messagebox and widget config were called directly off-thread."
 
 ```bash
 uv run python -c "
-from auto_border_pano import pipeline
+from maskingframe import pipeline
 pipeline.process_image('reference/input.jpg', 'reference/new')
 "
 cd reference && shasum -a 256 new_*.jpg && cat checksums.txt && cd ..
@@ -1238,7 +1238,7 @@ echo Installation complete. Run the GUI with run_gui.bat
 
 ```bat
 @echo off
-uv run pano-split-gui
+uv run maskingframe-gui
 if errorlevel 1 pause
 ```
 
@@ -1318,7 +1318,7 @@ mise run split -- input.jpg my_prefix      # single image
 mise run split -- ./panoramas ./output     # whole folder
 ```
 
-Run `uv run pano-split --help` for all options.
+Run `uv run maskingframe --help` for all options.
 ```
 
 Also correct the Output Details section, which currently states the

@@ -19,7 +19,7 @@ import math
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 
-from auto_border_pano.geometry import AspectRatio
+from maskingframe.geometry import AspectRatio
 
 GUTTER = 40
 

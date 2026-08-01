@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from auto_border_pano.gui import theme
+from maskingframe.gui import theme
 
 
 class RebateBand(QWidget):

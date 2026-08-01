@@ -3,7 +3,7 @@
 import pytest
 from PIL import Image
 
-from auto_border_pano import compose, geometry, layout
+from maskingframe import compose, geometry, layout
 
 PADDING = geometry.SIDE_PADDING
 

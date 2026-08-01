@@ -1,7 +1,7 @@
 [project]
-name = "auto-border-pano"
+name = "maskingframe"
 version = "0.2.0"
-description = "Split panoramic images into social-media-ready square formats"
+description = "Cut panoramas into Instagram carousels, and compose diptychs and triptychs"
 requires-python = ">=3.13"
 dependencies = [
     "Pillow>=10.0.0",
@@ -9,15 +9,15 @@ dependencies = [
 ]
 
 [project.scripts]
-pano-split = "auto_border_pano.cli:main"
-pano-split-gui = "auto_border_pano.cli:gui_main"
+maskingframe = "maskingframe.cli:main"
+maskingframe-gui = "maskingframe.cli:gui_main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/auto_border_pano"]
+packages = ["src/maskingframe"]
 
 [dependency-groups]
 dev = [

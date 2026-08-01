@@ -11,7 +11,7 @@ all registered ratios.
 import pytest
 from PIL import Image, ImageChops
 
-from auto_border_pano import geometry
+from maskingframe import geometry
 from tests.conftest import synthetic_panorama
 
 # LANCZOS resampling blurs a few pixels at the panorama's edge into a

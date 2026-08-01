@@ -22,9 +22,9 @@ import pytest
 from PIL import Image
 from pytestqt.qtbot import QtBot
 
-from auto_border_pano import layout, pipeline
-from auto_border_pano.gui import compose_tab
-from auto_border_pano.gui.compose_tab import ComposeTab
+from maskingframe import layout, pipeline
+from maskingframe.gui import compose_tab
+from maskingframe.gui.compose_tab import ComposeTab
 
 FIXTURES = Path(__file__).parent / "fixtures"
 WIDE = str(FIXTURES / "compose_wide.jpg")

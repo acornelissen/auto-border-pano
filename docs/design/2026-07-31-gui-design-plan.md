@@ -1,8 +1,8 @@
-# auto-border-pano — design audit and plan
+# maskingframe — design audit and plan
 
 Design lead review, grounded in two screenshots of the running app
 (`/tmp/gui-split.png`, `/tmp/gui-compose.png`) and the current
-`src/auto_border_pano/gui/` implementation.
+`src/maskingframe/gui/` implementation.
 
 ---
 
@@ -413,7 +413,7 @@ Every user-facing string in both tabs. Current → proposed.
 
 | Where | Current | Proposed |
 |---|---|---|
-| Window title | `Panorama Splitter` | `Auto Border Pano` |
+| Window title | `Panorama Splitter` | `Masking Frame` |
 | Tab 1 | `Split` | `Split` (with frame number `1`) |
 | Tab 2 | `Diptych / Triptych` | `Compose` (with frame number `2`) |
 
@@ -444,7 +444,7 @@ better.
 | Done, single | `Wrote N detail frames at Portrait (4:5)` | `Cut 4 frames at 4:5 into horizons3-hp5-4_output` |
 | Done, batch | `Wrote N of M images at Portrait (4:5)` | `Cut 3 negatives at 4:5. 12 frames written.` |
 | Done, partial | `Wrote 2 of 3 images at …, 1 failed: x.jpg` | `Cut 2 of 3 negatives. horizons3-hp5-6.jpg could not be read.` |
-| Empty folder | `No panoramas found` / `No JPG files found in the input folder` | `No JPGs in that folder. Auto Border Pano reads .jpg and .jpeg.` |
+| Empty folder | `No panoramas found` / `No JPG files found in the input folder` | `No JPGs in that folder. Masking Frame reads .jpg and .jpeg.` |
 | Failure | `Failed` | `Could not cut horizons3-hp5-4.jpg — {reason}` |
 | Invalid input | `Error` / `Please select a valid input` | `That file is not there any more. Choose another negative.` |
 | Empty output | `Error` / `Please select a valid output` | `Choose where the frames should go.` |

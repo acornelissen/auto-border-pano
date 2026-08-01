@@ -29,14 +29,14 @@
 
 | File | Responsibility |
 | ---- | -------------- |
-| `src/auto_border_pano/layout.py` | Pure layout solver. No PIL, no I/O |
-| `src/auto_border_pano/compose.py` | Renders solved boxes onto a canvas. PIL in, PIL out |
-| `src/auto_border_pano/pipeline.py` | Gains `compose_images` and `CompositeResult` |
-| `src/auto_border_pano/gui/__init__.py` | Re-exports `run`, `PanoramaSplitterGUI`, `preview_titles` |
-| `src/auto_border_pano/gui/app.py` | Notebook shell; owns the root window |
-| `src/auto_border_pano/gui/split_tab.py` | Today's splitter UI, moved |
-| `src/auto_border_pano/gui/compose_tab.py` | The new tab |
-| `src/auto_border_pano/gui/preview.py` | Thumbnail pane grid, shared by both tabs |
+| `src/maskingframe/layout.py` | Pure layout solver. No PIL, no I/O |
+| `src/maskingframe/compose.py` | Renders solved boxes onto a canvas. PIL in, PIL out |
+| `src/maskingframe/pipeline.py` | Gains `compose_images` and `CompositeResult` |
+| `src/maskingframe/gui/__init__.py` | Re-exports `run`, `PanoramaSplitterGUI`, `preview_titles` |
+| `src/maskingframe/gui/app.py` | Notebook shell; owns the root window |
+| `src/maskingframe/gui/split_tab.py` | Today's splitter UI, moved |
+| `src/maskingframe/gui/compose_tab.py` | The new tab |
+| `src/maskingframe/gui/preview.py` | Thumbnail pane grid, shared by both tabs |
 | `tests/test_layout.py` | Solver tests — the bulk of the value |
 | `tests/test_compose.py` | Rendering tests |
 | `tests/test_pipeline.py` | Gains composite I/O and golden tests |
@@ -50,7 +50,7 @@
 This is the feature. It is pure arithmetic, so it can be tested exhaustively without opening a single image.
 
 **Files:**
-- Create: `src/auto_border_pano/layout.py`
+- Create: `src/maskingframe/layout.py`
 - Create: `tests/test_layout.py`
 
 **Interfaces:**
@@ -75,7 +75,7 @@ build as real files.
 
 import pytest
 
-from auto_border_pano import geometry, layout
+from maskingframe import geometry, layout
 
 PADDING = geometry.SIDE_PADDING
 
@@ -183,11 +183,11 @@ def test_only_two_or_three_images_are_supported() -> None:
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `mise exec -- uv run pytest tests/test_layout.py -v`
-Expected: FAIL with `ModuleNotFoundError: No module named 'auto_border_pano.layout'`
+Expected: FAIL with `ModuleNotFoundError: No module named 'maskingframe.layout'`
 
 - [ ] **Step 3: Write the implementation**
 
-`src/auto_border_pano/layout.py`:
+`src/maskingframe/layout.py`:
 
 ```python
 """Automatic layout for composites.
@@ -211,7 +211,7 @@ import math
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 
-from auto_border_pano.geometry import AspectRatio
+from maskingframe.geometry import AspectRatio
 
 GUTTER = 40
 
@@ -403,7 +403,7 @@ If `test_two_equal_panoramas_stack_at_portrait` reports `row-two-then-one` or si
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/auto_border_pano/layout.py tests/test_layout.py
+git add src/maskingframe/layout.py tests/test_layout.py
 git commit -m "feat(layout): solve composite arrangements automatically
 
 Each node states its width as an affine function of its height, so one
@@ -417,7 +417,7 @@ is ever cropped and the choice is purely about wasted space."
 ### Task 2: Render the composite
 
 **Files:**
-- Create: `src/auto_border_pano/compose.py`
+- Create: `src/maskingframe/compose.py`
 - Create: `tests/test_compose.py`
 
 **Interfaces:**
@@ -434,7 +434,7 @@ is ever cropped and the choice is purely about wasted space."
 import pytest
 from PIL import Image
 
-from auto_border_pano import compose, geometry, layout
+from maskingframe import compose, geometry, layout
 
 PADDING = geometry.SIDE_PADDING
 
@@ -496,11 +496,11 @@ def test_render_requires_one_box_per_image() -> None:
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `mise exec -- uv run pytest tests/test_compose.py -v`
-Expected: FAIL with `ModuleNotFoundError: No module named 'auto_border_pano.compose'`
+Expected: FAIL with `ModuleNotFoundError: No module named 'maskingframe.compose'`
 
 - [ ] **Step 3: Write the implementation**
 
-`src/auto_border_pano/compose.py`:
+`src/maskingframe/compose.py`:
 
 ```python
 """Render a solved layout into a single image.
@@ -515,8 +515,8 @@ from collections.abc import Sequence
 
 from PIL import Image
 
-from auto_border_pano.geometry import BACKGROUND, AspectRatio
-from auto_border_pano.layout import Layout
+from maskingframe.geometry import BACKGROUND, AspectRatio
+from maskingframe.layout import Layout
 
 # A box comes from the image's own aspect ratio, so the two should agree to
 # within integer rounding. More than this means the solver is wrong, and
@@ -554,7 +554,7 @@ Expected: all pass, ruff and mypy clean.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/auto_border_pano/compose.py tests/test_compose.py
+git add src/maskingframe/compose.py tests/test_compose.py
 git commit -m "feat(compose): render a solved layout onto a white canvas
 
 Refuses a box whose aspect disagrees with its image, so a solver bug
@@ -566,7 +566,7 @@ surfaces as a loud failure rather than a subtly stretched photograph."
 ### Task 3: Composite file I/O
 
 **Files:**
-- Modify: `src/auto_border_pano/pipeline.py`
+- Modify: `src/maskingframe/pipeline.py`
 - Modify: `tests/test_pipeline.py`
 - Create: `tests/fixtures/compose_wide.jpg`, `tests/fixtures/compose_square.jpg`, `tests/fixtures/compose_tall.jpg`
 
@@ -656,11 +656,11 @@ def test_compose_creates_the_output_directory(tmp_path: Path) -> None:
 - [ ] **Step 3: Run tests to verify they fail**
 
 Run: `mise exec -- uv run pytest tests/test_pipeline.py -k compose -v`
-Expected: FAIL with `AttributeError: module 'auto_border_pano.pipeline' has no attribute 'compose_images'`
+Expected: FAIL with `AttributeError: module 'maskingframe.pipeline' has no attribute 'compose_images'`
 
 - [ ] **Step 4: Write the implementation**
 
-Add to `src/auto_border_pano/pipeline.py`, importing `compose` and `layout` alongside the existing `geometry` import:
+Add to `src/maskingframe/pipeline.py`, importing `compose` and `layout` alongside the existing `geometry` import:
 
 ```python
 COMPOSITE_SUFFIXES = {2: "_diptych.jpg", 3: "_triptych.jpg"}
@@ -724,7 +724,7 @@ Add to `tests/test_pipeline.py`, generating the hashes with:
 mise exec -- uv run python -c "
 import hashlib, tempfile
 from pathlib import Path
-from auto_border_pano import pipeline
+from maskingframe import pipeline
 fixtures = [Path('tests/fixtures') / n for n in ('compose_wide.jpg','compose_square.jpg','compose_tall.jpg')]
 with tempfile.TemporaryDirectory() as tmp:
     for name, ratio in pipeline.RATIOS.items():
@@ -758,7 +758,7 @@ Prove it can fail: temporarily change `layout.GUTTER` to 41, confirm this test f
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/auto_border_pano/pipeline.py tests/test_pipeline.py tests/fixtures
+git add src/maskingframe/pipeline.py tests/test_pipeline.py tests/fixtures
 git commit -m "feat(pipeline): write diptych and triptych composites
 
 Carries the winning layout's name back to the caller so the UI can show
@@ -769,11 +769,11 @@ which arrangement was chosen automatically."
 
 ### Task 4: Split the GUI into a package
 
-A pure move plus one extraction. **No behaviour changes.** The existing GUI tests must pass unchanged apart from nothing at all — they import `from auto_border_pano import gui` and use `gui.PanoramaSplitterGUI` and `gui.preview_titles`, both of which the package must keep exporting.
+A pure move plus one extraction. **No behaviour changes.** The existing GUI tests must pass unchanged apart from nothing at all — they import `from maskingframe import gui` and use `gui.PanoramaSplitterGUI` and `gui.preview_titles`, both of which the package must keep exporting.
 
 **Files:**
-- Create: `src/auto_border_pano/gui/__init__.py`, `gui/app.py`, `gui/split_tab.py`, `gui/preview.py`
-- Delete: `src/auto_border_pano/gui.py`
+- Create: `src/maskingframe/gui/__init__.py`, `gui/app.py`, `gui/split_tab.py`, `gui/preview.py`
+- Delete: `src/maskingframe/gui.py`
 
 **Interfaces:**
 - Consumes: `pipeline` only. No module here may import `geometry`.
@@ -786,11 +786,11 @@ A pure move plus one extraction. **No behaviour changes.** The existing GUI test
 - [ ] **Step 1: Create the package skeleton and move the code**
 
 ```bash
-mkdir -p src/auto_border_pano/gui
-git mv src/auto_border_pano/gui.py src/auto_border_pano/gui/split_tab.py
+mkdir -p src/maskingframe/gui
+git mv src/maskingframe/gui.py src/maskingframe/gui/split_tab.py
 ```
 
-`src/auto_border_pano/gui/__init__.py`:
+`src/maskingframe/gui/__init__.py`:
 
 ```python
 """tkinter front end.
@@ -799,13 +799,13 @@ Importing this package raises ImportError when tkinter is missing; the
 friendly message lives in cli.gui_main.
 """
 
-from auto_border_pano.gui.app import run
-from auto_border_pano.gui.split_tab import PanoramaSplitterGUI, preview_titles
+from maskingframe.gui.app import run
+from maskingframe.gui.split_tab import PanoramaSplitterGUI, preview_titles
 
 __all__ = ["PanoramaSplitterGUI", "preview_titles", "run"]
 ```
 
-`src/auto_border_pano/gui/app.py`:
+`src/maskingframe/gui/app.py`:
 
 ```python
 """The application shell.
@@ -816,7 +816,7 @@ themselves.
 
 import tkinter as tk
 
-from auto_border_pano.gui.split_tab import PanoramaSplitterGUI
+from maskingframe.gui.split_tab import PanoramaSplitterGUI
 
 
 def run() -> None:
@@ -835,7 +835,7 @@ Keep the parameter named `root` and keep storing it as `self.root` — `root.aft
 
 - [ ] **Step 3: Extract the preview panes**
 
-`src/auto_border_pano/gui/preview.py`:
+`src/maskingframe/gui/preview.py`:
 
 ```python
 """A row of thumbnail panes that rebuilds as the count changes.
@@ -938,7 +938,7 @@ Also confirm the entry point still resolves:
 
 ```bash
 mise exec -- uv run python -c "
-from auto_border_pano.gui import run, PanoramaSplitterGUI, preview_titles
+from maskingframe.gui import run, PanoramaSplitterGUI, preview_titles
 print('exports OK', run.__module__, PanoramaSplitterGUI.__module__)
 "
 ```
@@ -946,7 +946,7 @@ print('exports OK', run.__module__, PanoramaSplitterGUI.__module__)
 - [ ] **Step 6: Commit**
 
 ```bash
-git add -A src/auto_border_pano/gui tests/test_gui.py
+git add -A src/maskingframe/gui tests/test_gui.py
 git commit -m "refactor(gui): split into a package and extract the preview panes
 
 A second tab would push a single module past 500 lines. The preview grid
@@ -961,8 +961,8 @@ Pure move: no behaviour changes."
 ### Task 5: The notebook shell and the compose tab
 
 **Files:**
-- Create: `src/auto_border_pano/gui/compose_tab.py`
-- Modify: `src/auto_border_pano/gui/app.py`
+- Create: `src/maskingframe/gui/compose_tab.py`
+- Modify: `src/maskingframe/gui/app.py`
 - Modify: `tests/test_gui.py`
 
 **Interfaces:**
@@ -975,7 +975,7 @@ Add to `tests/test_gui.py`:
 
 ```python
 def test_compose_tab_requires_two_or_three_images() -> None:
-    from auto_border_pano.gui import compose_tab
+    from maskingframe.gui import compose_tab
 
     tab = compose_tab.ComposeTab.__new__(compose_tab.ComposeTab)
     tab.images = ["a.jpg"]
@@ -989,7 +989,7 @@ def test_compose_tab_requires_two_or_three_images() -> None:
 
 
 def test_compose_tab_reordering_changes_the_order() -> None:
-    from auto_border_pano.gui import compose_tab
+    from maskingframe.gui import compose_tab
 
     tab = compose_tab.ComposeTab.__new__(compose_tab.ComposeTab)
     tab.images = ["a.jpg", "b.jpg", "c.jpg"]
@@ -1001,7 +1001,7 @@ def test_compose_tab_reordering_changes_the_order() -> None:
 def test_compose_worker_reports_the_layout_name(tmp_path: Path) -> None:
     # The worker runs off the main thread and must hand everything back
     # through root.after -- the same discipline as the splitter's workers.
-    from auto_border_pano.gui import compose_tab
+    from maskingframe.gui import compose_tab
 
     fixtures = Path(__file__).parent / "fixtures"
     sources = [str(fixtures / "compose_wide.jpg"), str(fixtures / "compose_square.jpg")]
@@ -1024,7 +1024,7 @@ def test_compose_worker_reports_the_layout_name(tmp_path: Path) -> None:
 
 
 def test_compose_worker_reports_failure_without_dying(tmp_path: Path) -> None:
-    from auto_border_pano.gui import compose_tab
+    from maskingframe.gui import compose_tab
 
     calls: list[tuple[Any, ...]] = []
 
@@ -1045,11 +1045,11 @@ def test_compose_worker_reports_failure_without_dying(tmp_path: Path) -> None:
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `mise exec -- uv run pytest tests/test_gui.py -k compose -v`
-Expected: FAIL with `ModuleNotFoundError: No module named 'auto_border_pano.gui.compose_tab'`
+Expected: FAIL with `ModuleNotFoundError: No module named 'maskingframe.gui.compose_tab'`
 
 - [ ] **Step 3: Write the compose tab**
 
-`src/auto_border_pano/gui/compose_tab.py`:
+`src/maskingframe/gui/compose_tab.py`:
 
 ```python
 """The diptych and triptych tab.
@@ -1065,8 +1065,8 @@ from tkinter import filedialog, messagebox, ttk
 
 from PIL import Image
 
-from auto_border_pano import pipeline
-from auto_border_pano.gui.preview import PreviewPanes
+from maskingframe import pipeline
+from maskingframe.gui.preview import PreviewPanes
 
 MIN_IMAGES = 2
 MAX_IMAGES = 3
@@ -1248,7 +1248,7 @@ class ComposeTab:
 
 - [ ] **Step 4: Wire the notebook**
 
-Replace `src/auto_border_pano/gui/app.py` with:
+Replace `src/maskingframe/gui/app.py` with:
 
 ```python
 """The application shell.
@@ -1260,8 +1260,8 @@ themselves.
 import tkinter as tk
 from tkinter import ttk
 
-from auto_border_pano.gui.compose_tab import ComposeTab
-from auto_border_pano.gui.split_tab import PanoramaSplitterGUI
+from maskingframe.gui.compose_tab import ComposeTab
+from maskingframe.gui.split_tab import PanoramaSplitterGUI
 
 
 def run() -> None:
@@ -1297,8 +1297,8 @@ Expected: green.
 mise exec -- uv run python -c "
 import tkinter
 from tkinter import ttk
-from auto_border_pano.gui.split_tab import PanoramaSplitterGUI
-from auto_border_pano.gui.compose_tab import ComposeTab
+from maskingframe.gui.split_tab import PanoramaSplitterGUI
+from maskingframe.gui.compose_tab import ComposeTab
 root = tkinter.Tk(); root.withdraw()
 notebook = ttk.Notebook(root)
 page = ttk.Frame(notebook)
@@ -1319,7 +1319,7 @@ Build the GUI with a withdrawn root, set `tab.images` to two real fixtures, set 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/auto_border_pano/gui tests/test_gui.py
+git add src/maskingframe/gui tests/test_gui.py
 git commit -m "feat(gui): add the diptych and triptych tab
 
 The window becomes a notebook with the splitter on one tab and the
@@ -1345,7 +1345,7 @@ line, so the automatic decision is visible rather than mysterious."
 ```bash
 mise exec -- uv run python -c "
 from pathlib import Path
-from auto_border_pano import pipeline
+from maskingframe import pipeline
 sets = [
     ['samples/horizons3-hp5-4.jpg', 'samples/horizons3-hp5-5.jpg'],
     ['samples/horizons3-hp5-4.jpg', 'samples/horizons3-hp5-5.jpg', 'samples/horizons3-hp5-6.jpg'],

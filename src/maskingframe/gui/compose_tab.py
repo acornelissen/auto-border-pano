@@ -34,11 +34,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from auto_border_pano import pipeline
-from auto_border_pano.gui import shell, theme
-from auto_border_pano.gui.sources import Source, SourcesList
-from auto_border_pano.gui.strip import ContactStrip
-from auto_border_pano.gui.work import submit
+from maskingframe import pipeline
+from maskingframe.gui import shell, theme
+from maskingframe.gui.sources import Source, SourcesList
+from maskingframe.gui.strip import ContactStrip
+from maskingframe.gui.work import submit
 
 MIN_IMAGES = 2
 MAX_IMAGES = 3

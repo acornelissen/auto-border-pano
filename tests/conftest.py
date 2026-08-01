@@ -1,4 +1,4 @@
-"""Shared fixtures for the auto_border_pano test suite.
+"""Shared fixtures for the maskingframe test suite.
 
 The GUI stubs that used to live here went with the tkinter build. Qt tests
 use `pytest-qt`'s `qtbot`, which supplies a session `QApplication` and real

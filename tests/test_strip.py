@@ -17,7 +17,7 @@ from PIL import Image
 from PySide6.QtGui import QFontMetrics
 from pytestqt.qtbot import QtBot
 
-from auto_border_pano.gui import strip, theme
+from maskingframe.gui import strip, theme
 
 
 @pytest.fixture

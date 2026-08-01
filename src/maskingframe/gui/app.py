@@ -8,16 +8,16 @@ import sys
 
 from PySide6.QtWidgets import QApplication, QMainWindow, QTabWidget, QVBoxLayout, QWidget
 
-from auto_border_pano.gui import shell, theme
-from auto_border_pano.gui.compose_tab import ComposeTab
-from auto_border_pano.gui.split_tab import SplitTab
+from maskingframe.gui import shell, theme
+from maskingframe.gui.compose_tab import ComposeTab
+from maskingframe.gui.split_tab import SplitTab
 
 
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         # Not "Panorama Splitter": the second tab splits nothing.
-        self.setWindowTitle("Auto Border Pano")
+        self.setWindowTitle("Masking Frame")
         self.resize(1180, 820)
         self.setMinimumSize(940, 720)
 
@@ -61,7 +61,7 @@ class MainWindow(QMainWindow):
 def run() -> None:
     app = QApplication.instance() or QApplication(sys.argv)
     assert isinstance(app, QApplication)
-    app.setApplicationName("Auto Border Pano")
+    app.setApplicationName("Masking Frame")
     app.setStyleSheet(theme.stylesheet())
     window = MainWindow()
     window.show()

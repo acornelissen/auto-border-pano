@@ -19,7 +19,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from pytestqt.qtbot import QtBot
 
-from auto_border_pano.gui import sources
+from maskingframe.gui import sources
 
 
 @pytest.fixture

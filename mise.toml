@@ -11,11 +11,11 @@ run = ["uv sync", "uv run pre-commit install --hook-type pre-commit --hook-type 
 
 [tasks.gui]
 description = "Launch the GUI"
-run = "uv run pano-split-gui"
+run = "uv run maskingframe-gui"
 
 [tasks.split]
 description = "Run the CLI"
-run = "uv run pano-split"
+run = "uv run maskingframe"
 
 [tasks.test]
 description = "Run tests"

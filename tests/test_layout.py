@@ -7,7 +7,7 @@ build as real files.
 
 import pytest
 
-from auto_border_pano import geometry, layout
+from maskingframe import geometry, layout
 
 PADDING = geometry.SIDE_PADDING
 

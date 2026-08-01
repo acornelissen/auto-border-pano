@@ -10,8 +10,8 @@ from collections.abc import Sequence
 
 from PIL import Image
 
-from auto_border_pano.geometry import BACKGROUND, AspectRatio
-from auto_border_pano.layout import Layout
+from maskingframe.geometry import BACKGROUND, AspectRatio
+from maskingframe.layout import Layout
 
 
 def render(images: Sequence[Image.Image], solved: Layout, ratio: AspectRatio) -> Image.Image:

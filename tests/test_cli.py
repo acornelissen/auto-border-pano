@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 from PIL import Image
 
-from auto_border_pano import cli, pipeline
+from maskingframe import cli, pipeline
 from tests.conftest import synthetic_panorama
 
 
@@ -132,7 +132,7 @@ def test_gui_main_without_qt(
     assert exit_code == 1
     captured = capsys.readouterr()
     assert "PySide6 is not available" in captured.err
-    assert "pano-split --help" in captured.err
+    assert "maskingframe --help" in captured.err
 
 
 def test_ratio_flag_changes_the_output_shape(tmp_path: Path) -> None:

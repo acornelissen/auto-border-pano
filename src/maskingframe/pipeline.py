@@ -11,7 +11,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from auto_border_pano import compose, geometry, layout
+from maskingframe import compose, geometry, layout
 
 # These are the user's own large-format scans, not hostile downloads; the
 # largest sample is 132MP against Pillow's ~178MP default. Lifting the guard
@@ -120,7 +120,7 @@ def process_image(
     if width < height:
         raise ValueError(
             f"{input_path} is portrait ({width}x{height}); "
-            "auto-border-pano expects a landscape panorama"
+            "maskingframe expects a landscape panorama"
         )
 
     count = geometry.section_count(width, height, ratio)
@@ -159,7 +159,7 @@ def preview_frames(
     if width < height:
         raise ValueError(
             f"{input_path} is portrait ({width}x{height}); "
-            "auto-border-pano expects a landscape panorama"
+            "maskingframe expects a landscape panorama"
         )
 
     count = geometry.section_count(width, height, ratio)

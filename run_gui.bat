@@ -1,3 +1,3 @@
 @echo off
-uv run pano-split-gui
+uv run maskingframe-gui
 if errorlevel 1 pause

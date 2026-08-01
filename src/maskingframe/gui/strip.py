@@ -51,7 +51,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
-from auto_border_pano.gui import theme
+from maskingframe.gui import theme
 
 EDGE = theme.M
 """Margin to the left and right of the outermost frames."""

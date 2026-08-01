@@ -1,8 +1,12 @@
-# Auto Border Pano
+# Masking Frame
 
-![auto-border-pano GUI](gui.png)
+![Masking Frame](gui.png)
 
-A Python tool for automatically processing panoramic images into social media-ready formats. This tool takes a panoramic JPG image and creates:
+A masking frame is the darkroom device that holds printing paper under an
+enlarger: adjustable blades mask the paper's edges, setting the format and
+leaving a white border. This is that, for panoramas bound for Instagram.
+
+It takes a panoramic JPG and creates:
 
 1. **Padded frame**: The full panorama, fitted inside the target output frame with a 100px inset on all sides and centered on a white canvas. Whichever axis binds gets exactly 100px of padding — usually the width for a wide panorama, but at `1.91:1` a panorama flatter than the frame's own ratio binds on height instead — and the other axis gets whatever's left over
 2. **Detail frames**: A zoomed, cropped-and-resized view of a horizontal slice of the panorama, at the target aspect ratio. How many of these there are depends on the ratio and the panorama's shape — see [Aspect ratio](#aspect-ratio) below
@@ -52,7 +56,7 @@ mise run split -- input.jpg my_prefix      # single image
 mise run split -- ./panoramas ./output     # whole folder
 ```
 
-Run `uv run pano-split --help` for all options. Folder mode writes to
+Run `uv run maskingframe --help` for all options. Folder mode writes to
 `./output` if you omit the output argument.
 
 ### Examples

@@ -28,10 +28,10 @@
 | File | Change |
 | ---- | ------ |
 | `.pre-commit-config.yaml` | Repair hooks so they can find `uv` (Task 1) |
-| `src/auto_border_pano/geometry.py` | `AspectRatio`, `section_count`, generalised `make_section`, `make_padded_frame` |
-| `src/auto_border_pano/pipeline.py` | Variable output paths, ratio parameter, portrait rejection, bomb limit, explicit success counter |
-| `src/auto_border_pano/cli.py` | `--ratio` flag |
-| `src/auto_border_pano/gui.py` | Ratio combobox, per-run preview panel rebuild |
+| `src/maskingframe/geometry.py` | `AspectRatio`, `section_count`, generalised `make_section`, `make_padded_frame` |
+| `src/maskingframe/pipeline.py` | Variable output paths, ratio parameter, portrait rejection, bomb limit, explicit success counter |
+| `src/maskingframe/cli.py` | `--ratio` flag |
+| `src/maskingframe/gui.py` | Ratio combobox, per-run preview panel rebuild |
 | `tests/test_geometry.py` | Ratio and count tests, pixel-position assertions |
 | `tests/test_pipeline.py` | Per-ratio goldens replacing the single golden, portrait rejection |
 | `tests/test_cli.py` | `--ratio` parsing and effect |
@@ -160,7 +160,7 @@ or falls back to uv."
 ### Task 2: AspectRatio and section_count
 
 **Files:**
-- Modify: `src/auto_border_pano/geometry.py`
+- Modify: `src/maskingframe/geometry.py`
 - Modify: `tests/test_geometry.py`
 
 **Interfaces:**
@@ -225,11 +225,11 @@ def test_count_rounds_half_up_not_bankers() -> None:
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `mise run test`
-Expected: FAIL with `AttributeError: module 'auto_border_pano.geometry' has no attribute 'SQUARE'`
+Expected: FAIL with `AttributeError: module 'maskingframe.geometry' has no attribute 'SQUARE'`
 
 - [ ] **Step 3: Write the implementation**
 
-At the top of `src/auto_border_pano/geometry.py`, add `import math` and `from dataclasses import dataclass` to the imports, then insert after the existing constants:
+At the top of `src/maskingframe/geometry.py`, add `import math` and `from dataclasses import dataclass` to the imports, then insert after the existing constants:
 
 ```python
 @dataclass(frozen=True)
@@ -287,7 +287,7 @@ Expected: all pass, ruff and mypy clean.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/auto_border_pano/geometry.py tests/test_geometry.py
+git add src/maskingframe/geometry.py tests/test_geometry.py
 git commit -m "feat(geometry): add AspectRatio and derive detail-frame count
 
 The count is floored at two because the detail frames are a zoom, not a
@@ -300,7 +300,7 @@ are pinned against the aspect ratios of real scans."
 ### Task 3: Generalise the geometry to any ratio
 
 **Files:**
-- Modify: `src/auto_border_pano/geometry.py`
+- Modify: `src/maskingframe/geometry.py`
 - Modify: `tests/test_geometry.py`
 
 **Interfaces:**
@@ -400,11 +400,11 @@ def test_adjacent_sections_show_different_parts_of_the_panorama() -> None:
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `mise run test`
-Expected: FAIL with `AttributeError: module 'auto_border_pano.geometry' has no attribute 'make_padded_frame'`
+Expected: FAIL with `AttributeError: module 'maskingframe.geometry' has no attribute 'make_padded_frame'`
 
 - [ ] **Step 3: Rewrite the geometry functions**
 
-In `src/auto_border_pano/geometry.py`, delete `padded_square_size`, `make_padded_square`, `SECTION_SIZE` and `SECTION_COUNT`, and replace with:
+In `src/maskingframe/geometry.py`, delete `padded_square_size`, `make_padded_square`, `SECTION_SIZE` and `SECTION_COUNT`, and replace with:
 
 ```python
 def padded_frame_size(
@@ -498,7 +498,7 @@ mise exec -- uv run pytest tests/test_geometry.py -v
 Commit with the pipeline still broken, since the two tasks are separately reviewable and the geometry change stands on its own:
 
 ```bash
-git add src/auto_border_pano/geometry.py tests/test_geometry.py
+git add src/maskingframe/geometry.py tests/test_geometry.py
 git commit --no-verify -m "feat(geometry): generalise padding and sectioning to any ratio
 
 make_padded_square becomes make_padded_frame, and make_section takes the
@@ -514,7 +514,7 @@ Task 4 restores a green tree."
 ### Task 4: Thread the ratio through the pipeline
 
 **Files:**
-- Modify: `src/auto_border_pano/pipeline.py`
+- Modify: `src/maskingframe/pipeline.py`
 - Modify: `tests/test_pipeline.py`
 
 **Interfaces:**
@@ -607,7 +607,7 @@ Expected: FAIL — `output_paths()` missing the `count` argument, and `pipeline`
 
 - [ ] **Step 3: Rewrite the pipeline**
 
-In `src/auto_border_pano/pipeline.py`:
+In `src/maskingframe/pipeline.py`:
 
 Add the bomb-limit lift and the re-exports near the top, after the existing imports:
 
@@ -658,7 +658,7 @@ def process_image(
     if width < height:
         raise ValueError(
             f"{input_path} is portrait ({width}x{height}); "
-            "auto-border-pano expects a landscape panorama"
+            "maskingframe expects a landscape panorama"
         )
 
     count = geometry.section_count(width, height, ratio)
@@ -750,7 +750,7 @@ mise exec -- uv run pytest tests/test_geometry.py tests/test_pipeline.py -v
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/auto_border_pano/pipeline.py tests/test_pipeline.py
+git add src/maskingframe/pipeline.py tests/test_pipeline.py
 git commit --no-verify -m "feat(pipeline): thread the target ratio through and reject portrait input
 
 Output count now varies per image, so succeeded_count becomes an explicit
@@ -800,7 +800,7 @@ git rm tests/fixtures/golden_panorama.jpg
 ```bash
 mise exec -- uv run python -c "
 import hashlib
-from auto_border_pano import pipeline
+from maskingframe import pipeline
 for name, ratio in pipeline.RATIOS.items():
     out = pipeline.process_image(
         'tests/fixtures/golden_wide.jpg', f'/tmp/golden_gen/{ratio.name.replace(\":\", \"-\")}', ratio
@@ -828,7 +828,7 @@ Add to `tests/test_pipeline.py`, replacing the deleted single-golden test:
 # deliberate Pillow upgrade changes encoding, regenerate with:
 #   mise exec -- uv run python -c "
 #   import hashlib
-#   from auto_border_pano import pipeline
+#   from maskingframe import pipeline
 #   for name, ratio in pipeline.RATIOS.items():
 #       out = pipeline.process_image(
 #           'tests/fixtures/golden_wide.jpg', f'/tmp/g/{name}', ratio
@@ -870,7 +870,7 @@ def test_golden_frame_counts_differ_by_ratio() -> None:
 
 - [ ] **Step 4: Verify the golden test actually catches a change**
 
-Temporarily set `JPEG_QUALITY = 94` in `src/auto_border_pano/pipeline.py`, run `mise exec -- uv run pytest tests/test_pipeline.py -k golden`, and confirm it FAILS. Restore `95` and confirm it passes again. Record both outcomes in your report — a golden test that cannot fail is worse than none.
+Temporarily set `JPEG_QUALITY = 94` in `src/maskingframe/pipeline.py`, run `mise exec -- uv run pytest tests/test_pipeline.py -k golden`, and confirm it FAILS. Restore `95` and confirm it passes again. Record both outcomes in your report — a golden test that cannot fail is worse than none.
 
 - [ ] **Step 5: Commit**
 
@@ -889,7 +889,7 @@ longer produces. Per-ratio goldens also close a coverage gap: the previous
 ### Task 6: Add --ratio to the CLI
 
 **Files:**
-- Modify: `src/auto_border_pano/cli.py`
+- Modify: `src/maskingframe/cli.py`
 - Modify: `tests/test_cli.py`
 
 **Interfaces:**
@@ -947,12 +947,12 @@ Expected: FAIL with `unrecognized arguments: --ratio`
 
 - [ ] **Step 3: Implement**
 
-In `src/auto_border_pano/cli.py`, update the parser description and add the flag:
+In `src/maskingframe/cli.py`, update the parser description and add the flag:
 
 ```python
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="pano-split",
+        prog="maskingframe",
         description=(
             "Split a panorama into a whole-panorama frame plus zoomed detail "
             "frames, sized for an Instagram carousel. Accepts a single image "
@@ -1024,7 +1024,7 @@ Expected: geometry, pipeline and cli tests pass. `tests/test_gui.py` may still f
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/auto_border_pano/cli.py tests/test_cli.py
+git add src/maskingframe/cli.py tests/test_cli.py
 git commit --no-verify -m "feat(cli): add --ratio for the target aspect ratio
 
 Defaults to 4:5, Instagram's largest feed footprint, which also tiles a
@@ -1038,7 +1038,7 @@ typical 2.4:1 panorama into three detail frames with almost no cropping."
 The preview panel currently builds exactly four fixed labels at construction time. The frame count now varies between runs, so it must be rebuilt per run. This is the part most likely to look wrong in manual testing.
 
 **Files:**
-- Modify: `src/auto_border_pano/gui.py`
+- Modify: `src/maskingframe/gui.py`
 - Modify: `tests/test_gui.py`
 
 **Interfaces:**
@@ -1051,7 +1051,7 @@ Replace the fixed-length preview assertion in `tests/test_gui.py` with:
 
 ```python
 def test_preview_titles_track_the_frame_count() -> None:
-    from auto_border_pano import gui
+    from maskingframe import gui
 
     assert gui.preview_titles(2) == ["Whole", "Detail 1", "Detail 2"]
     assert gui.preview_titles(4) == [
@@ -1064,7 +1064,7 @@ def test_preview_titles_track_the_frame_count() -> None:
 
 
 def test_preview_titles_match_output_paths_length() -> None:
-    from auto_border_pano import gui, pipeline
+    from maskingframe import gui, pipeline
 
     for count in (2, 3, 4, 5):
         assert len(gui.preview_titles(count)) == len(
@@ -1075,11 +1075,11 @@ def test_preview_titles_match_output_paths_length() -> None:
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `mise exec -- uv run pytest tests/test_gui.py -v`
-Expected: FAIL with `AttributeError: module 'auto_border_pano.gui' has no attribute 'preview_titles'`
+Expected: FAIL with `AttributeError: module 'maskingframe.gui' has no attribute 'preview_titles'`
 
 - [ ] **Step 3: Implement**
 
-In `src/auto_border_pano/gui.py`, replace the `PREVIEW_TITLES` constant with:
+In `src/maskingframe/gui.py`, replace the `PREVIEW_TITLES` constant with:
 
 ```python
 PREVIEW_MAX_PX = 150
@@ -1255,7 +1255,7 @@ Expected: everything passes. The tree should be fully green again for the first 
 ```bash
 mise exec -- uv run python -c "
 import tkinter
-from auto_border_pano.gui import PanoramaSplitterGUI
+from maskingframe.gui import PanoramaSplitterGUI
 root = tkinter.Tk(); root.withdraw()
 app = PanoramaSplitterGUI(root)
 app._rebuild_preview_panes(2)
@@ -1278,7 +1278,7 @@ Build the GUI with a withdrawn root, point it at `tests/fixtures/golden_wide.jpg
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/auto_border_pano/gui.py tests/test_gui.py
+git add src/maskingframe/gui.py tests/test_gui.py
 git commit -m "feat(gui): add a ratio selector and rebuild previews per run
 
 The preview panel held exactly four fixed labels; the frame count now
@@ -1305,7 +1305,7 @@ invariant that no worker thread touches a tk object."
 ```bash
 for r in "1:1" "4:5" "1.91:1"; do
   echo "=== $r ==="
-  mise exec -- uv run pano-split samples "/tmp/sweep/${r//:/-}" --ratio "$r"
+  mise exec -- uv run maskingframe samples "/tmp/sweep/${r//:/-}" --ratio "$r"
 done
 ```
 

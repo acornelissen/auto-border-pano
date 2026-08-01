@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from auto_border_pano import pipeline
+from maskingframe import pipeline
 from tests.conftest import synthetic_panorama
 
 

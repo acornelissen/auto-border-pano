@@ -34,10 +34,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from auto_border_pano import pipeline
-from auto_border_pano.gui import shell, theme
-from auto_border_pano.gui.strip import ContactStrip
-from auto_border_pano.gui.work import submit
+from maskingframe import pipeline
+from maskingframe.gui import shell, theme
+from maskingframe.gui.strip import ContactStrip
+from maskingframe.gui.work import submit
 
 # Built once so a run can do a plain dict lookup rather than scanning
 # pipeline.RATIOS every time.
@@ -403,9 +403,7 @@ class SplitTab(QWidget):
         self._running = False
 
         if total == 0:
-            self.status_label.setText(
-                "No JPGs in that folder. Auto Border Pano reads .jpg and .jpeg."
-            )
+            self.status_label.setText("No JPGs in that folder. Masking Frame reads .jpg and .jpeg.")
             self._apply_button_states()
             return
 
