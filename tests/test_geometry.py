@@ -370,3 +370,33 @@ def test_zero_percent_resolves_to_zero_pixels() -> None:
 def test_rgb_is_a_three_tuple() -> None:
     assert FrameStyle(border_colour="#c9302a").border_rgb == (201, 48, 42)
     assert FrameStyle(gutter_colour="#000000").gutter_rgb == (0, 0, 0)
+
+
+def test_section_is_full_bleed_by_default() -> None:
+    pano = Image.new("RGB", (3000, 1000), "black")
+    frame = geometry.make_section(pano, 0, 3, geometry.PORTRAIT)
+    assert frame.size == (geometry.PORTRAIT.width, geometry.PORTRAIT.height)
+    assert frame.getpixel((0, 0)) == (0, 0, 0)
+
+
+def test_section_gets_a_border_when_the_style_asks_for_one() -> None:
+    style = geometry.FrameStyle(
+        border_percent=10.0, border_colour="#c9302a", border_detail_frames=True
+    )
+    pano = Image.new("RGB", (3000, 1000), "black")
+    ratio = geometry.PORTRAIT
+    frame = geometry.make_section(pano, 0, 3, ratio, style)
+    border = style.border_px(ratio)
+
+    assert frame.size == (ratio.width, ratio.height)
+    assert frame.getpixel((0, 0)) == (201, 48, 42)
+    assert frame.getpixel((border - 1, ratio.height // 2)) == (201, 48, 42)
+    assert frame.getpixel((border + 1, ratio.height // 2)) == (0, 0, 0)
+    assert frame.getpixel((ratio.width - border, ratio.height // 2)) == (201, 48, 42)
+
+
+def test_bordered_section_with_a_zero_border_is_full_bleed() -> None:
+    style = geometry.FrameStyle(border_percent=0.0, border_detail_frames=True)
+    pano = Image.new("RGB", (3000, 1000), "black")
+    frame = geometry.make_section(pano, 0, 3, geometry.PORTRAIT, style)
+    assert frame.getpixel((0, 0)) == (0, 0, 0)

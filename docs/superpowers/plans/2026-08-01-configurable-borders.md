@@ -373,7 +373,7 @@ of the short side reads the same at every ratio."
 - Consumes: `FrameStyle`, `DEFAULT_STYLE`.
 - Produces: `geometry.make_section(image, index, count, ratio, style: FrameStyle = DEFAULT_STYLE) -> Image.Image`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 def test_section_is_full_bleed_by_default() -> None:
@@ -406,12 +406,12 @@ def test_bordered_section_with_a_zero_border_is_full_bleed() -> None:
     assert frame.getpixel((0, 0)) == (0, 0, 0)
 ```
 
-- [ ] **Step 2: Run the tests and verify they fail**
+- [x] **Step 2: Run the tests and verify they fail**
 
 Run: `uv run pytest tests/test_geometry.py -k section -v`
 Expected: FAIL, `make_section() takes 4 positional arguments but 5 were given`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Replace `make_section` in `geometry.py`. The existing cover-and-centre-crop maths is unchanged; it now targets the inset box, and the result is pasted onto a filled canvas.
 
@@ -467,15 +467,15 @@ def make_section(
     return canvas
 ```
 
-- [ ] **Step 4: Run the tests and verify they pass**
+- [x] **Step 4: Run the tests and verify they pass**
 
 Run: `uv run pytest -v`
 
-- [ ] **Step 5: Run the full gate**
+- [x] **Step 5: Run the full gate**
 
 Run: `mise run check`
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add -A

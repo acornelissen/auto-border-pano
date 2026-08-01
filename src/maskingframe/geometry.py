@@ -204,30 +204,52 @@ def section_bounds(width: int, index: int, count: int) -> tuple[int, int]:
     return start, start + section_width
 
 
-def make_section(image: Image.Image, index: int, count: int, ratio: AspectRatio) -> Image.Image:
-    """Crop one detail frame and scale it to exactly fill the target ratio.
+def make_section(
+    image: Image.Image,
+    index: int,
+    count: int,
+    ratio: AspectRatio,
+    style: FrameStyle = DEFAULT_STYLE,
+) -> Image.Image:
+    """Crop one detail frame and scale it to fill the target ratio.
 
     Scales by whichever axis keeps the target fully covered, then
     center-crops the overflow.
+
+    A detail frame is full-bleed by default: the border is what makes frame
+    1 the establishing shot, and giving every frame one flattens that
+    distinction. `style.border_detail_frames` turns it on for users who want
+    the carousel to read as a single object, in which case the crop targets
+    the inset box and the border is drawn around it.
     """
+    border = style.border_px(ratio) if style.border_detail_frames else 0
+    inner_width = max(1, ratio.width - 2 * border)
+    inner_height = max(1, ratio.height - 2 * border)
+
     width, height = image.size
     start, end = section_bounds(width, index, count)
     crop = image.crop((start, 0, end, height))
     crop_width, crop_height = crop.size
 
-    scale = max(ratio.width / crop_width, ratio.height / crop_height)
+    scale = max(inner_width / crop_width, inner_height / crop_height)
     # Half-up rounding of crop_dim * scale is what actually guarantees the
-    # resized image covers the target on both axes. The max(ratio.*, ...)
+    # resized image covers the target on both axes. The max(inner_*, ...)
     # here is belt-and-braces, not load-bearing: it's a floor against any
     # future rounding change, not something exercised by current inputs.
     resized = crop.resize(
         (
-            max(ratio.width, math.floor(crop_width * scale + 0.5)),
-            max(ratio.height, math.floor(crop_height * scale + 0.5)),
+            max(inner_width, math.floor(crop_width * scale + 0.5)),
+            max(inner_height, math.floor(crop_height * scale + 0.5)),
         ),
         Image.Resampling.LANCZOS,
     )
 
-    x_offset = (resized.width - ratio.width) // 2
-    y_offset = (resized.height - ratio.height) // 2
-    return resized.crop((x_offset, y_offset, x_offset + ratio.width, y_offset + ratio.height))
+    x_offset = (resized.width - inner_width) // 2
+    y_offset = (resized.height - inner_height) // 2
+    inner = resized.crop((x_offset, y_offset, x_offset + inner_width, y_offset + inner_height))
+    if border == 0:
+        return inner
+
+    canvas = Image.new("RGB", (ratio.width, ratio.height), style.border_rgb)
+    canvas.paste(inner, (border, border))
+    return canvas
