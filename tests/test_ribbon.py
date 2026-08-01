@@ -299,3 +299,22 @@ def test_the_ribbon_names_what_is_selected(qtbot: QtBot) -> None:
     ribbon = build(qtbot, (0.0, 0.6))
     ribbon.set_selected(1)
     assert "3" in ribbon.accessibleName()
+
+
+def test_a_shrunk_plan_drops_a_selection_it_can_no_longer_support(qtbot: QtBot) -> None:
+    # The tab can select frame 2 of a three-frame plan, then change the
+    # ratio so the ribbon's next plan only has two positions. Nothing else
+    # updates `_selected`, so without a fix the stale index 2 would survive:
+    # `_name_selection` would index the shrunk `_positions` and raise, and a
+    # later key press would emit `frame_nudged` for a frame that no longer
+    # exists. `set_plan` must drop a selection its own new plan can't
+    # support, so nothing downstream ever sees index 2 again.
+    ribbon = build(qtbot, (0.0, 0.3, 0.6))
+    ribbon.set_selected(2)
+    ribbon.set_plan((0.0, 0.6), 0.4)
+    assert ribbon.selected() is None
+    assert ribbon.marked_rect().isNull()
+
+    # A key press still works -- it just can't be about the dropped frame.
+    qtbot.keyClick(ribbon, Qt.Key.Key_Right)  # type: ignore[no-untyped-call]
+    assert ribbon.selected() != 2

@@ -129,6 +129,13 @@ class FrameRibbon(QWidget):
         """
         self._positions = tuple(positions)
         self._window = max(0.0, min(1.0, window_fraction))
+        # A selection that outlives the plan it points into is the actual
+        # defect: every reader (paint, marked_rect, the key handler) trusts
+        # `_selected` to index `_positions`, so the plan changing is the one
+        # place to drop a selection the new plan can no longer support.
+        if self._selected is not None and self._selected >= len(self._positions):
+            self._selected = None
+            self._name_selection()
         self.update()
 
     def positions(self) -> tuple[float, ...]:
