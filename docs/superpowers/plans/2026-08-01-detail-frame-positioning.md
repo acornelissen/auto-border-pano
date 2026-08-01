@@ -865,7 +865,7 @@ Presentation only. It knows a picture, a window width and a list of positions, a
     - `window_rects() -> list[QRect]`
     - `picture_rect() -> QRect`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/test_ribbon.py`:
 
@@ -987,12 +987,12 @@ def test_with_no_source_it_draws_nothing_and_does_not_crash(qtbot: QtBot) -> Non
     assert ribbon.window_rects() == []
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `mise exec -- uv run pytest tests/test_ribbon.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'maskingframe.gui.ribbon'`.
 
-- [ ] **Step 3: Implement the widget**
+- [x] **Step 3: Implement the widget**
 
 Create `src/maskingframe/gui/ribbon.py`:
 
@@ -1238,12 +1238,12 @@ def _uncovered(picture: QRect, windows: Sequence[QRect]) -> list[QRect]:
 
 The frame numbering starts at 2 because frame 1 is the whole-panorama frame, exactly as `split_tab.preview_titles` numbers them.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `mise exec -- uv run pytest tests/test_ribbon.py -v`
 Expected: PASS. If `mouseMove` does not reach `mouseMoveEvent`, add `self.setMouseTracking(False)` — Qt delivers move events to a widget during a press without tracking, so no change should be needed; check the press actually landed inside `picture_rect()` first.
 
-- [ ] **Step 5: Run the full gate and commit**
+- [x] **Step 5: Run the full gate and commit**
 
 ```bash
 mise run check
