@@ -23,7 +23,7 @@ those, ascending.
 
 Width is not stored. It is derived:
 
-```
+```text
 frame_width_px = floor(pano_height * ratio.value + 0.5)
 ```
 
@@ -70,7 +70,7 @@ behaviour-changes list.
 exact tiles fit across the panorama, floored at two. The default positions are
 that many frames spread evenly across the available travel:
 
-```
+```text
 positions[i] = i * travel / (count - 1)     # travel = 1 - frame_width / pano_width
 ```
 
@@ -142,9 +142,11 @@ Dependency direction is unchanged: `geometry` is a leaf, `gui` imports only
   `section_count` is untouched.
 - **`pipeline.py`** — `process_image` and `preview_frames` gain an optional
   `positions: Sequence[float] | None = None`, defaulting to
-  `geometry.default_positions(...)`. It goes before `style` so `style` stays
-  last, and both are keyword-friendly with defaults, so no existing positional
-  call breaks. `inspect_source` additionally reports the default positions, so
+  `geometry.default_positions(...)`. In `process_image` it goes before
+  `style`, so `style` stays last as the codebase requires. In
+  `preview_frames`, where `style` is already the third parameter and moving it
+  would break positional callers, `positions` is appended after `cached`.
+  Either way every existing call site is unaffected. `inspect_source` additionally reports the default positions, so
   the GUI gets them from the same header read it already does.
 - **`gui/ribbon.py`** — new. The ribbon widget: a scaled panorama, the dim
   mask, the numbered windows, and drag handling. It emits normalised positions
