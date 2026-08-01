@@ -12,17 +12,18 @@ depends on `pipeline` alone still holds.
 """
 
 from PySide6.QtCore import QPointF, Qt, Signal
-from PySide6.QtGui import QPainter, QPaintEvent, QPen
+from PySide6.QtGui import QFontMetrics, QPainter, QPaintEvent, QPen, QResizeEvent
 from PySide6.QtWidgets import (
     QCheckBox,
     QColorDialog,
     QComboBox,
-    QDoubleSpinBox,
     QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
+    QSizePolicy,
+    QSlider,
     QTabBar,
     QVBoxLayout,
     QWidget,
@@ -292,6 +293,97 @@ class Swatch(QPushButton):
             self.set_colour(chosen.name())
 
 
+class PercentSlider(QWidget):
+    """A percentage, set by dragging rather than by typing.
+
+    A spin box asks you to name a number for something you are judging by
+    eye. A slider lets you sweep it and watch the preview follow, which is
+    what a border width actually is.
+
+    `QSlider` is integer-only, so the value is held in tenths of a percent:
+    every value the old spin box could show -- it displayed one decimal --
+    round-trips exactly, and 12.5 stays 12.5. The keyboard still moves in
+    the sizes a person thinks in, because `singleStep` and `pageStep` are
+    set in those units rather than left at the storage resolution: an arrow
+    key is half a percent, Page Up five.
+    """
+
+    STEPS_PER_PERCENT = 10
+    ARROW_PERCENT = 0.5
+    PAGE_PERCENT = 5.0
+
+    valueChanged = Signal(float)
+
+    def __init__(
+        self,
+        label: str,
+        value: float,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(theme.S)
+
+        self.slider = QSlider(Qt.Orientation.Horizontal)
+        self.slider.setRange(0, self._steps(pipeline.MAX_PERCENT))
+        self.slider.setSingleStep(self._steps(self.ARROW_PERCENT))
+        self.slider.setPageStep(self._steps(self.PAGE_PERCENT))
+        self.slider.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.slider.setAccessibleName(label)
+
+        self.readout = data_label()
+        self.readout.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+        )
+        # Fixed to the widest reading it can ever show, so the row does not
+        # shuffle sideways while you drag it.
+        widest = f"{pipeline.MAX_PERCENT:.1f} %"
+        self.readout.setFixedWidth(QFontMetrics(theme.data_font()).horizontalAdvance(widest) + 4)
+
+        row.addWidget(self.slider, 1)
+        row.addWidget(self.readout)
+
+        # The label names the control; the value belongs to the slider too,
+        # because the readout beside it is decoration a screen reader has no
+        # reason to associate with anything.
+        self.setAccessibleName(label)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setFocusProxy(self.slider)
+
+        self.slider.valueChanged.connect(self._changed)
+        self._describe()
+        self.setValue(value)
+
+    @classmethod
+    def _steps(cls, percent: float) -> int:
+        return round(percent * cls.STEPS_PER_PERCENT)
+
+    def value(self) -> float:
+        return self.slider.value() / self.STEPS_PER_PERCENT
+
+    def setValue(self, percent: float) -> None:
+        """Adopt a percentage, clamped to the range the pipeline accepts."""
+        steps = min(max(self._steps(percent), self.slider.minimum()), self.slider.maximum())
+        self.slider.setValue(steps)
+
+    def minimum(self) -> float:
+        return self.slider.minimum() / self.STEPS_PER_PERCENT
+
+    def maximum(self) -> float:
+        return self.slider.maximum() / self.STEPS_PER_PERCENT
+
+    def _changed(self, _steps: int) -> None:
+        self._describe()
+        self.valueChanged.emit(self.value())
+
+    def _describe(self) -> None:
+        reading = f"{self.value():.1f} %"
+        self.readout.setText(reading)
+        self.slider.setAccessibleDescription(reading)
+        self.setToolTip(f"{self.accessibleName()}: {reading}")
+
+
 class BorderControls(QWidget):
     """The border section of a rail.
 
@@ -312,9 +404,21 @@ class BorderControls(QWidget):
     ) -> None:
         super().__init__(parent)
         self._quiet = False
-        self.gutter_spin: QDoubleSpinBox | None = None
+        self.gutter_slider: PercentSlider | None = None
         self.gutter_swatch: Swatch | None = None
         self.detail_check: QCheckBox | None = None
+
+        # A word-wrapped label's height is a function of its width, and
+        # `QLabel` says so by turning `heightForWidth` on in its size policy.
+        # A plain `QWidget` wrapping such labels in its own layout does not,
+        # so this section used to report a height measured at some width it
+        # was never given, and the rail budgeted from that. Saying it has a
+        # `heightForWidth` is what makes the number it reports honest.
+        #
+        # It is not on its own enough -- see `_pin_help_heights`.
+        policy = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+        policy.setHeightForWidth(True)
+        self.setSizePolicy(policy)
 
         column = QVBoxLayout(self)
         column.setContentsMargins(0, 0, 0, 0)
@@ -322,7 +426,7 @@ class BorderControls(QWidget):
 
         column.addWidget(section("Border"))
         column.addSpacing(theme.S)
-        self.border_spin, self.border_swatch, border_row = self._field(
+        self.border_slider, self.border_swatch, border_row = self._field(
             "Border width",
             pipeline.DEFAULT_STYLE.border_percent,
             "Border colour",
@@ -336,7 +440,7 @@ class BorderControls(QWidget):
 
         if show_gutter:
             column.addSpacing(theme.M)
-            self.gutter_spin, self.gutter_swatch, gutter_row = self._field(
+            self.gutter_slider, self.gutter_swatch, gutter_row = self._field(
                 "Gap width",
                 pipeline.DEFAULT_STYLE.gutter_percent,
                 "Gap colour",
@@ -355,11 +459,11 @@ class BorderControls(QWidget):
 
     def _field(
         self,
-        spin_label: str,
-        spin_value: float,
+        slider_label: str,
+        slider_value: float,
         swatch_label: str,
         swatch_value: str,
-    ) -> tuple[QDoubleSpinBox, Swatch, QWidget]:
+    ) -> tuple[PercentSlider, Swatch, QWidget]:
         """One width-and-colour pair, laid out as a row.
 
         Built twice rather than described twice, so the border and the gap
@@ -370,21 +474,43 @@ class BorderControls(QWidget):
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(theme.S)
 
-        spin = QDoubleSpinBox()
-        spin.setRange(0.0, pipeline.MAX_PERCENT)
-        spin.setSingleStep(0.5)
-        spin.setDecimals(1)
-        spin.setSuffix(" %")
-        spin.setValue(spin_value)
-        spin.setAccessibleName(spin_label)
-        spin.valueChanged.connect(self._emit)
+        slider = PercentSlider(slider_label, slider_value)
+        slider.valueChanged.connect(self._emit)
 
         swatch = Swatch(swatch_value, swatch_label)
         swatch.colour_changed.connect(self._emit)
 
-        row.addWidget(spin, 1)
+        row.addWidget(slider, 1)
         row.addWidget(swatch)
-        return spin, swatch, holder
+        return slider, swatch, holder
+
+    def heightForWidth(self, width: int) -> int:
+        """How tall this column really is once its help text has wrapped."""
+        column = self.layout()
+        if column is None:
+            return int(super().heightForWidth(width))
+        return int(column.heightForWidth(width))
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        """A new width means a new minimum height, so say so."""
+        super().resizeEvent(event)
+        if event.oldSize().width() != event.size().width():
+            self._pin_help_heights()
+            self.updateGeometry()
+
+    def _pin_help_heights(self) -> None:
+        """Give each wrapped label a floor equal to the height it needs here.
+
+        Reporting an honest `minimumSizeHint` from this widget is not on its
+        own enough: the rail asks its children for a minimum once, while
+        this one is still zero-width, and a later answer does not
+        retroactively enlarge the space it was given. Pinning the labels
+        themselves puts the floor somewhere the layout cannot round down --
+        a label with a minimum height is a hard constraint, not a hint.
+        """
+        for label in self.findChildren(QLabel):
+            if label.wordWrap() and label.text() and label.width() > 0:
+                label.setMinimumHeight(label.heightForWidth(label.width()))
 
     def frame_style(self) -> pipeline.FrameStyle:
         """The style the fields currently describe.
@@ -399,11 +525,11 @@ class BorderControls(QWidget):
         something asks a widget for its QStyle and gets a border setting.
         """
         return pipeline.FrameStyle(
-            border_percent=self.border_spin.value(),
+            border_percent=self.border_slider.value(),
             border_colour=self.border_swatch.colour,
             gutter_percent=(
-                self.gutter_spin.value()
-                if self.gutter_spin is not None
+                self.gutter_slider.value()
+                if self.gutter_slider is not None
                 else pipeline.DEFAULT_STYLE.gutter_percent
             ),
             gutter_colour=(
@@ -424,10 +550,10 @@ class BorderControls(QWidget):
         """
         self._quiet = True
         try:
-            self.border_spin.setValue(style.border_percent)
+            self.border_slider.setValue(style.border_percent)
             self.border_swatch.set_colour(style.border_colour)
-            if self.gutter_spin is not None:
-                self.gutter_spin.setValue(style.gutter_percent)
+            if self.gutter_slider is not None:
+                self.gutter_slider.setValue(style.gutter_percent)
             if self.gutter_swatch is not None:
                 self.gutter_swatch.set_colour(style.gutter_colour)
             if self.detail_check is not None:

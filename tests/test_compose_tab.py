@@ -20,6 +20,7 @@ from typing import Any
 
 import pytest
 from PIL import Image
+from PySide6.QtWidgets import QLabel
 from pytestqt.qtbot import QtBot
 
 from maskingframe import layout, pipeline
@@ -495,13 +496,36 @@ def test_compose_tab_restores_the_stored_style(qtbot: QtBot) -> None:
 
 
 def test_compose_tab_stores_a_changed_style(tab: ComposeTab) -> None:
-    assert tab.border_controls.gutter_spin is not None
-    tab.border_controls.gutter_spin.setValue(3.0)
+    assert tab.border_controls.gutter_slider is not None
+    tab.border_controls.gutter_slider.setValue(3.0)
     assert settings.load_style(settings.COMPOSE).gutter_percent == 3.0
 
 
+def test_the_rail_shows_every_line_of_its_help_text(qtbot: QtBot, tab: ComposeTab) -> None:
+    """This rail carries the most help text of the two, so it is the one
+    that clipped first."""
+    # The worst case a real window can actually be put in: Qt derives a
+    # window's minimum size from its children and refuses to go below it, so
+    # the tab is shown at exactly that minimum. Settling it takes a couple of
+    # passes, because the wrapped labels only learn their width once they
+    # have been laid out at it.
+    tab.show()
+    qtbot.waitExposed(tab)
+    for _ in range(3):
+        tab.resize(1100, tab.minimumSizeHint().height())
+        qtbot.wait(1)
+    clipped = [
+        label.text()
+        for label in tab.findChildren(QLabel)
+        if label.wordWrap()
+        and label.text()
+        and label.height() < label.heightForWidth(label.width())
+    ]
+    assert clipped == []
+
+
 def test_compose_tab_offers_gutter_controls_but_no_detail_toggle(tab: ComposeTab) -> None:
-    assert tab.border_controls.gutter_spin is not None
+    assert tab.border_controls.gutter_slider is not None
     assert tab.border_controls.gutter_swatch is not None
     assert tab.border_controls.detail_check is None
 
@@ -532,8 +556,8 @@ def test_a_style_change_re_solves_the_arrangement(qtbot: QtBot, tab: ComposeTab)
     _settled(qtbot, tab)
     before = tab._solve_token
 
-    assert tab.border_controls.gutter_spin is not None
-    tab.border_controls.gutter_spin.setValue(11.0)
+    assert tab.border_controls.gutter_slider is not None
+    tab.border_controls.gutter_slider.setValue(11.0)
     assert tab._solve_token > before
     _settled(qtbot, tab)
 

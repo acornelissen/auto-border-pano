@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 from PIL import Image
-from PySide6.QtWidgets import QDialog, QMessageBox, QRadioButton
+from PySide6.QtWidgets import QDialog, QLabel, QMessageBox, QRadioButton
 
 from maskingframe import pipeline
 from maskingframe.gui import settings
@@ -389,13 +389,39 @@ def test_split_tab_restores_the_stored_style(qtbot: Any) -> None:
 
 
 def test_split_tab_stores_a_changed_style(tab: SplitTab) -> None:
-    tab.border_controls.border_spin.setValue(21.0)
+    tab.border_controls.border_slider.setValue(21.0)
     assert settings.load_style(settings.SPLIT).border_percent == 21.0
+
+
+def test_the_rail_shows_every_line_of_its_help_text(qtbot: Any, tab: SplitTab) -> None:
+    """Help text that wraps has to be given room for every line it wraps to.
+
+    The border section's labels sit one layout deeper than the rest of the
+    rail's, which is exactly where `heightForWidth` stops propagating.
+    """
+    # The worst case a real window can actually be put in: Qt derives a
+    # window's minimum size from its children and refuses to go below it, so
+    # the tab is shown at exactly that minimum. Settling it takes a couple of
+    # passes, because the wrapped labels only learn their width once they
+    # have been laid out at it.
+    tab.show()
+    qtbot.waitExposed(tab)
+    for _ in range(3):
+        tab.resize(1100, tab.minimumSizeHint().height())
+        qtbot.wait(1)
+    clipped = [
+        label.text()
+        for label in tab.findChildren(QLabel)
+        if label.wordWrap()
+        and label.text()
+        and label.height() < label.heightForWidth(label.width())
+    ]
+    assert clipped == []
 
 
 def test_split_tab_offers_the_detail_frame_toggle(tab: SplitTab) -> None:
     assert tab.border_controls.detail_check is not None
-    assert tab.border_controls.gutter_spin is None
+    assert tab.border_controls.gutter_slider is None
 
 
 def test_border_controls_sit_between_the_format_and_the_destination(tab: SplitTab) -> None:
@@ -411,7 +437,7 @@ def test_border_controls_sit_between_the_format_and_the_destination(tab: SplitTa
 def test_preview_honours_the_border_colour(qtbot: Any, tab: SplitTab, tmp_path: Path) -> None:
     """The style has to reach the pipeline, not just the settings file."""
     tab.source_row.setText(str(_panorama(tmp_path)))
-    tab.border_controls.border_spin.setValue(10.0)
+    tab.border_controls.border_slider.setValue(10.0)
     tab.border_controls.border_swatch.set_colour("#c9302a")
     qtbot.waitUntil(lambda: tab.preview_btn.isEnabled())
 

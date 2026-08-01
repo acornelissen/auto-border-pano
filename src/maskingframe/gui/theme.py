@@ -175,18 +175,46 @@ def stylesheet() -> str:
     QLineEdit:focus {{ border: 1px solid {INK}; }}
     QLineEdit:disabled {{ background: {PANEL}; color: {INK_DIM}; }}
 
-    QDoubleSpinBox {{
-        background: {WELL};
-        border: 1px solid {EDGE};
-        padding: 4px 6px;
-        color: {INK};
-        font-family: "{data}";
-        font-size: 12px;
-        selection-background-color: {CHINAGRAPH};
-        selection-color: {WELL};
+    /* A percentage is judged by eye, so it is set by dragging. The groove
+       is a hairline like every other rule here and the handle is a plain
+       ink block -- no radius, no bevel, no gradient, which is most of what
+       a stock slider is made of.
+
+       Not chinagraph: the filled part of a groove is not the primary
+       action and it is not an error, and a second saturated colour would
+       cost the primary action its salience. So focus is INK too, shown as
+       a border on the widget rather than on the handle -- the transparent
+       border is always there so nothing shifts when it lights up.
+
+       Every rule here names a sub-control explicitly. Styling a slider at
+       all makes Qt draw it from these rules instead of the native style,
+       and a groove or handle left undescribed disappears. */
+    QSlider {{
+        background: transparent;
+        border: 1px solid transparent;
+        min-height: 24px;
     }}
-    QDoubleSpinBox:focus {{ border: 1px solid {INK}; }}
-    QDoubleSpinBox:disabled {{ background: {PANEL}; color: {INK_DIM}; }}
+    QSlider:focus {{ border: 1px solid {INK}; }}
+    QSlider::groove:horizontal {{
+        background: {EDGE};
+        border: none;
+        height: 1px;
+        margin: 0 5px;
+    }}
+    QSlider::sub-page:horizontal {{
+        background: {INK};
+        border: none;
+        height: 1px;
+        margin: 0 0 0 5px;
+    }}
+    QSlider::handle:horizontal {{
+        background: {INK};
+        border: none;
+        width: 10px;
+        margin: -8px 0;
+    }}
+    QSlider::handle:horizontal:disabled {{ background: {EDGE}; }}
+    QSlider::sub-page:horizontal:disabled {{ background: {EDGE}; }}
 
     /* A block of the colour it sets, so the border is the only chrome it
        carries. Focus is INK like every other field here: a control turning

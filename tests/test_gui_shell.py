@@ -15,11 +15,32 @@ opens the colour dialog for real -- a modal would hang the suite -- so
 import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QColorDialog
+from PySide6.QtWidgets import QColorDialog, QLayout
 from pytestqt.qtbot import QtBot
 
 from maskingframe import pipeline
-from maskingframe.gui import shell
+from maskingframe.gui import shell, theme
+
+RAIL_CONTENT_WIDTH = theme.RAIL_WIDTH - 2 * theme.L
+"""How wide a rail child actually is: the rail, less its own margins."""
+
+
+def _stacked_height(layout: QLayout, width: int) -> int:
+    """What a column of children really needs at a given width.
+
+    Word-wrapped labels answer this only through `heightForWidth`; their
+    plain size hint is measured at whatever width Qt guessed for them.
+    """
+    total = 0
+    for index in range(layout.count()):
+        item = layout.itemAt(index)
+        if item is None:
+            continue
+        if item.hasHeightForWidth():
+            total += item.heightForWidth(width)
+        else:
+            total += item.sizeHint().height()
+    return total
 
 
 def test_swatch_reports_its_colour(qtbot: QtBot) -> None:
@@ -110,7 +131,7 @@ def test_border_controls_emit_when_a_field_changes(qtbot: QtBot) -> None:
     controls = shell.BorderControls(show_gutter=False, show_detail_toggle=False)
     qtbot.addWidget(controls)
     with qtbot.waitSignal(controls.style_changed) as blocker:
-        controls.border_spin.setValue(15.0)
+        controls.border_slider.setValue(15.0)
     assert blocker.args[0].border_percent == 15.0
 
 
@@ -132,32 +153,151 @@ def test_set_style_does_not_re_emit(qtbot: QtBot) -> None:
 def test_gutter_controls_are_hidden_when_not_wanted(qtbot: QtBot) -> None:
     controls = shell.BorderControls(show_gutter=False, show_detail_toggle=False)
     qtbot.addWidget(controls)
-    assert controls.gutter_spin is None
+    assert controls.gutter_slider is None
     assert controls.gutter_swatch is None
     assert controls.detail_check is None
 
 
-def test_the_spin_boxes_cannot_leave_the_allowed_range(qtbot: QtBot) -> None:
+def test_the_sliders_cannot_leave_the_allowed_range(qtbot: QtBot) -> None:
     controls = shell.BorderControls(show_gutter=True, show_detail_toggle=False)
     qtbot.addWidget(controls)
-    assert controls.gutter_spin is not None
-    for spin in (controls.border_spin, controls.gutter_spin):
-        assert spin.minimum() == 0.0
-        assert spin.maximum() == pipeline.MAX_PERCENT
+    assert controls.gutter_slider is not None
+    for slider in (controls.border_slider, controls.gutter_slider):
+        assert slider.minimum() == 0.0
+        assert slider.maximum() == pipeline.MAX_PERCENT
+        slider.setValue(-5.0)
+        assert slider.value() == 0.0
+        slider.setValue(pipeline.MAX_PERCENT + 5.0)
+        assert slider.value() == pipeline.MAX_PERCENT
 
 
 def test_every_control_is_keyboard_reachable(qtbot: QtBot) -> None:
     controls = shell.BorderControls(show_gutter=True, show_detail_toggle=True)
     qtbot.addWidget(controls)
-    assert controls.gutter_spin is not None
+    assert controls.gutter_slider is not None
     assert controls.gutter_swatch is not None
     assert controls.detail_check is not None
     for widget in (
-        controls.border_spin,
+        controls.border_slider,
         controls.border_swatch,
-        controls.gutter_spin,
+        controls.gutter_slider,
         controls.gutter_swatch,
         controls.detail_check,
     ):
         assert widget.focusPolicy() != Qt.FocusPolicy.NoFocus
         assert widget.accessibleName()
+
+
+# --- The percent slider -----------------------------------------------------
+
+
+def test_the_slider_keeps_half_and_tenth_percent_values(qtbot: QtBot) -> None:
+    """A stored style must survive a round trip through the integer slider."""
+    slider = shell.PercentSlider("Border width", 9.0)
+    qtbot.addWidget(slider)
+    for value in (0.0, 0.1, 9.0, 12.5, 33.3, pipeline.MAX_PERCENT):
+        slider.setValue(value)
+        assert slider.value() == pytest.approx(value)
+
+
+def test_the_slider_reads_its_value_out(qtbot: QtBot) -> None:
+    slider = shell.PercentSlider("Border width", 9.0)
+    qtbot.addWidget(slider)
+    assert slider.readout.text() == "9.0 %"
+    slider.setValue(12.5)
+    assert slider.readout.text() == "12.5 %"
+
+
+def test_the_readout_does_not_change_width_with_the_value(qtbot: QtBot) -> None:
+    """A row that jitters as you drag is a row you cannot aim at."""
+    slider = shell.PercentSlider("Border width", 0.0)
+    qtbot.addWidget(slider)
+    narrow = slider.readout.width()
+    slider.setValue(pipeline.MAX_PERCENT)
+    assert slider.readout.width() == narrow
+
+
+def test_the_slider_announces_itself_and_its_value(qtbot: QtBot) -> None:
+    """The readout is decoration; the slider itself has to speak."""
+    slider = shell.PercentSlider("Border width", 9.0)
+    qtbot.addWidget(slider)
+    assert slider.accessibleName() == "Border width"
+    assert slider.slider.accessibleName() == "Border width"
+    assert "9.0" in slider.slider.accessibleDescription()
+    slider.setValue(12.5)
+    assert "12.5" in slider.slider.accessibleDescription()
+
+
+def test_the_slider_emits_once_per_change(qtbot: QtBot) -> None:
+    slider = shell.PercentSlider("Border width", 9.0)
+    qtbot.addWidget(slider)
+    with qtbot.waitSignal(slider.valueChanged) as blocker:
+        slider.setValue(12.5)
+    assert blocker.args == [12.5]
+
+
+def test_the_slider_is_silent_when_the_value_does_not_move(qtbot: QtBot) -> None:
+    slider = shell.PercentSlider("Border width", 9.0)
+    qtbot.addWidget(slider)
+    with qtbot.assertNotEmitted(slider.valueChanged):
+        slider.setValue(9.0)
+
+
+def test_the_keyboard_still_drives_the_slider(qtbot: QtBot) -> None:
+    """Styling a slider can cost it its groove and handle sub-controls, and
+    with them the arrow keys. These are Qt's defaults; the test is that
+    nothing here has taken them away."""
+    slider = shell.PercentSlider("Border width", 9.0)
+    qtbot.addWidget(slider)
+    slider.show()
+    qtbot.waitExposed(slider)
+    slider.slider.setFocus()
+
+    qtbot.keyClick(slider.slider, Qt.Key.Key_Right)  # type: ignore[no-untyped-call]
+    assert slider.value() == pytest.approx(9.5)
+    qtbot.keyClick(slider.slider, Qt.Key.Key_PageUp)  # type: ignore[no-untyped-call]
+    assert slider.value() == pytest.approx(14.5)
+    qtbot.keyClick(slider.slider, Qt.Key.Key_Home)  # type: ignore[no-untyped-call]
+    assert slider.value() == 0.0
+    qtbot.keyClick(slider.slider, Qt.Key.Key_End)  # type: ignore[no-untyped-call]
+    assert slider.value() == pipeline.MAX_PERCENT
+
+
+# --- Height, which is where the help text was being cut off -----------------
+
+
+def test_border_controls_report_a_width_aware_height(qtbot: QtBot) -> None:
+    """The regression: the wrapped help labels live one layout deeper than
+    the rail's own, and a nested `heightForWidth` does not propagate unless
+    the containing widget opts in. Without that the rail sized this widget
+    from a hint measured at some other width and clipped the last line."""
+    controls = shell.BorderControls(show_gutter=True, show_detail_toggle=True)
+    qtbot.addWidget(controls)
+    column = controls.layout()
+    assert column is not None
+    needed = _stacked_height(column, RAIL_CONTENT_WIDTH)
+
+    assert controls.sizePolicy().hasHeightForWidth()
+    assert controls.heightForWidth(RAIL_CONTENT_WIDTH) >= needed
+
+
+def test_a_rail_reserves_the_height_the_border_section_needs(qtbot: QtBot) -> None:
+    """The height hint has to survive the trip up to the rail, which is what
+    the size policy is for: a layout only asks `heightForWidth` of an item
+    whose widget claims to have one.
+    """
+    rail = shell.TwoColumn()
+    qtbot.addWidget(rail)
+    controls = shell.BorderControls(show_gutter=True, show_detail_toggle=True)
+    rail.rail_layout.addWidget(controls)
+    column = controls.layout()
+    assert column is not None
+    needed = _stacked_height(column, RAIL_CONTENT_WIDTH)
+
+    item = rail.rail_layout.itemAt(0)
+    assert item is not None
+    assert item.hasHeightForWidth()
+    assert item.heightForWidth(RAIL_CONTENT_WIDTH) >= needed
+    # The floor, not just the preference: a short window must not be allowed
+    # to squeeze the help text back down to one line.
+    assert rail.rail_layout.minimumSize().height() >= needed
