@@ -611,7 +611,7 @@ def test_the_solve_carries_the_style_it_was_asked_for(
 
     def record(paths: Any, ratio: Any, style: Any = pipeline.DEFAULT_STYLE) -> str:
         seen.append(style)
-        return original(paths, ratio, style)
+        return original(paths, ratio, style=style)
 
     monkeypatch.setattr(pipeline, "name_layout", record)
     tab.border_controls.set_style(pipeline.FrameStyle(border_percent=13.0))

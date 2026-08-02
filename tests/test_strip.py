@@ -496,7 +496,7 @@ def test_a_rendered_composite_shows_its_border_exactly_once(qtbot: QtBot) -> Non
     ratio = pipeline.RATIOS["4:5"]
     style = pipeline.FrameStyle(border_percent=10.0, border_colour="#ff00ff")
     image, _name = pipeline.compose_preview(
-        [fixtures / "compose_wide.jpg", fixtures / "compose_tall.jpg"], ratio, style
+        [fixtures / "compose_wide.jpg", fixtures / "compose_tall.jpg"], ratio, style=style
     )
 
     built = _built(qtbot, frames=1)
@@ -583,7 +583,7 @@ def test_the_composite_overlay_matches_what_a_render_actually_produces(
         path = tmp_path / f"{name}.png"
         Image.new("RGB", size, (30, 30, 30)).save(path)
         sources.append(path)
-    rendered, _name = pipeline.compose_preview(sources, ratio, style)
+    rendered, _name = pipeline.compose_preview(sources, ratio, style=style)
     rendered = rendered.convert("RGB")
 
     aspects = []

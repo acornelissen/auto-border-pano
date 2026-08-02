@@ -227,7 +227,7 @@ def _compose_main(argv: list[str]) -> int:
 
     try:
         result = pipeline.compose_images(
-            args.inputs, args.output, args.ratio, _style_from_args(args)
+            args.inputs, args.output, args.ratio, style=_style_from_args(args)
         )
     except Exception as error:
         print(f"Error: {error}", file=sys.stderr)

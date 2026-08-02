@@ -477,7 +477,7 @@ def test_preview_frames_honours_the_style() -> None:
 def test_compose_images_honours_the_style(tmp_path: Path) -> None:
     style = pipeline.FrameStyle(border_colour="#000000", gutter_colour="#c9302a")
     result = pipeline.compose_images(
-        COMPOSE_FIXTURES[:2], tmp_path / "out", pipeline.DEFAULT_RATIO, style
+        COMPOSE_FIXTURES[:2], tmp_path / "out", pipeline.DEFAULT_RATIO, style=style
     )
     with Image.open(result.path) as composite:
         assert composite.convert("RGB").getpixel((0, 0)) == (0, 0, 0)
@@ -485,9 +485,9 @@ def test_compose_images_honours_the_style(tmp_path: Path) -> None:
 
 def test_compose_preview_and_compose_images_agree_under_a_style(tmp_path: Path) -> None:
     style = pipeline.FrameStyle(border_percent=15.0, gutter_percent=8.0)
-    canvas, name = pipeline.compose_preview(COMPOSE_FIXTURES, pipeline.DEFAULT_RATIO, style)
+    canvas, name = pipeline.compose_preview(COMPOSE_FIXTURES, pipeline.DEFAULT_RATIO, style=style)
     result = pipeline.compose_images(
-        COMPOSE_FIXTURES, tmp_path / "out", pipeline.DEFAULT_RATIO, style
+        COMPOSE_FIXTURES, tmp_path / "out", pipeline.DEFAULT_RATIO, style=style
     )
     assert result.layout_name == name
     with Image.open(result.path) as written:
@@ -497,8 +497,10 @@ def test_compose_preview_and_compose_images_agree_under_a_style(tmp_path: Path) 
 def test_name_layout_honours_the_style() -> None:
     # A large gutter can change which arrangement wins; the name must follow
     # the style the caller actually rendered with.
-    name = pipeline.name_layout(COMPOSE_FIXTURES, pipeline.DEFAULT_RATIO, RED_STYLE)
-    solved_name = pipeline.compose_preview(COMPOSE_FIXTURES, pipeline.DEFAULT_RATIO, RED_STYLE)[1]
+    name = pipeline.name_layout(COMPOSE_FIXTURES, pipeline.DEFAULT_RATIO, style=RED_STYLE)
+    solved_name = pipeline.compose_preview(
+        COMPOSE_FIXTURES, pipeline.DEFAULT_RATIO, style=RED_STYLE
+    )[1]
     assert name == solved_name
 
 
@@ -601,3 +603,90 @@ def test_six_sources_compose_into_a_hexaptych(tmp_path: Path) -> None:
     assert result.path.name == "out_hexaptych.jpg"
     assert result.path.exists()
     assert result.layout_name.startswith(("R(", "C("))
+
+
+def _sources(tmp_path: Path, count: int) -> list[Path]:
+    shapes = [(600, 400), (400, 600), (500, 500), (900, 400), (400, 900), (700, 500)]
+    paths = []
+    for index in range(count):
+        width, height = shapes[index]
+        path = tmp_path / f"s{index}.jpg"
+        synthetic_panorama(width, height).save(path, "JPEG", quality=95)
+        paths.append(path)
+    return paths
+
+
+def test_arrangements_lists_every_candidate_best_first(tmp_path: Path) -> None:
+    options = pipeline.arrangements(_sources(tmp_path, 4), pipeline.DEFAULT_RATIO)
+
+    assert len(options) == len({option.name for option in options})
+    fills = [option.fill for option in options]
+    assert fills == sorted(fills, reverse=True)
+    assert options[0].name == pipeline.name_layout(_sources(tmp_path, 4), pipeline.DEFAULT_RATIO)
+
+
+def test_arrangements_carries_both_spellings(tmp_path: Path) -> None:
+    options = pipeline.arrangements(_sources(tmp_path, 4), pipeline.DEFAULT_RATIO)
+    for option in options:
+        assert option.name.startswith(("R(", "C("))
+        assert option.short_name[0] in "RC"
+        assert "(" not in option.short_name
+        assert 0.0 < option.fill <= 1.0
+
+
+def test_a_forced_arrangement_is_the_one_rendered(tmp_path: Path) -> None:
+    """Forcing has to reach the pixels, not just the name -- the whole point
+    is a different composite, so the boxes must differ from the automatic
+    ones as well as the label."""
+    paths = _sources(tmp_path, 4)
+    automatic = pipeline.name_layout(paths, pipeline.DEFAULT_RATIO)
+    other = next(
+        option.short_name
+        for option in pipeline.arrangements(paths, pipeline.DEFAULT_RATIO)
+        if option.name != automatic
+    )
+
+    _, forced_name = pipeline.compose_preview(paths, pipeline.DEFAULT_RATIO, other)
+
+    assert forced_name != automatic
+    assert pipeline.name_layout(paths, pipeline.DEFAULT_RATIO, other) == forced_name
+
+
+def test_a_forced_arrangement_is_written(tmp_path: Path) -> None:
+    paths = _sources(tmp_path, 4)
+    automatic = pipeline.name_layout(paths, pipeline.DEFAULT_RATIO)
+    other = next(
+        option.name
+        for option in pipeline.arrangements(paths, pipeline.DEFAULT_RATIO)
+        if option.name != automatic
+    )
+
+    result = pipeline.compose_images(paths, tmp_path / "out", pipeline.DEFAULT_RATIO, other)
+
+    assert result.layout_name == other
+    assert result.path.name == "out_tetraptych.jpg"
+
+
+def test_an_empty_arrangement_means_automatic(tmp_path: Path) -> None:
+    paths = _sources(tmp_path, 4)
+    assert pipeline.name_layout(paths, pipeline.DEFAULT_RATIO, "") == pipeline.name_layout(
+        paths, pipeline.DEFAULT_RATIO
+    )
+
+
+def test_an_unknown_arrangement_names_both_spellings(tmp_path: Path) -> None:
+    paths = _sources(tmp_path, 4)
+    with pytest.raises(ValueError) as caught:
+        pipeline.compose_preview(paths, pipeline.DEFAULT_RATIO, "nonsense")
+
+    message = str(caught.value)
+    assert "nonsense" in message
+    assert "4" in message
+    assert "R2.2" in message
+
+
+def test_an_arrangement_for_the_wrong_count_is_refused(tmp_path: Path) -> None:
+    """R2.2 is four panels. Asked for with three sources it is not a typo,
+    it is a different composite, and saying so beats silently ignoring it."""
+    with pytest.raises(ValueError, match=r"R2\.2"):
+        pipeline.name_layout(_sources(tmp_path, 3), pipeline.DEFAULT_RATIO, "R2.2")

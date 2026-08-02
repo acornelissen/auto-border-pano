@@ -404,9 +404,84 @@ def inspect_source(path: Path | str, ratio: AspectRatio = DEFAULT_RATIO) -> Sour
     )
 
 
+def _aspects_of(paths: Sequence[Path]) -> list[float]:
+    """Each source's aspect ratio, read from its header and nothing more."""
+    aspects = []
+    for path in paths:
+        with Image.open(path) as opened:
+            width, height = opened.size
+        aspects.append(width / height)
+    return aspects
+
+
+def _chosen_layout(
+    arrangement: str,
+    aspects: Sequence[float],
+    ratio: AspectRatio,
+    style: FrameStyle,
+) -> layout.Layout:
+    """Solve, or place the arrangement that was asked for.
+
+    An arrangement named but not usable is an error rather than a fallback:
+    silently composing something else would put a picture on disk that is
+    not the one that was asked for.
+    """
+    if not arrangement:
+        return layout.solve(aspects, ratio, style)
+    node = layout.parse_name(arrangement, len(aspects))
+    if node is None:
+        examples = ", ".join(
+            layout.short_name(candidate) for _, candidate in layout.candidates(len(aspects))
+        )
+        raise ValueError(
+            f"unknown arrangement {arrangement!r} for {len(aspects)} images; "
+            f"choose one of {examples} (or the matching long form in quotes)"
+        )
+    placed = layout.evaluate(node, layout.name_of(node), aspects, ratio, style)
+    if placed is None:
+        raise ValueError(f"arrangement {arrangement!r} cannot be placed at {ratio.name}")
+    return placed
+
+
+@dataclass(frozen=True)
+class Arrangement:
+    """One arrangement offered to a user, in both spellings.
+
+    No English: `present_layout` in the GUI turns a name into words, and
+    moving that down here would put interface copy in a module that has
+    none.
+    """
+
+    name: str
+    short_name: str
+    fill: float
+
+
+def arrangements(
+    input_paths: Sequence[Path | str],
+    ratio: AspectRatio = DEFAULT_RATIO,
+    style: FrameStyle = DEFAULT_STYLE,
+) -> tuple[Arrangement, ...]:
+    """Every arrangement these sources could take, best first.
+
+    Reads headers and stops, like `name_layout`: choosing an arrangement
+    must not cost a decode per candidate.
+    """
+    paths = [Path(p) for p in input_paths]
+    if len(paths) not in COMPOSITE_SUFFIXES:
+        raise ValueError(f"expected {MIN_IMAGES} to {MAX_IMAGES} images, got {len(paths)}")
+    aspects = _aspects_of(paths)
+    nodes = dict(layout.candidates(len(aspects)))
+    return tuple(
+        Arrangement(placed.name, layout.short_name(nodes[placed.name]), placed.score)
+        for placed in layout.rank(aspects, ratio, style)
+    )
+
+
 def name_layout(
     input_paths: Sequence[Path | str],
     ratio: AspectRatio = DEFAULT_RATIO,
+    arrangement: str = "",
     style: FrameStyle = DEFAULT_STYLE,
 ) -> str:
     """Name the arrangement these sources will get, without rendering it.
@@ -419,17 +494,16 @@ def name_layout(
     and stops. `compose_preview` renders through the same `layout.solve`
     call, which is what keeps the name shown in the rail and the name shown
     under the finished composite from ever disagreeing.
+
+    An empty `arrangement` means the solver chooses; a named one is placed
+    as given or refused, never silently swapped for the automatic pick.
     """
     paths = [Path(p) for p in input_paths]
     if len(paths) not in COMPOSITE_SUFFIXES:
         raise ValueError(f"expected {MIN_IMAGES} to {MAX_IMAGES} images, got {len(paths)}")
 
-    aspects = []
-    for path in paths:
-        with Image.open(path) as opened:
-            width, height = opened.size
-        aspects.append(width / height)
-    return layout.solve(aspects, ratio, style).name
+    aspects = _aspects_of(paths)
+    return _chosen_layout(arrangement, aspects, ratio, style).name
 
 
 NormalisedRect = tuple[float, float, float, float]
@@ -532,6 +606,7 @@ def _load_for_box(path: Path, box: layout.Box) -> Image.Image:
 def compose_preview(
     input_paths: Sequence[Path | str],
     ratio: AspectRatio = DEFAULT_RATIO,
+    arrangement: str = "",
     style: FrameStyle = DEFAULT_STYLE,
 ) -> tuple[Image.Image, str]:
     """Solve and render a composite in memory, without writing anything.
@@ -543,18 +618,16 @@ def compose_preview(
     GUI can let a user compare arrangements before committing one to disk.
     `compose_images` is a thin wrapper around this that also saves the
     result, so there is exactly one solve-and-render path.
+
+    An empty `arrangement` means the solver chooses; a named one is placed
+    as given or refused, never silently swapped for the automatic pick.
     """
     paths = [Path(p) for p in input_paths]
     if len(paths) not in COMPOSITE_SUFFIXES:
         raise ValueError(f"expected {MIN_IMAGES} to {MAX_IMAGES} images, got {len(paths)}")
 
-    with_sizes = []
-    for path in paths:
-        with Image.open(path) as opened:
-            with_sizes.append(opened.size)
-
-    aspects = [width / height for width, height in with_sizes]
-    solved = layout.solve(aspects, ratio, style)
+    aspects = _aspects_of(paths)
+    solved = _chosen_layout(arrangement, aspects, ratio, style)
 
     images = [_load_for_box(path, box) for path, box in zip(paths, solved.boxes, strict=True)]
     canvas = compose.render(images, solved, ratio, style)
@@ -565,14 +638,18 @@ def compose_images(
     input_paths: Sequence[Path | str],
     output_prefix: Path | str,
     ratio: AspectRatio = DEFAULT_RATIO,
+    arrangement: str = "",
     style: FrameStyle = DEFAULT_STYLE,
 ) -> CompositeResult:
     """Compose two to six images into one frame at the target ratio.
 
     `style` is a parameter with a default rather than module state, so a run
     and the preview it followed cannot disagree about border or gutter.
+
+    An empty `arrangement` means the solver chooses; a named one is placed
+    as given or refused, never silently swapped for the automatic pick.
     """
-    canvas, layout_name = compose_preview(input_paths, ratio, style)
+    canvas, layout_name = compose_preview(input_paths, ratio, arrangement, style)
 
     prefix = Path(output_prefix)
     target = prefix.with_name(prefix.name + COMPOSITE_SUFFIXES[len(input_paths)])

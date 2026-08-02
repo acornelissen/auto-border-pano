@@ -262,7 +262,7 @@ def _solve_job(
             continue
         sizes[source] = (facts.width, facts.height)
     try:
-        name = pipeline.name_layout(sources, pipeline.RATIOS[ratio_name], style)
+        name = pipeline.name_layout(sources, pipeline.RATIOS[ratio_name], style=style)
     except (ValueError, OSError):
         name = ""
     return _Solve(token=token, name=name, count=len(sources), sizes=sizes)
@@ -841,7 +841,7 @@ class ComposeTab(QWidget):
         self._set_status(WORKING)
 
         def job() -> _Composed:
-            result = pipeline.compose_images(sources, prefix, ratio, style)
+            result = pipeline.compose_images(sources, prefix, ratio, style=style)
             return _Composed(result.path, result.layout_name, ratio.name)
 
         submit(job, self._finish, self._failed, owner=self)
@@ -879,7 +879,7 @@ class ComposeTab(QWidget):
             self._set_status(WORKING)
 
         def job() -> _Previewed:
-            image, layout_name = pipeline.compose_preview(sources, ratio, style)
+            image, layout_name = pipeline.compose_preview(sources, ratio, style=style)
             return _Previewed(image, layout_name, ratio.name, len(sources))
 
         def done(previewed: _Previewed) -> None:
