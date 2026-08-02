@@ -1,6 +1,6 @@
-"""The diptych and triptych tab, as Qt draws it.
+"""The composite tab, as Qt draws it.
 
-Pick two or three images, choose a target ratio, and the arrangement is
+Pick two to six images, choose a target ratio, and the arrangement is
 solved automatically from the images' own shapes.
 
 Two things carry over from the tkinter build unchanged in spirit and are

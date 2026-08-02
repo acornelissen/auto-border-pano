@@ -303,3 +303,9 @@ def test_a_long_filename_still_renders(built: sources.SourcesList) -> None:
 
     _paint(built)
     assert built.count == 1
+
+
+def test_the_empty_caption_names_the_range_it_accepts() -> None:
+    """The caption is the only place the list says how many it takes, and
+    it said three for a triptych long after six became composable."""
+    assert sources.EMPTY_CAPTION == "Add two to six sources."

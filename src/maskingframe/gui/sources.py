@@ -67,7 +67,7 @@ Listbox's dead fourth row is the specific thing being fixed.
 EMPTY_HEIGHT = 2 * ROW_HEIGHT
 """Enough for the empty caption to wrap onto two lines in the rail."""
 
-EMPTY_CAPTION = "Add two sources for a diptych, three for a triptych."
+EMPTY_CAPTION = "Add two to six sources."
 
 BORDER = 1
 """One device pixel, which is a thing Qt can actually draw."""
