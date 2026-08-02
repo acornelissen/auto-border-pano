@@ -430,12 +430,16 @@ def _chosen_layout(
         return layout.solve(aspects, ratio, style)
     node = layout.parse_name(arrangement, len(aspects))
     if node is None:
-        examples = ", ".join(
-            layout.short_name(candidate) for _, candidate in layout.candidates(len(aspects))
-        )
+        # The rule and one example, not the whole list: at six sources there
+        # are 62 of them, and 600 characters of names is a wall to read
+        # rather than an answer. Any split of the count into two or more
+        # blocks is a real arrangement, so halving it always names one.
+        count = len(aspects)
+        example = f"R{count // 2}.{count - count // 2}"
         raise ValueError(
-            f"unknown arrangement {arrangement!r} for {len(aspects)} images; "
-            f"choose one of {examples} (or the matching long form in quotes)"
+            f"unknown arrangement {arrangement!r} for {count} images; "
+            f"spell it R or C followed by the block sizes, which must add up "
+            f"to {count} -- {example}, say. The long form works too, in quotes."
         )
     placed = layout.evaluate(node, layout.name_of(node), aspects, ratio, style)
     if placed is None:
