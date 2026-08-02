@@ -8,10 +8,11 @@ from collections.abc import Sequence
 
 import pytest
 from PySide6.QtCore import QEvent, QPoint, QRect, Qt
-from PySide6.QtGui import QFocusEvent
+from PySide6.QtGui import QFocusEvent, QImage
 from pytestqt.qtbot import QtBot
 
 from maskingframe import geometry
+from maskingframe.gui import theme
 from maskingframe.gui.ribbon import MARGIN, RIBBON_HEIGHT, FrameRibbon, _uncovered
 from tests import conftest
 
@@ -318,3 +319,57 @@ def test_a_shrunk_plan_drops_a_selection_it_can_no_longer_support(qtbot: QtBot) 
     # A key press still works -- it just can't be about the dropped frame.
     qtbot.keyClick(ribbon, Qt.Key.Key_Right)  # type: ignore[no-untyped-call]
     assert ribbon.selected() != 2
+
+
+def _rendered(ribbon: FrameRibbon) -> QImage:
+    """The ribbon painted into an image, so a mark can be checked in pixels."""
+    image = QImage(ribbon.size(), QImage.Format.Format_RGB32)
+    image.fill(Qt.GlobalColor.white)
+    ribbon.render(image)
+    return image
+
+
+def test_the_ribbon_draws_a_focus_mark(qtbot: QtBot) -> None:
+    # WCAG 2.4.7: a widget that takes focus has to say so. Sampled from the
+    # rendering rather than asserted about `hasFocus()`, because the defect
+    # this covers was a repaint that changed nothing.
+    ribbon = build(qtbot)
+    corner = ribbon.surface_rect().topLeft()
+
+    at_rest = _rendered(ribbon)
+    ribbon.focusInEvent(QFocusEvent(QEvent.Type.FocusIn))
+    focused = _rendered(ribbon)
+
+    assert at_rest != focused
+    assert at_rest.pixelColor(corner) == theme.rgb(theme.EDGE)
+    assert focused.pixelColor(corner) == theme.rgb(theme.INK)
+
+
+def test_the_focus_mark_goes_when_focus_does(qtbot: QtBot) -> None:
+    ribbon = build(qtbot)
+    corner = ribbon.surface_rect().topLeft()
+    ribbon.focusInEvent(QFocusEvent(QEvent.Type.FocusIn))
+    focused = _rendered(ribbon)
+
+    ribbon.focusOutEvent(QFocusEvent(QEvent.Type.FocusOut))
+
+    left = _rendered(ribbon)
+    assert left != focused
+    assert left.pixelColor(corner) == theme.rgb(theme.EDGE)
+
+
+def test_focus_and_selection_are_different_marks(qtbot: QtBot) -> None:
+    # Both states can be present at once, so neither may be the other's mark:
+    # focus is ink on the ribbon's own edge, selection is chinagraph on a
+    # window.
+    ribbon = build(qtbot)
+    ribbon.set_selected(1)
+    corner = ribbon.surface_rect().topLeft()
+    assert _rendered(ribbon).pixelColor(corner) == theme.rgb(theme.EDGE)
+
+    ribbon.focusInEvent(QFocusEvent(QEvent.Type.FocusIn))
+
+    focused = _rendered(ribbon)
+    assert focused.pixelColor(corner) == theme.rgb(theme.INK)
+    # The selected window's own edge is chinagraph at the same moment.
+    assert focused.pixelColor(ribbon.window_rects()[1].topLeft()) == theme.rgb(theme.CHINAGRAPH)

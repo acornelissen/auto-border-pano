@@ -32,7 +32,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from maskingframe.gui import theme
-from maskingframe.gui.strip import pil_to_pixmap
+from maskingframe.gui.strip import FOCUS_EDGE, draw_edge, pil_to_pixmap
 
 RIBBON_HEIGHT = 240
 """Tall enough to judge a crop by, short enough to leave the strip the room.
@@ -100,6 +100,10 @@ class FrameRibbon(QWidget):
         self._grab_offset = 0.0
         self._font: QFont = theme.stencil_font(10, tracking=1.4)
         self._selected: int | None = None
+        # Kept rather than read back from `hasFocus()`, for the reason
+        # `ContactStrip` gives: Qt only reports focus on a widget whose
+        # window is active, and the mark is checked by painting into an image.
+        self._focused = False
         # Reachable by Tab and by click. A window is a control, and a control
         # you can only reach with a pointer is not reachable at all.
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -274,7 +278,20 @@ class FrameRibbon(QWidget):
         self._dragging = None
         self.frame_settled.emit(index)
 
+    def edge_pen(self) -> tuple[str, int]:
+        """The colour and weight of the ribbon's own edge.
+
+        INK when it holds focus, as every field in the app already does, and
+        as the contact strip below does. Chinagraph is left to say which
+        window is picked -- focus and selection are different states and can
+        be present at once.
+        """
+        if self._focused:
+            return theme.INK, FOCUS_EDGE
+        return theme.EDGE, 1
+
     def focusInEvent(self, event: QFocusEvent) -> None:
+        self._focused = True
         # Nothing is marked until the user asks for it; asking for it is
         # exactly what taking focus is.
         announce = self._selected is None and bool(self._positions)
@@ -290,6 +307,7 @@ class FrameRibbon(QWidget):
             self.selection_changed.emit(0)
 
     def focusOutEvent(self, event: QFocusEvent) -> None:
+        self._focused = False
         super().focusOutEvent(event)
         self.update()
 
@@ -342,8 +360,8 @@ class FrameRibbon(QWidget):
         # Panel and hairline, exactly as the contact strip draws its sheet:
         # the two are the same kind of object lying on the same table.
         painter.fillRect(self.surface_rect(), QColor(theme.PANEL))
-        painter.setPen(QColor(theme.EDGE))
-        painter.drawRect(self.surface_rect().adjusted(0, 0, -1, -1))
+        colour, width = self.edge_pen()
+        draw_edge(painter, self.surface_rect(), colour, width)
         painter.drawPixmap(picture, self._pixmap)
 
         # Everything no frame covers goes under a wash, so the windows read

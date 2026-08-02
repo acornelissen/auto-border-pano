@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 from PySide6.QtCore import QEvent, QPoint, QRect, Qt
-from PySide6.QtGui import QFocusEvent, QFontMetrics
+from PySide6.QtGui import QFocusEvent, QFontMetrics, QImage
 from pytestqt.qtbot import QtBot
 
 from maskingframe import pipeline
@@ -785,3 +785,42 @@ def test_the_selected_strip_frame_is_marked(qtbot: QtBot) -> None:
     assert strip.marked_rect() == strip.frame_rect_at(2)
     strip.set_selected(None)
     assert strip.marked_rect().isNull()
+
+
+def _rendered(widget: ContactStrip) -> QImage:
+    """The strip painted into an image, so a mark can be checked in pixels."""
+    image = QImage(widget.size(), QImage.Format.Format_RGB32)
+    image.fill(Qt.GlobalColor.white)
+    widget.render(image)
+    return image
+
+
+def test_the_strip_draws_a_focus_mark(qtbot: QtBot) -> None:
+    # WCAG 2.4.7: a widget that takes focus has to say so. Sampled from the
+    # rendering rather than asserted about `hasFocus()`, because the defect
+    # this covers was a repaint that changed nothing.
+    widget = _built(qtbot)
+    qtbot.addWidget(widget)
+    widget.resize(600, 300)
+    corner = QPoint(0, 0)
+
+    at_rest = _rendered(widget)
+    widget.focusInEvent(QFocusEvent(QEvent.Type.FocusIn))
+    focused = _rendered(widget)
+
+    assert at_rest != focused
+    assert at_rest.pixelColor(corner) == theme.rgb(theme.EDGE)
+    assert focused.pixelColor(corner) == theme.rgb(theme.INK)
+
+
+def test_the_strips_focus_mark_goes_when_focus_does(qtbot: QtBot) -> None:
+    widget = _built(qtbot)
+    widget.resize(600, 300)
+    widget.focusInEvent(QFocusEvent(QEvent.Type.FocusIn))
+    focused = _rendered(widget)
+
+    widget.focusOutEvent(QFocusEvent(QEvent.Type.FocusOut))
+
+    left = _rendered(widget)
+    assert left != focused
+    assert left.pixelColor(QPoint(0, 0)) == theme.rgb(theme.EDGE)

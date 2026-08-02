@@ -90,6 +90,26 @@ APERTURE = 1
 """Hairline around a frame's image, drawn whether or not there is a
 photograph in it yet -- an unexposed strip should still read as film."""
 
+FOCUS_EDGE = 2
+"""How heavy the surrounding edge goes when the widget holds focus.
+
+Two device pixels, because one is what the edge already is at rest and a
+focus mark has to be visible as a change, not only as a change of colour.
+"""
+
+
+def draw_edge(painter: QPainter, area: QRect, colour: str, width: int) -> None:
+    """Draw a `width`-pixel edge just inside `area`.
+
+    Rectangle by rectangle rather than a wide `QPen`: Qt centres a pen on
+    the path, so half of a two-pixel edge would fall outside the widget and
+    be clipped away.
+    """
+    painter.setPen(theme.rgb(colour))
+    for offset in range(max(1, width)):
+        painter.drawRect(area.adjusted(offset, offset, -offset - 1, -offset - 1))
+
+
 DEFAULT_FRAME_COUNT = 4
 """What an unexposed strip shows before anything is loaded.
 
@@ -304,6 +324,11 @@ class ContactStrip(QWidget):
         self._drag_index: int | None = None
         self._drag_origin = 0
         self._selected: int | None = None
+        # Kept rather than read back from `hasFocus()`: Qt only reports focus
+        # on a widget whose window is active, so a strip painted into an
+        # image -- which is how the mark is tested -- would never show it.
+        # Qt sends the focus events either way, so this is the same fact.
+        self._focused = False
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         # Expanding in both directions: the frames grow to fill the space the
         # window gives them. The strip's own background is painted only
@@ -647,8 +672,8 @@ class ContactStrip(QWidget):
         # what is dark. The hairline is doing real work -- panel on table is
         # a low-contrast edge -- and it replaces the shadow we are not using.
         painter.fillRect(QRect(0, 0, span, band), theme.rgb(theme.PANEL))
-        painter.setPen(theme.rgb(theme.EDGE))
-        painter.drawRect(QRect(0, 0, span - 1, band - 1))
+        colour, width = self.edge_pen()
+        draw_edge(painter, QRect(0, 0, span, band), colour, width)
 
         for index, frame in enumerate(self._frames):
             self._paint_frame(painter, index, frame)
@@ -692,6 +717,7 @@ class ContactStrip(QWidget):
         self.frame_drag_settled.emit(index)
 
     def focusInEvent(self, event: QFocusEvent) -> None:
+        self._focused = True
         announce = self._selected is None and len(self._frames) > 1
         if announce:
             self._select(1)
@@ -705,8 +731,21 @@ class ContactStrip(QWidget):
             self.selection_changed.emit(1)
 
     def focusOutEvent(self, event: QFocusEvent) -> None:
+        self._focused = False
         super().focusOutEvent(event)
         self.update()
+
+    def edge_pen(self) -> tuple[str, int]:
+        """The colour and weight of the sheet's own edge.
+
+        INK when the strip holds focus, as every field in the app already
+        does. Focus and selection are different states and can be present at
+        once, so focus takes the edge of the whole sheet and chinagraph is
+        left to say which frame is picked.
+        """
+        if self._focused:
+            return theme.INK, FOCUS_EDGE
+        return theme.EDGE, 1
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         # Folder mode makes the strip a display: there is no one panorama
