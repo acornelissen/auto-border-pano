@@ -600,3 +600,70 @@ def test_a_source_with_no_travel_is_always_even() -> None:
 
 def test_no_positions_count_as_even() -> None:
     assert geometry.positions_are_even((), 3000, 1000, geometry.PORTRAIT)
+
+
+def test_frame_one_border_follows_the_shared_one_by_default() -> None:
+    style = geometry.FrameStyle(border_percent=12.0)
+
+    assert style.padded_border_percent is None
+    for ratio in geometry.RATIOS.values():
+        assert style.padded_border_px(ratio) == style.border_px(ratio)
+
+
+def test_frame_one_border_resolves_on_its_own_when_set() -> None:
+    style = geometry.FrameStyle(border_percent=12.0, padded_border_percent=2.0)
+
+    for ratio in geometry.RATIOS.values():
+        assert style.padded_border_px(ratio) != style.border_px(ratio)
+        assert style.padded_border_px(ratio) == geometry.FrameStyle(border_percent=2.0).border_px(
+            ratio
+        )
+
+
+def test_setting_frame_one_to_the_shared_width_changes_nothing() -> None:
+    """The None case and the equal case must be the same picture, or the
+    checkbox in the rail would move the frame the moment it was ticked."""
+    source = synthetic_panorama(2330, 1000)
+    following = geometry.make_padded_frame(source, geometry.PORTRAIT, geometry.FrameStyle())
+    spelled = geometry.make_padded_frame(
+        source, geometry.PORTRAIT, geometry.FrameStyle(padded_border_percent=9.0)
+    )
+
+    assert following.tobytes() == spelled.tobytes()
+
+
+def test_frame_one_border_leaves_the_detail_frames_alone() -> None:
+    """The whole point: turning frame 1's border down must not touch what
+    the border means anywhere else."""
+    source = synthetic_panorama(2330, 1000)
+    shared = geometry.FrameStyle(border_detail_frames=True)
+    narrowed = geometry.FrameStyle(border_detail_frames=True, padded_border_percent=0.0)
+
+    assert geometry.make_section(source, 0.0, geometry.PORTRAIT, shared).tobytes() == (
+        geometry.make_section(source, 0.0, geometry.PORTRAIT, narrowed).tobytes()
+    )
+    assert geometry.make_padded_frame(source, geometry.PORTRAIT, shared).tobytes() != (
+        geometry.make_padded_frame(source, geometry.PORTRAIT, narrowed).tobytes()
+    )
+
+
+def test_the_measured_ceiling_at_portrait() -> None:
+    """The claim the whole feature rests on: at 4:5, a 2.33:1 panorama fills
+    34.3% of frame 1 with no border at all, and no setting goes further,
+    because the shape mismatch is what leaves the space. If this moves, the
+    spec's table is wrong and so is the reason for the feature."""
+    ratio = geometry.PORTRAIT
+    style = geometry.FrameStyle(padded_border_percent=0.0)
+    pano = 2.33
+
+    inset = ratio.width - 2 * style.padded_border_px(ratio)
+    assert inset == ratio.width
+    covered = inset * (inset / pano)
+    assert covered / (ratio.width * ratio.height) == pytest.approx(0.343, abs=0.001)
+
+
+def test_a_frame_one_border_out_of_range_is_refused() -> None:
+    with pytest.raises(ValueError):
+        geometry.FrameStyle(padded_border_percent=-1.0)
+    with pytest.raises(ValueError):
+        geometry.FrameStyle(padded_border_percent=geometry.MAX_PERCENT + 1)

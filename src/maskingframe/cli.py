@@ -64,6 +64,7 @@ def _style_from_args(args: argparse.Namespace) -> pipeline.FrameStyle:
         gutter_percent=args.gutter,
         gutter_colour=args.gutter_colour,
         border_detail_frames=args.border_detail_frames,
+        padded_border_percent=args.frame1_border,
     )
 
 
@@ -148,6 +149,19 @@ def _add_style_arguments(parser: argparse.ArgumentParser) -> None:
         help=(
             "composites only: colour of the gap between panels "
             f"(default: {pipeline.DEFAULT_STYLE.gutter_colour})"
+        ),
+    )
+    parser.add_argument(
+        "--frame1-border",
+        dest="frame1_border",
+        type=_percent_type,
+        default=None,
+        metavar="PERCENT",
+        help=(
+            "splits only: give the whole-panorama frame its own border width, "
+            "so it can fill more of the frame without changing what the border "
+            "means for the detail frames or a composite (default: the same as "
+            "--border)"
         ),
     )
     parser.add_argument(

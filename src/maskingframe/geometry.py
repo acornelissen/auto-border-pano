@@ -105,9 +105,28 @@ class FrameStyle:
     gutter_percent: float = 4.0
     gutter_colour: str = "#ffffff"
     border_detail_frames: bool = False
+    padded_border_percent: float | None = None
+    """Frame 1's own border, or None to use `border_percent`.
+
+    None is today's behaviour, so every stored style, stored preset, CLI
+    invocation and golden hash is unaffected until someone sets it.
+
+    It exists because turning the shared border down to let the panorama
+    fill more of frame 1 also changes every detail frame that carries one,
+    and the composite, and the gutter's neighbours. What it cannot do is
+    make a panorama fill a portrait frame: at 4:5 a 2.33:1 picture covers
+    34.3% of the frame with no border at all, because what leaves the space
+    is the shape mismatch rather than the border.
+    """
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "border_percent", _check_percent("border", self.border_percent))
+        if self.padded_border_percent is not None:
+            object.__setattr__(
+                self,
+                "padded_border_percent",
+                _check_percent("frame 1 border", self.padded_border_percent),
+            )
         object.__setattr__(self, "gutter_percent", _check_percent("gutter", self.gutter_percent))
         object.__setattr__(self, "border_colour", parse_colour(self.border_colour))
         object.__setattr__(self, "gutter_colour", parse_colour(self.gutter_colour))
@@ -118,6 +137,17 @@ class FrameStyle:
     def border_px(self, ratio: AspectRatio) -> int:
         """The border, in output pixels, for this ratio."""
         return self._resolve(self.border_percent, ratio)
+
+    def padded_border_px(self, ratio: AspectRatio) -> int:
+        """Frame 1's border, in output pixels. The shared one unless set.
+
+        Only `make_padded_frame` calls this. `border_px` is untouched, so
+        nothing about what the border means for a detail frame, a composite
+        or a gutter moves with it.
+        """
+        if self.padded_border_percent is None:
+            return self.border_px(ratio)
+        return self._resolve(self.padded_border_percent, ratio)
 
     def gutter_px(self, ratio: AspectRatio) -> int:
         """The gap between adjacent composite panels, in output pixels."""
@@ -372,7 +402,7 @@ def make_padded_frame(
     scale and downscaling) also avoids building a huge intermediate canvas,
     which matters on multi-hundred-megapixel scans.
     """
-    border = style.border_px(ratio)
+    border = style.padded_border_px(ratio)
     pano_width, pano_height = image.size
     box_width = max(1, ratio.width - 2 * border)
     box_height = max(1, ratio.height - 2 * border)

@@ -544,3 +544,27 @@ def test_an_arrangement_for_the_wrong_count_names_both_numbers(tmp_path: Path, c
     message = capsys.readouterr().err
     assert "R2.2" in message
     assert "3" in message
+
+
+def test_frame_one_border_reaches_the_style() -> None:
+    args = cli.build_parser().parse_args(["in.jpg", "--frame1-border", "2"])
+    assert cli._style_from_args(args).padded_border_percent == 2.0
+
+
+def test_frame_one_border_is_unset_by_default() -> None:
+    """Unset means frame 1 follows the shared border, which is what every
+    existing invocation does, so omitting the flag must not spell a number."""
+    args = cli.build_parser().parse_args(["in.jpg"])
+    assert cli._style_from_args(args).padded_border_percent is None
+
+
+def test_frame_one_border_zero_is_not_unset() -> None:
+    """0 is a real width -- full bleed -- and must not read as absent."""
+    args = cli.build_parser().parse_args(["in.jpg", "--frame1-border", "0"])
+    assert cli._style_from_args(args).padded_border_percent == 0.0
+
+
+def test_a_frame_one_border_out_of_range_fails_at_parse_time(capsys: Any) -> None:
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(["in.jpg", "--frame1-border", "80"])
+    assert "80" in capsys.readouterr().err
