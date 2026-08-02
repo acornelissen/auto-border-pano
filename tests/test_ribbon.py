@@ -288,12 +288,22 @@ def test_keys_do_nothing_with_no_plan(qtbot: QtBot) -> None:
 
 
 def test_the_selected_window_is_marked_in_chinagraph(qtbot: QtBot) -> None:
-    # Chinagraph is the marking-up layer: the frame you have picked.
+    # Chinagraph is the marking-up layer: the frame you have picked. The
+    # colour is asserted, not only the rectangle -- comparing `marked_rect`
+    # with `window_rects` holds whatever the ribbon actually draws.
     ribbon = build(qtbot, (0.0, 0.6))
     ribbon.set_selected(1)
     assert ribbon.marked_rect() == ribbon.window_rects()[1]
+    assert ribbon.edge_colour(1) == theme.CHINAGRAPH
+    assert ribbon.edge_colour(0) == theme.INK
+    image = _rendered(ribbon)
+    assert image.pixelColor(ribbon.window_rects()[1].topLeft()) == theme.rgb(theme.CHINAGRAPH)
+    assert image.pixelColor(ribbon.window_rects()[0].topLeft()) == theme.rgb(theme.INK)
+
     ribbon.set_selected(None)
     assert ribbon.marked_rect().isNull()
+    assert ribbon.edge_colour(1) == theme.INK
+    assert _rendered(ribbon).pixelColor(ribbon.window_rects()[1].topLeft()) == theme.rgb(theme.INK)
 
 
 def test_the_ribbon_names_what_is_selected(qtbot: QtBot) -> None:

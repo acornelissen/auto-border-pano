@@ -778,13 +778,23 @@ def test_strip_keys_do_nothing_when_not_draggable(qtbot: QtBot) -> None:
 
 
 def test_the_selected_strip_frame_is_marked(qtbot: QtBot) -> None:
-    strip = ContactStrip(frames=4)
-    qtbot.addWidget(strip)
-    strip.resize(600, 300)
-    strip.set_selected(2)
-    assert strip.marked_rect() == strip.frame_rect_at(2)
-    strip.set_selected(None)
-    assert strip.marked_rect().isNull()
+    # The colour is asserted, not only the rectangle: comparing
+    # `marked_rect` with `frame_rect_at` is the same call twice and holds
+    # whatever the strip actually draws.
+    widget = ContactStrip(frames=4)
+    qtbot.addWidget(widget)
+    widget.resize(600, 300)
+    widget.set_selected(2)
+    assert widget.marked_rect() == widget.frame_rect_at(2)
+    assert widget.aperture_pen(2)[0] == theme.CHINAGRAPH
+    assert widget.aperture_pen(3)[0] == theme.REBATE
+    corner = widget.frame_rect_at(2).topLeft() - QPoint(1, 1)
+    assert _rendered(widget).pixelColor(corner) == theme.rgb(theme.CHINAGRAPH)
+
+    widget.set_selected(None)
+    assert widget.marked_rect().isNull()
+    assert widget.aperture_pen(2)[0] == theme.REBATE
+    assert _rendered(widget).pixelColor(corner) == theme.rgb(theme.REBATE)
 
 
 def _rendered(widget: ContactStrip) -> QImage:

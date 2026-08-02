@@ -172,6 +172,15 @@ class FrameRibbon(QWidget):
             return QRect()
         return self.window_rects()[self._selected]
 
+    def edge_colour(self, index: int) -> str:
+        """The colour window `index`'s edge is drawn in.
+
+        The decision itself, exposed: `marked_rect` says only where the mark
+        goes, and a test comparing it with `window_rects` cannot tell whether
+        anything was drawn in chinagraph at all.
+        """
+        return theme.CHINAGRAPH if index == self._selected else theme.INK
+
     def _name_selection(self) -> None:
         """State the selection in words, for a screen reader.
 
@@ -374,7 +383,7 @@ class FrameRibbon(QWidget):
 
         painter.setFont(self._font)
         for index, window in enumerate(windows):
-            painter.setPen(QColor(theme.CHINAGRAPH if index == self._selected else theme.INK))
+            painter.setPen(QColor(self.edge_colour(index)))
             for offset in range(HANDLE):
                 painter.drawRect(window.adjusted(offset, offset, -offset - 1, -offset - 1))
             painter.setPen(QColor(theme.CHINAGRAPH))
