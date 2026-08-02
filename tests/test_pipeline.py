@@ -369,7 +369,7 @@ def test_compose_rejects_wrong_image_counts(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         pipeline.compose_images(COMPOSE_FIXTURES[:1], tmp_path / "out")
     with pytest.raises(ValueError):
-        pipeline.compose_images(COMPOSE_FIXTURES * 2, tmp_path / "out")
+        pipeline.compose_images(COMPOSE_FIXTURES * 3, tmp_path / "out")
 
 
 def test_compose_accepts_portrait_images(tmp_path: Path) -> None:
@@ -561,3 +561,43 @@ def test_composite_rects_opens_no_files(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(Image, "open", forbidden)
 
     assert pipeline.composite_rects([1.5, 0.75], pipeline.RATIOS["1:1"]).panels
+
+
+def test_every_composable_count_has_a_filename() -> None:
+    """A count the solver accepts but that has no suffix would raise at the
+    moment of writing, after all the work is done."""
+    assert set(pipeline.COMPOSITE_SUFFIXES) == set(
+        range(pipeline.MIN_IMAGES, pipeline.MAX_IMAGES + 1)
+    )
+
+
+def test_the_suffixes_carry_the_greek_on() -> None:
+    assert pipeline.COMPOSITE_SUFFIXES == {
+        2: "_diptych.jpg",
+        3: "_triptych.jpg",
+        4: "_tetraptych.jpg",
+        5: "_pentaptych.jpg",
+        6: "_hexaptych.jpg",
+    }
+
+
+def test_the_bounds_come_from_the_solver() -> None:
+    """cli and gui read these rather than importing layout, so they have to
+    be the solver's own numbers and not a second copy of them."""
+    assert (pipeline.MIN_IMAGES, pipeline.MAX_IMAGES) == (2, 6)
+
+
+def test_six_sources_compose_into_a_hexaptych(tmp_path: Path) -> None:
+    sources = []
+    for index, (width, height) in enumerate(
+        [(600, 400), (400, 600), (500, 500), (600, 400), (400, 600), (900, 400)]
+    ):
+        path = tmp_path / f"s{index}.jpg"
+        synthetic_panorama(width, height).save(path, "JPEG", quality=95)
+        sources.append(path)
+
+    result = pipeline.compose_images(sources, tmp_path / "out", pipeline.DEFAULT_RATIO)
+
+    assert result.path.name == "out_hexaptych.jpg"
+    assert result.path.exists()
+    assert result.layout_name.startswith(("R(", "C("))

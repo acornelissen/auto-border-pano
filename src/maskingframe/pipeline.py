@@ -31,6 +31,13 @@ FrameStyle = geometry.FrameStyle
 DEFAULT_STYLE = geometry.DEFAULT_STYLE
 parse_colour = geometry.parse_colour
 MAX_PERCENT = geometry.MAX_PERCENT
+
+# Re-exported for the same reason as the ratio and style names: `cli.py` and
+# `gui/` must be able to state how many sources compose without importing
+# `layout` directly, which the dependency direction forbids.
+MIN_IMAGES = layout.MIN_PANELS
+MAX_IMAGES = layout.MAX_PANELS
+
 default_positions = geometry.default_positions
 normalise_positions = geometry.normalise_positions
 move_position = geometry.move_position
@@ -338,7 +345,16 @@ def preview_frames(
     return frames
 
 
-COMPOSITE_SUFFIXES = {2: "_diptych.jpg", 3: "_triptych.jpg"}
+# One entry per composable count. `test_every_composable_count_has_a_filename`
+# holds this to exactly MIN_IMAGES..MAX_IMAGES, so raising the ceiling cannot
+# leave a count with nowhere to write to.
+COMPOSITE_SUFFIXES = {
+    2: "_diptych.jpg",
+    3: "_triptych.jpg",
+    4: "_tetraptych.jpg",
+    5: "_pentaptych.jpg",
+    6: "_hexaptych.jpg",
+}
 
 
 @dataclass(frozen=True)
@@ -405,7 +421,7 @@ def name_layout(
     """
     paths = [Path(p) for p in input_paths]
     if len(paths) not in COMPOSITE_SUFFIXES:
-        raise ValueError(f"expected 2 or 3 images, got {len(paths)}")
+        raise ValueError(f"expected {MIN_IMAGES} to {MAX_IMAGES} images, got {len(paths)}")
 
     aspects = []
     for path in paths:
@@ -529,7 +545,7 @@ def compose_preview(
     """
     paths = [Path(p) for p in input_paths]
     if len(paths) not in COMPOSITE_SUFFIXES:
-        raise ValueError(f"expected 2 or 3 images, got {len(paths)}")
+        raise ValueError(f"expected {MIN_IMAGES} to {MAX_IMAGES} images, got {len(paths)}")
 
     with_sizes = []
     for path in paths:
