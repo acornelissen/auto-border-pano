@@ -1,11 +1,13 @@
 """The stored border settings, and what happens when the file lies."""
 
+import os
 from pathlib import Path
 
 import pytest
 
 from maskingframe import pipeline
 from maskingframe.gui import settings
+from tests import conftest
 
 pytestmark = pytest.mark.usefixtures("isolated_settings")
 
@@ -226,3 +228,121 @@ def test_deleting_an_unusable_name_is_quiet(isolated_settings: Path) -> None:
     settings.delete_preset(settings.SPLIT, "   ")
 
     assert list(settings.load_presets(settings.SPLIT)) == ["Good"]
+
+
+# --- remembered detail-frame plans -------------------------------------------
+
+
+def _source(tmp_path: Path, name: str = "pano.jpg", width: int = 3000) -> Path:
+    path = tmp_path / name
+    conftest.synthetic_panorama(width, 1000).save(path, "JPEG", quality=95)
+    return path
+
+
+def test_a_plan_round_trips(tmp_path: Path) -> None:
+    source = _source(tmp_path)
+    settings.save_plan(source, (0.0, 0.3, 0.62))
+
+    assert settings.load_plan(source) == (0.0, 0.3, 0.62)
+
+
+def test_a_source_with_no_plan_returns_nothing(tmp_path: Path) -> None:
+    assert settings.load_plan(_source(tmp_path)) is None
+
+
+def test_a_missing_file_returns_nothing_rather_than_raising(tmp_path: Path) -> None:
+    assert settings.load_plan(tmp_path / "gone.jpg") is None
+
+
+def test_a_plan_is_dropped_when_the_file_has_been_edited(tmp_path: Path) -> None:
+    """Crops taken from different pixels are not the crops that were saved."""
+    source = _source(tmp_path)
+    settings.save_plan(source, (0.0, 0.4))
+
+    conftest.synthetic_panorama(3200, 1000).save(source, "JPEG", quality=95)
+
+    assert settings.load_plan(source) is None
+
+
+def test_a_plan_is_dropped_when_only_the_mtime_moves(tmp_path: Path) -> None:
+    source = _source(tmp_path)
+    settings.save_plan(source, (0.0, 0.4))
+    stat = source.stat()
+
+    os.utime(source, (stat.st_atime + 120, stat.st_mtime + 120))
+
+    assert settings.load_plan(source) is None
+
+
+def test_two_sources_keep_their_own_plans(tmp_path: Path) -> None:
+    one = _source(tmp_path, "one.jpg")
+    two = _source(tmp_path, "two.jpg", width=2400)
+    settings.save_plan(one, (0.0, 0.5))
+    settings.save_plan(two, (0.1, 0.2, 0.3))
+
+    assert settings.load_plan(one) == (0.0, 0.5)
+    assert settings.load_plan(two) == (0.1, 0.2, 0.3)
+
+
+def test_a_malformed_plan_is_dropped_on_its_own(tmp_path: Path) -> None:
+    """`load_presets` drops one bad entry rather than falling back whole,
+    and a plan follows it: losing forty-nine good plans over one bad one
+    would be worse than the bug that wrote it."""
+    good = _source(tmp_path, "good.jpg")
+    bad = _source(tmp_path, "bad.jpg", width=2400)
+    settings.save_plan(good, (0.0, 0.5))
+    settings.save_plan(bad, (0.0, 0.5))
+
+    store = settings._store()
+    store.setValue(f"{settings.PLANS}/{settings._plan_key(bad)}/positions", "not a plan")
+    store.sync()
+
+    assert settings.load_plan(good) == (0.0, 0.5)
+    assert settings.load_plan(bad) is None
+
+
+@pytest.mark.parametrize(
+    "positions",
+    [
+        (),
+        (0.5, 0.2),  # descending
+        (-0.1, 0.5),  # outside 0..1
+        (0.5, 1.5),
+    ],
+)
+def test_a_plan_that_is_not_a_plan_is_refused(tmp_path: Path, positions: tuple[float, ...]) -> None:
+    source = _source(tmp_path)
+    settings.save_plan(source, (0.0, 0.5))
+    store = settings._store()
+    store.setValue(f"{settings.PLANS}/{settings._plan_key(source)}/positions", list(positions))
+    store.sync()
+
+    assert settings.load_plan(source) is None
+
+
+def test_the_store_keeps_only_the_most_recent_plans(tmp_path: Path) -> None:
+    sources = [
+        _source(tmp_path, f"s{i}.jpg", width=2000 + i) for i in range(settings.MAX_PLANS + 5)
+    ]
+    for source in sources:
+        settings.save_plan(source, (0.0, 0.5))
+
+    kept = [source for source in sources if settings.load_plan(source) is not None]
+
+    assert len(kept) == settings.MAX_PLANS
+    assert kept == sources[-settings.MAX_PLANS :], "the wrong end was evicted"
+
+
+def test_reading_a_plan_counts_as_using_it(tmp_path: Path) -> None:
+    """Otherwise reopening the same panorama every day would still see it
+    evicted by files you only ever saved once."""
+    sources = [_source(tmp_path, f"s{i}.jpg", width=2000 + i) for i in range(settings.MAX_PLANS)]
+    for source in sources:
+        settings.save_plan(source, (0.0, 0.5))
+
+    settings.load_plan(sources[0])
+    newcomer = _source(tmp_path, "new.jpg", width=2500)
+    settings.save_plan(newcomer, (0.0, 0.5))
+
+    assert settings.load_plan(sources[0]) == (0.0, 0.5)
+    assert settings.load_plan(sources[1]) is None

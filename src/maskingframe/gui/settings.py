@@ -6,6 +6,11 @@ outlives any release -- so every field is validated on read and the whole
 style falls back to the default rather than failing the launch.
 """
 
+import hashlib
+from collections.abc import Sequence
+from itertools import pairwise
+from pathlib import Path
+
 from PySide6.QtCore import QSettings
 
 from maskingframe import pipeline
@@ -252,4 +257,162 @@ def seed_presets() -> None:
         for name, style in presets.items():
             save_preset(scope, name, style)
     store.setValue(_SEEDED, True)
+    store.sync()
+
+
+# --- remembered detail-frame plans -------------------------------------------
+
+PLANS = "plans"
+
+MAX_PLANS = 50
+"""How many sources' plans are kept.
+
+A plan is a path, two numbers and a handful of floats -- a few hundred bytes
+-- so fifty is tens of kilobytes and far more than anyone revisits. The
+point of a count rather than an age is that the ceiling is a number that can
+be stated, instead of one that depends on how much work you happen to do.
+"""
+
+_USED = "used"
+
+
+def _plan_key(path: Path) -> str:
+    """A `QSettings` group name for a source path.
+
+    Hashed rather than used directly: a path is full of the separators
+    `QSettings` reads as group boundaries, which is the same trap a preset
+    name containing a slash fell into. A hash has none of them, is a fixed
+    length, and never needs escaping rules that a reader and a writer could
+    implement differently.
+    """
+    return hashlib.sha256(str(Path(path).resolve()).encode("utf-8")).hexdigest()[:32]
+
+
+def _file_facts(path: Path) -> tuple[int, int] | None:
+    """This file's mtime and size, or None if it is not there.
+
+    The same two facts `pipeline.cached_preview_source` keys its decode on,
+    so there is one answer in this codebase to "is this the same file". A
+    stat, never a read: deciding whether to restore a handful of floats must
+    not cost hundreds of megabytes of I/O on a 132MP scan.
+    """
+    try:
+        stat = Path(path).stat()
+    except OSError:
+        return None
+    return (int(stat.st_mtime), int(stat.st_size))
+
+
+def _read_positions(value: object) -> tuple[float, ...] | None:
+    """Validate a stored plan, or refuse it.
+
+    A stored plan is untrusted input, like a stored style: the file is plain
+    text that outlives any release. Refused whole for this one source and
+    dropped on its own, following `load_presets` rather than `load_style` --
+    losing forty-nine good plans over one bad one would be worse than the bug
+    that wrote it.
+    """
+    if not isinstance(value, list | tuple):
+        return None
+    try:
+        positions = tuple(float(item) for item in value)
+    except (TypeError, ValueError):
+        return None
+    if not positions or any(not 0.0 <= place <= 1.0 for place in positions):
+        return None
+    if any(later < earlier for earlier, later in pairwise(positions)):
+        return None
+    return positions
+
+
+def load_plan(path: Path | str) -> tuple[float, ...] | None:
+    """The remembered frames for this source, or None.
+
+    None whenever anything disagrees -- no plan, a plan for a file that has
+    since changed, or a plan that does not read as one. The caller then opens
+    on the even spread, which is what it did before any of this existed.
+
+    Reading counts as using: otherwise the panorama you reopen every day
+    would still be evicted by files you saved once and never came back to.
+    """
+    facts = _file_facts(Path(path))
+    if facts is None:
+        return None
+    store = _store()
+    group = f"{PLANS}/{_plan_key(Path(path))}"
+    if not store.contains(f"{group}/positions"):
+        return None
+    try:
+        stored = (
+            int(str(store.value(f"{group}/mtime", -1))),
+            int(str(store.value(f"{group}/size", -1))),
+        )
+    except (TypeError, ValueError):
+        return None
+    if stored != facts:
+        return None
+    positions = _read_positions(store.value(f"{group}/positions"))
+    if positions is None:
+        return None
+    _touch(store, group)
+    return positions
+
+
+def _number(value: object) -> int:
+    """An integer out of whatever the INI file gave back, or zero.
+
+    Qt hands numbers back as strings from an INI store, and a plan edited by
+    hand can hold anything at all -- neither is worth raising over when the
+    only question being asked is which plan is oldest.
+    """
+    try:
+        return int(str(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _counter(store: QSettings) -> int:
+    return _number(store.value(f"{PLANS}/counter", 0))
+
+
+def _touch(store: QSettings, group: str) -> None:
+    """Mark this plan the most recently used, by a counter rather than a clock.
+
+    A counter cannot go backwards when the machine's time does, and the only
+    question ever asked of it is which plan is oldest.
+    """
+    counter = _counter(store) + 1
+    store.setValue(f"{PLANS}/counter", counter)
+    store.setValue(f"{group}/{_USED}", counter)
+
+
+def _evict(store: QSettings) -> None:
+    """Drop the least recently used plans until MAX_PLANS remain."""
+    store.beginGroup(PLANS)
+    groups = store.childGroups()
+    used = {group: _number(store.value(f"{group}/{_USED}", 0)) for group in groups}
+    store.endGroup()
+    for group in sorted(used, key=lambda name: used[name])[: max(0, len(used) - MAX_PLANS)]:
+        store.remove(f"{PLANS}/{group}")
+
+
+def save_plan(path: Path | str, positions: Sequence[float]) -> None:
+    """Remember where this source's frames are.
+
+    Silently does nothing for a file that is not there or a plan that does
+    not validate: this runs on every settle, and a storage problem must not
+    interrupt somebody placing frames.
+    """
+    source = Path(path)
+    facts = _file_facts(source)
+    checked = _read_positions(list(positions))
+    if facts is None or checked is None:
+        return
+    store = _store()
+    group = f"{PLANS}/{_plan_key(source)}"
+    store.setValue(f"{group}/mtime", facts[0])
+    store.setValue(f"{group}/size", facts[1])
+    store.setValue(f"{group}/positions", [str(place) for place in checked])
+    _touch(store, group)
+    _evict(store)
     store.sync()
