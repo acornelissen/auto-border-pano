@@ -8,6 +8,8 @@ cover-scale, center-crop offsets on both axes, and exact output size) across
 all registered ratios.
 """
 
+from itertools import pairwise
+
 import pytest
 from PIL import Image, ImageChops
 
@@ -21,6 +23,30 @@ from tests.conftest import synthetic_panorama
 # white reference need slack; this tolerance absorbs that blur without
 # hiding a real off-by-many-pixels regression.
 _BBOX_TOLERANCE = 4
+
+
+def _picture_bands(frame: Image.Image, border: tuple[int, int, int]) -> list[tuple[int, int]]:
+    """The top and bottom of each horizontal run of non-border rows.
+
+    One band per row of picture, so a test can count the rows and measure
+    them without knowing how the layout arithmetic works.
+    """
+    rows = []
+    pixels = frame.convert("RGB")
+    for y in range(frame.height):
+        line = pixels.crop((0, y, frame.width, y + 1)).getcolors(frame.width * 2) or []
+        rows.append(any(colour != border for _, colour in line))
+    bands = []
+    start = None
+    for y, filled in enumerate(rows):
+        if filled and start is None:
+            start = y
+        elif not filled and start is not None:
+            bands.append((start, y))
+            start = None
+    if start is not None:
+        bands.append((start, frame.height))
+    return bands
 
 
 def _non_white_bbox(frame: Image.Image) -> tuple[int, int, int, int]:
@@ -667,3 +693,134 @@ def test_a_frame_one_border_out_of_range_is_refused() -> None:
         geometry.FrameStyle(padded_border_percent=-1.0)
     with pytest.raises(ValueError):
         geometry.FrameStyle(padded_border_percent=geometry.MAX_PERCENT + 1)
+
+
+# --- frame 1 as stacked rows -------------------------------------------------
+
+
+def test_the_strips_tile_the_panorama_exactly() -> None:
+    """Nothing lost to rounding and nothing shown twice: the cuts have to
+    meet, start at 0 and finish on the last column."""
+    for width in (2330, 2331, 999, 1000):
+        for rows in range(1, geometry.MAX_ROWS + 1):
+            cuts = geometry.row_bounds(width, rows)
+            assert len(cuts) == rows
+            assert cuts[0][0] == 0
+            assert cuts[-1][1] == width
+            for (_, end), (start, _) in pairwise(cuts):
+                assert start == end
+            assert all(end > start for start, end in cuts)
+
+
+def test_one_row_is_the_whole_panorama() -> None:
+    assert geometry.row_bounds(2330, 1) == ((0, 2330),)
+
+
+def test_rows_of_one_are_byte_identical_to_the_field_being_absent() -> None:
+    source = synthetic_panorama(2330, 1000)
+    for ratio in geometry.RATIOS.values():
+        plain = geometry.make_padded_frame(source, ratio, geometry.FrameStyle())
+        spelled = geometry.make_padded_frame(source, ratio, geometry.FrameStyle(padded_rows=1))
+        assert plain.tobytes() == spelled.tobytes(), ratio.name
+
+
+def test_rows_are_all_the_same_size_and_shape() -> None:
+    source = synthetic_panorama(2330, 1000)
+    style = geometry.FrameStyle(padded_rows=3)
+    frame = geometry.make_padded_frame(source, geometry.PORTRAIT, style)
+
+    # Each row is a band of non-border pixels; there must be three of equal
+    # height, separated by the gap.
+    bands = _picture_bands(frame, style.border_rgb)
+    assert len(bands) == 3
+    heights = {bottom - top for top, bottom in bands}
+    assert len(heights) == 1
+
+
+def test_a_row_keeps_the_aspect_of_the_strip_it_holds() -> None:
+    source = synthetic_panorama(2400, 1000)
+    for rows in (2, 3, 4):
+        style = geometry.FrameStyle(padded_rows=rows)
+        frame = geometry.make_padded_frame(source, geometry.PORTRAIT, style)
+        left, _top, right, _bottom = _non_white_bbox(frame)
+        bands = _picture_bands(frame, style.border_rgb)
+        band_height = bands[0][1] - bands[0][0]
+        wanted = (2400 / rows) / 1000
+        assert (right - left) / band_height == pytest.approx(wanted, rel=0.02), rows
+
+
+def test_rows_never_leave_the_inset_box() -> None:
+    source = synthetic_panorama(2330, 1000)
+    for ratio in geometry.RATIOS.values():
+        for rows in range(1, geometry.MAX_ROWS + 1):
+            style = geometry.FrameStyle(padded_rows=rows)
+            border = style.padded_border_px(ratio)
+            left, top, right, bottom = _non_white_bbox(
+                geometry.make_padded_frame(source, ratio, style)
+            )
+            assert left >= border - 1, (ratio.name, rows)
+            assert top >= border - 1, (ratio.name, rows)
+            assert right <= ratio.width - border + 1, (ratio.name, rows)
+            assert bottom <= ratio.height - border + 1, (ratio.name, rows)
+
+
+def test_frame_ones_own_border_still_governs_the_rows() -> None:
+    source = synthetic_panorama(2330, 1000)
+    wide = geometry.make_padded_frame(
+        source, geometry.PORTRAIT, geometry.FrameStyle(padded_rows=2, padded_border_percent=20.0)
+    )
+    narrow = geometry.make_padded_frame(
+        source, geometry.PORTRAIT, geometry.FrameStyle(padded_rows=2, padded_border_percent=1.0)
+    )
+
+    assert _non_white_bbox(narrow)[0] < _non_white_bbox(wide)[0]
+
+
+@pytest.mark.parametrize("rows", [0, -1, geometry.MAX_ROWS + 1])
+def test_a_row_count_out_of_range_is_refused(rows: int) -> None:
+    with pytest.raises(ValueError):
+        geometry.FrameStyle(padded_rows=rows)
+
+
+@pytest.mark.parametrize(
+    ("pano", "ratio_name", "expected"),
+    [
+        (2.33, "4:5", (0.231, 0.495, 0.203, 0.105)),
+        (2.33, "1:1", (0.289, 0.355, 0.142, 0.072)),
+        (2.33, "1.91:1", (0.672, 0.185, 0.074, 0.037)),
+        (3.0, "4:5", (0.179, 0.637, 0.262, 0.136)),
+        (6.0, "4:5", (0.090, 0.359, 0.524, 0.271)),
+        (6.0, "1.91:1", (0.261, 0.477, 0.191, 0.096)),
+    ],
+)
+def test_the_spec_table_is_what_the_arithmetic_says(
+    pano: float, ratio_name: str, expected: tuple[float, ...]
+) -> None:
+    """The design's own justification. If these move, the reason for the
+    feature has moved with them and the spec is wrong."""
+    ratio = geometry.RATIOS[ratio_name]
+    height = 1000
+    width = round(pano * height)
+    got = tuple(
+        geometry.padded_rows_fill(width, height, ratio, geometry.FrameStyle(), rows)
+        for rows in range(1, 5)
+    )
+    assert got == pytest.approx(expected, abs=0.002)
+
+
+def test_the_advertised_fill_is_the_one_that_renders() -> None:
+    """The number in the rail is what a user acts on, so it is checked
+    against the actual picture rather than against a second copy of the
+    formula that produced it."""
+    source = synthetic_panorama(2330, 1000)
+    for ratio in geometry.RATIOS.values():
+        for rows in range(1, geometry.MAX_ROWS + 1):
+            style = geometry.FrameStyle(padded_rows=rows)
+            frame = geometry.make_padded_frame(source, ratio, style)
+            covered = sum(bottom - top for top, bottom in _picture_bands(frame, style.border_rgb))
+            left, _, right, _ = _non_white_bbox(frame)
+            drawn = covered * (right - left) / (ratio.width * ratio.height)
+
+            promised = geometry.padded_rows_fill(2330, 1000, ratio, style, rows)
+
+            assert drawn == pytest.approx(promised, abs=0.01), (ratio.name, rows)

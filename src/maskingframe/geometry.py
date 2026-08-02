@@ -54,6 +54,14 @@ MIN_SECTIONS = 2
 
 MAX_PERCENT = 40.0
 
+MAX_ROWS = 4
+"""How many rows frame 1 may be laid out in.
+
+Five never wins at any ratio for any panorama shape this tool accepts, and
+an unbounded count would offer choices that are arithmetic rather than
+photographs.
+"""
+
 _HEX = re.compile(r"\A#(?:[0-9a-f]{3}|[0-9a-f]{6})\Z")
 
 
@@ -105,6 +113,20 @@ class FrameStyle:
     gutter_percent: float = 4.0
     gutter_colour: str = "#ffffff"
     border_detail_frames: bool = False
+    padded_rows: int = 1
+    """How many rows frame 1 lays the panorama out in. 1 is the whole thing.
+
+    A panorama is a much wider shape than a tall frame, so fitting it whole
+    leaves most of the frame as border -- a ceiling `padded_border_percent`
+    cannot move, because it is the shape difference rather than the border.
+    Cutting it into full-width rows read top to bottom roughly doubles what
+    it covers at 4:5, and crops nothing: every pixel is still shown, once.
+
+    1 is today's behaviour, so nothing stored, scripted or hashed moves
+    until somebody sets it. Rows hurt at a wide ratio -- a 2.33:1 panorama
+    goes from 67% to 19% at 1.91:1 -- which is why this is a choice rather
+    than something the application decides.
+    """
     padded_border_percent: float | None = None
     """Frame 1's own border, or None to use `border_percent`.
 
@@ -126,6 +148,10 @@ class FrameStyle:
                 self,
                 "padded_border_percent",
                 _check_percent("frame 1 border", self.padded_border_percent),
+            )
+        if not isinstance(self.padded_rows, int) or not 1 <= self.padded_rows <= MAX_ROWS:
+            raise ValueError(
+                f"frame 1 rows must be between 1 and {MAX_ROWS}, got {self.padded_rows!r}"
             )
         object.__setattr__(self, "gutter_percent", _check_percent("gutter", self.gutter_percent))
         object.__setattr__(self, "border_colour", parse_colour(self.border_colour))
@@ -402,17 +428,28 @@ def make_padded_frame(
     scale and downscaling) also avoids building a huge intermediate canvas,
     which matters on multi-hundred-megapixel scans.
     """
-    border = style.padded_border_px(ratio)
     pano_width, pano_height = image.size
-    box_width = max(1, ratio.width - 2 * border)
-    box_height = max(1, ratio.height - 2 * border)
-    scale = min(box_width / pano_width, box_height / pano_height)
-    fitted_width = max(1, math.floor(pano_width * scale + 0.5))
-    fitted_height = max(1, math.floor(pano_height * scale + 0.5))
+    rows = style.padded_rows
+    row_width, row_height, gap = _row_block(pano_width, pano_height, ratio, style, rows)
 
-    fitted = image.resize((fitted_width, fitted_height), Image.Resampling.LANCZOS)
     canvas = Image.new("RGB", (ratio.width, ratio.height), style.border_rgb)
-    canvas.paste(fitted, ((ratio.width - fitted_width) // 2, (ratio.height - fitted_height) // 2))
+    block_height = row_height * rows + gap * (rows - 1)
+    left = (ratio.width - row_width) // 2
+    top = (ratio.height - block_height) // 2
+
+    # The gaps go down before the rows, as `compose.render` paints a
+    # composite: a row's rounded edge can land a pixel off the rounded gap,
+    # and an overlap then disappears under a row while a shortfall would
+    # show as a hairline of the wrong colour.
+    if gap > 0 and style.gutter_rgb != style.border_rgb:
+        for index in range(rows - 1):
+            band_top = top + (index + 1) * row_height + index * gap
+            canvas.paste(Image.new("RGB", (row_width, gap), style.gutter_rgb), (left, band_top))
+
+    for index, (start, end) in enumerate(row_bounds(pano_width, rows)):
+        strip = image if rows == 1 else image.crop((start, 0, end, pano_height))
+        fitted = strip.resize((row_width, row_height), Image.Resampling.LANCZOS)
+        canvas.paste(fitted, (left, top + index * (row_height + gap)))
     return canvas
 
 
@@ -481,3 +518,59 @@ def make_section(
     canvas = Image.new("RGB", (ratio.width, ratio.height), style.border_rgb)
     canvas.paste(inner, (border, border))
     return canvas
+
+
+def row_bounds(pano_width: int, rows: int) -> tuple[tuple[int, int], ...]:
+    """Where each row's strip starts and ends, in source pixels.
+
+    Equal strips, left to right, with adjacent edges shared exactly and the
+    last one landing on `pano_width` -- so nothing is lost to rounding and
+    nothing appears in two rows.
+
+    Equal is a consequence rather than a preference: the rows share a
+    display width, so unequal source widths would give unequal heights and
+    the stack would stop being one.
+    """
+    edges = [math.floor(index * pano_width / rows + 0.5) for index in range(rows)]
+    edges.append(pano_width)
+    return tuple((edges[index], edges[index + 1]) for index in range(rows))
+
+
+def _row_block(
+    pano_width: int, pano_height: int, ratio: AspectRatio, style: FrameStyle, rows: int
+) -> tuple[int, int, int]:
+    """The size of one row and the gap between rows, in output pixels.
+
+    Returns (row_width, row_height, gap). The rows share a width; each is
+    `width * rows / pano` tall, so the whole block is
+    `width * rows**2 / pano + (rows - 1) * gap` and fitting that inside the
+    inset box gives the width below.
+    """
+    border = style.padded_border_px(ratio)
+    gap = style.gutter_px(ratio) if rows > 1 else 0
+    box_width = max(1, ratio.width - 2 * border)
+    box_height = max(1, ratio.height - 2 * border)
+    pano = pano_width / pano_height
+
+    spare = box_height - (rows - 1) * gap
+    if spare <= 0:
+        return (0, 0, gap)
+    width = min(float(box_width), spare * pano / (rows * rows))
+    height = width * rows / pano
+    return (max(1, math.floor(width + 0.5)), max(1, math.floor(height + 0.5)), gap)
+
+
+def padded_rows_fill(
+    pano_width: int, pano_height: int, ratio: AspectRatio, style: FrameStyle, rows: int
+) -> float:
+    """What share of frame 1 this many rows would cover.
+
+    Pure arithmetic -- no image is opened and nothing is rendered -- so an
+    interface can label every choice without paying for four renders of a
+    132MP scan. `test_the_advertised_fill_is_the_one_that_renders` holds it
+    against the actual picture, because this is the number a user acts on.
+    """
+    width, height, _ = _row_block(pano_width, pano_height, ratio, style, rows)
+    if width <= 0 or height <= 0:
+        return 0.0
+    return (width * height * rows) / (ratio.width * ratio.height)
