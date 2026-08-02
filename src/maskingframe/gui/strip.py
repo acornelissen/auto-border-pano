@@ -170,6 +170,14 @@ class BorderPreview:
     aspect: float
     border: float
     colour: str
+    first_border: float | None = None
+    """Frame 1's own band, or None when it carries the shared one.
+
+    Frame 1 can be given a border of its own, so one number no longer
+    describes every frame. Drawing the shared band over a frame the run
+    will bleed to its edges is exactly the promise this overlay exists not
+    to make.
+    """
     first_frame_only: bool = False
     gaps: tuple[Rect, ...] = ()
     gap_colour: str = ""
@@ -490,7 +498,20 @@ class ContactStrip(QWidget):
             # down first and then knocked back out. Reported as the one
             # rectangle that is actually filled in the border colour.
             return [rect]
-        return border_bands(rect, self._border.border)
+        return border_bands(rect, self._band_for(index))
+
+    def _band_for(self, index: int) -> float:
+        """How wide a band this frame carries, as a fraction of its short side.
+
+        Frame 1 takes its own when it has been given one; everything else
+        takes the shared width. One place decides, so the rectangles a test
+        asks for and the pixels a paint puts down cannot disagree.
+        """
+        if self._border is None:
+            return 0.0
+        if index == 0 and self._border.first_border is not None:
+            return self._border.first_border
+        return self._border.border
 
     def set_frames(self, titles: Sequence[str]) -> None:
         """Lay out one frame per title, discarding everything from the last
@@ -913,7 +934,7 @@ class ContactStrip(QWidget):
             # and what is left is the border, slack and all.
             painter.fillRect(rect, colour)
         else:
-            for band in border_bands(rect, preview.border):
+            for band in border_bands(rect, self._band_for(index)):
                 painter.fillRect(band, colour)
         if preview.gaps and preview.gap_colour:
             gap_colour = theme.rgb(preview.gap_colour)

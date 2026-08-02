@@ -433,6 +433,14 @@ class SplitTab(QWidget):
                 aspect=ratio.width / ratio.height,
                 border=style.border_percent / 100,
                 colour=style.border_colour,
+                # Frame 1's own band when it has one, so the overlay says
+                # what the run will write rather than what the shared
+                # setting says.
+                first_border=(
+                    None
+                    if style.padded_border_percent is None
+                    else style.padded_border_percent / 100
+                ),
                 first_frame_only=not style.border_detail_frames,
             )
         )

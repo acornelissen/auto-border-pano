@@ -21,7 +21,7 @@ from pytestqt.qtbot import QtBot
 
 from maskingframe import pipeline
 from maskingframe.gui import strip, theme
-from maskingframe.gui.strip import ContactStrip
+from maskingframe.gui.strip import BorderPreview, ContactStrip
 
 
 @pytest.fixture
@@ -885,3 +885,60 @@ def test_focus_selects_nothing_when_the_keys_cannot_move_anything(qtbot: QtBot) 
         widget.focusInEvent(QFocusEvent(QEvent.Type.FocusIn))
 
     assert widget.selected() is None
+
+
+def test_frame_one_is_drawn_with_its_own_border_when_it_has_one(qtbot: QtBot) -> None:
+    """The overlay must say what the run will write. Frame 1 can now carry a
+    different band from the detail frames, and drawing the shared one over it
+    promises a frame nobody is going to get."""
+    built = ContactStrip()
+    qtbot.addWidget(built)
+    built.set_frames(["FRAME 1", "FRAME 2"])
+    built.resize(900, 400)
+
+    built.set_border_preview(
+        BorderPreview(aspect=0.8, border=0.09, colour="#ffffff", first_border=0.01)
+    )
+
+    rect = built.frame_rect_at(0)
+    bands = built.border_rects(0)
+    assert bands
+    # A 1% band on the frame's short side, not the 9% the detail frames use.
+    thinnest = min(min(band.width(), band.height()) for band in bands)
+    assert thinnest == pytest.approx(min(rect.width(), rect.height()) * 0.01, abs=1.5)
+
+
+def test_the_detail_frames_keep_the_shared_border(qtbot: QtBot) -> None:
+    built = ContactStrip()
+    qtbot.addWidget(built)
+    built.set_frames(["FRAME 1", "FRAME 2"])
+    built.resize(900, 400)
+
+    built.set_border_preview(
+        BorderPreview(
+            aspect=0.8,
+            border=0.09,
+            colour="#ffffff",
+            first_border=0.01,
+            first_frame_only=False,
+        )
+    )
+
+    rect = built.frame_rect_at(1)
+    bands = built.border_rects(1)
+    assert bands
+    thinnest = min(min(band.width(), band.height()) for band in bands)
+    assert thinnest == pytest.approx(min(rect.width(), rect.height()) * 0.09, abs=1.5)
+
+
+def test_frame_one_falls_back_to_the_shared_border(qtbot: QtBot) -> None:
+    built = ContactStrip()
+    qtbot.addWidget(built)
+    built.set_frames(["FRAME 1"])
+    built.resize(900, 400)
+
+    built.set_border_preview(BorderPreview(aspect=0.8, border=0.09, colour="#ffffff"))
+
+    rect = built.frame_rect_at(0)
+    thinnest = min(min(b.width(), b.height()) for b in built.border_rects(0))
+    assert thinnest == pytest.approx(min(rect.width(), rect.height()) * 0.09, abs=1.5)
