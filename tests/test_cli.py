@@ -364,10 +364,31 @@ def test_compose_rejects_one_input(tmp_path: Path) -> None:
         cli.main(["compose", COMPOSE_FIXTURES[0], "-o", str(tmp_path / "out")])
 
 
-def test_compose_rejects_four_inputs(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_too_many_sources_are_refused_by_number(tmp_path: Path, capsys: Any) -> None:
+    paths = []
+    for index in range(7):
+        path = tmp_path / f"s{index}.jpg"
+        synthetic_panorama(400, 300).save(path, "JPEG", quality=95)
+        paths.append(str(path))
+
     with pytest.raises(SystemExit):
-        cli.main(["compose", *COMPOSE_FIXTURES, COMPOSE_FIXTURES[0], "-o", str(tmp_path / "out")])
-    assert "4" in capsys.readouterr().err
+        cli.main(["compose", *paths, "-o", str(tmp_path / "out")])
+
+    message = capsys.readouterr().err
+    assert "got 7" in message
+    assert "2 to 6" in message
+
+
+def test_six_sources_are_accepted(tmp_path: Path) -> None:
+    paths = []
+    for index in range(6):
+        path = tmp_path / f"s{index}.jpg"
+        synthetic_panorama(400, 300).save(path, "JPEG", quality=95)
+        paths.append(str(path))
+
+    cli.main(["compose", *paths, "-o", str(tmp_path / "out")])
+
+    assert (tmp_path / "out_hexaptych.jpg").exists()
 
 
 def test_compose_defaults_its_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -464,3 +485,8 @@ def test_compose_help_mentions_the_subcommand() -> None:
     compose_help = cli.build_compose_parser().format_help()
     assert "--gutter" in compose_help
     assert "-o" in compose_help
+
+
+def test_compose_help_names_the_range() -> None:
+    parser = cli.build_compose_parser()
+    assert "two to six" in parser.format_help()

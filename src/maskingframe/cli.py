@@ -152,7 +152,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Split a panorama into a whole-panorama frame plus zoomed detail "
             "frames, sized for an Instagram carousel. Accepts a single image "
             "or a folder of images. Use the 'compose' subcommand instead to "
-            "join two or three images into a single diptych or triptych."
+            "join two to six images into a single composite."
         ),
     )
     parser.add_argument("input", type=Path, help="input image or folder")
@@ -182,18 +182,24 @@ def build_compose_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="maskingframe compose",
         description=(
-            "Compose two or three images into a single frame at the target "
+            "Compose two to six images into a single frame at the target "
             "aspect ratio. The arrangement is chosen automatically, and any "
             "mix of orientations is accepted."
         ),
     )
-    parser.add_argument("inputs", type=Path, nargs="+", metavar="IMAGE", help="two or three images")
+    parser.add_argument("inputs", type=Path, nargs="+", metavar="IMAGE", help="two to six images")
     parser.add_argument(
         "-o",
         "--output",
         type=Path,
         default=Path("output"),
-        help="output prefix; the suffix _diptych.jpg or _triptych.jpg is added",
+        help=(
+            "output prefix; one of the suffixes "
+            + ", ".join(
+                pipeline.COMPOSITE_SUFFIXES[count] for count in sorted(pipeline.COMPOSITE_SUFFIXES)
+            )
+            + " is added"
+        ),
     )
     _add_style_arguments(parser)
     return parser
@@ -208,8 +214,11 @@ def _compose_main(argv: list[str]) -> int:
     parser = build_compose_parser()
     args = parser.parse_args(argv)
 
-    if len(args.inputs) not in (2, 3):
-        parser.error(f"expected 2 or 3 images, got {len(args.inputs)}")
+    if not pipeline.MIN_IMAGES <= len(args.inputs) <= pipeline.MAX_IMAGES:
+        parser.error(
+            f"expected {pipeline.MIN_IMAGES} to {pipeline.MAX_IMAGES} images, "
+            f"got {len(args.inputs)}"
+        )
 
     for path in args.inputs:
         if not path.exists():
