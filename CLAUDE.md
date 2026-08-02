@@ -274,7 +274,14 @@ trap a preset name containing a slash fell into. `MAX_PLANS` is 50, least
 recently used evicted, and **reading counts as using** — otherwise the
 panorama you reopen every day would be evicted by files you saved once and
 never came back to. A malformed plan is dropped on its own, following
-`load_presets` rather than `load_style`.
+`load_presets` rather than `load_style`. The key uses `st_mtime_ns`, matching
+`cached_preview_source` exactly rather than approximately: whole seconds would
+be coarser than the cache it claims parity with.
+
+`padded_border_percent` is stored through `_optional_percent`/`_set_optional`,
+which read against the key's *presence* and remove it when the value is None —
+so an unticked box and a store written before the field existed are the same
+thing on disk, and 0 (full bleed) never reads back as no choice made.
 
 The ratio is not part of the key. A position is a fraction of the panorama's
 width, which means the same thing at every ratio, and the count has been the
