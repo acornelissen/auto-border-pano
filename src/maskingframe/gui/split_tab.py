@@ -307,6 +307,7 @@ class SplitTab(QWidget):
             show_gutter=True,
             show_detail_toggle=True,
             show_frame1=True,
+            gutter_help="The gap between frame 1's rows, when it has more than one.",
         )
         self.border_controls.reload_presets()
         self.border_controls.restore_style(settings.load_style(settings.SPLIT))

@@ -15,7 +15,7 @@ opens the colour dialog for real -- a modal would hang the suite -- so
 import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QCheckBox, QColorDialog, QLayout
+from PySide6.QtWidgets import QCheckBox, QColorDialog, QLabel, QLayout
 from pytestqt.qtbot import QtBot
 
 from maskingframe import pipeline
@@ -617,3 +617,61 @@ def test_compose_is_not_offered_a_frame_one_border(qtbot: QtBot) -> None:
 
     assert built.frame1_check is None
     assert built.frame_style().padded_border_percent is None
+
+
+def test_a_short_window_scrolls_the_rail_rather_than_crushing_it(qtbot: QtBot) -> None:
+    """The rail is a column of settings, and a window shorter than the
+    column has to scroll it. Squeezing instead draws the controls on top of
+    one another: at 860px the border section was given 102px of the 367 it
+    needs, and every row inside it came out five pixels tall.
+    """
+    from maskingframe.gui.app import MainWindow
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.resize(1280, 700)
+    window.show()
+    qtbot.waitExposed(window)
+
+    controls = window.split.border_controls
+    assert controls.height() >= controls.heightForWidth(controls.width())
+
+
+def test_the_rail_keeps_its_width_when_it_scrolls(qtbot: QtBot) -> None:
+    """A scrollbar must not eat the rail's width -- the two columns are a
+    fixed rail and everything else, and a rail that narrows when the window
+    shortens would reflow every label in it."""
+    from maskingframe.gui.app import MainWindow
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.show()
+
+    window.resize(1280, 1400)
+    qtbot.waitExposed(window)
+    tall = window.split.border_controls.width()
+
+    window.resize(1280, 700)
+    qtbot.waitUntil(lambda: window.height() < 800, timeout=2000)
+
+    assert window.split.border_controls.width() == tall
+
+
+def test_each_tab_says_what_its_own_gap_separates(qtbot: QtBot) -> None:
+    """One control and one stored field, but not one sentence: a composite's
+    gap is between panels, and a split's is between frame 1's rows. Split
+    used to be handed the composite's wording, and Split has no panels."""
+    from maskingframe.gui.app import MainWindow
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    def help_texts(controls: shell.BorderControls) -> list[str]:
+        return [label.text() for label in controls.findChildren(QLabel)]
+
+    split = " ".join(help_texts(window.split.border_controls))
+    compose = " ".join(help_texts(window.compose.border_controls))
+
+    assert "rows" in split
+    assert "panels" not in split
+    assert "panels" in compose

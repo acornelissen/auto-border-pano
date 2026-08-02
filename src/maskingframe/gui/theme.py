@@ -152,6 +152,24 @@ def stylesheet() -> str:
     /* Layout containers carry no colour of their own; without this they
        inherit the global QWidget white and punch holes in the rail. */
     #Rail QWidget {{ background: transparent; }}
+    /* The rail scrolls when the window is shorter than the column. The bar
+       is chrome, so it stays greyscale and hard-edged like every other
+       hairline here -- chinagraph is for marking up, not for furniture. */
+    #Rail QScrollBar:vertical {{
+        background: transparent;
+        width: 8px;
+        margin: 0;
+    }}
+    #Rail QScrollBar::handle:vertical {{
+        background: {EDGE};
+        min-height: 32px;
+    }}
+    #Rail QScrollBar::add-line:vertical, #Rail QScrollBar::sub-line:vertical {{
+        height: 0;
+    }}
+    #Rail QScrollBar::add-page:vertical, #Rail QScrollBar::sub-page:vertical {{
+        background: transparent;
+    }}
     #Rail QLineEdit, #Rail QComboBox {{ background: {WELL}; }}
     #Rail QPushButton {{ background: {WELL}; }}
     #Rail QPushButton#Primary {{ background: {CHINAGRAPH}; }}

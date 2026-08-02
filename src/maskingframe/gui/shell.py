@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSlider,
     QTabBar,
@@ -124,10 +125,29 @@ class TwoColumn(QWidget):
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(0)
 
-        self.rail = QWidget(self)
+        # The rail scrolls. It is a column of settings that has grown with
+        # every feature, and a window shorter than the column used to have
+        # Qt squeeze the difference out of the controls -- at 860px the
+        # border section was given 102px of the 367 it needs and every row
+        # in it came out five pixels tall, drawn over its neighbours. A
+        # scroll area is what makes "too tall" mean scrolling rather than
+        # collapsing, and it keeps the next section that gets added from
+        # doing the same thing again.
+        self.rail = QScrollArea(self)
         self.rail.setObjectName("Rail")
         self.rail.setFixedWidth(theme.RAIL_WIDTH)
-        self.rail_layout = QVBoxLayout(self.rail)
+        self.rail.setWidgetResizable(True)
+        self.rail.setFrameShape(QFrame.Shape.NoFrame)
+        self.rail.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # Always on, not as-needed: a scrollbar that appears and disappears
+        # reflows every wrapped label in the rail as the window is dragged,
+        # and the labels here are pinned to a measured height.
+        self.rail.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+
+        self.rail_content = QWidget()
+        self.rail_content.setObjectName("RailContent")
+        self.rail.setWidget(self.rail_content)
+        self.rail_layout = QVBoxLayout(self.rail_content)
         self.rail_layout.setContentsMargins(theme.L, theme.L, theme.L, theme.L)
         self.rail_layout.setSpacing(0)
 
@@ -652,6 +672,10 @@ class BorderControls(QWidget):
         # reason `scope` is: a fourth positional is a miscount waiting to
         # happen, and this one would put a split-only control on Compose.
         show_frame1: bool = False,
+        # What the gap actually separates, which is not the same thing on
+        # both tabs: panels on a composite, frame 1's rows on a split. One
+        # control, one stored field, two true sentences.
+        gutter_help: str = "The gap between the panels.",
     ) -> None:
         super().__init__(parent)
         self._quiet = False
@@ -709,7 +733,7 @@ class BorderControls(QWidget):
             )
             column.addWidget(gutter_row)
             column.addSpacing(theme.S)
-            column.addWidget(help_label("The gap between the panels."))
+            column.addWidget(help_label(gutter_help))
 
         if show_frame1:
             column.addSpacing(theme.M)
