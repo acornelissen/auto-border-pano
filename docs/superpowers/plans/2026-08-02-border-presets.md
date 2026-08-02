@@ -937,7 +937,7 @@ git commit -m "feat(gui): choose a border by name"
 **Files:**
 - Modify: `CLAUDE.md`
 
-- [ ] **Step 1: Record the preset model**
+- [x] **Step 1: Record the preset model**
 
 In the "Remembering the border" section, after the paragraph about Split and Compose storing their styles under separate scopes, add:
 
@@ -968,7 +968,7 @@ from the preset they started as, and is stripped before any name is saved,
 matched or deleted.
 ```
 
-- [ ] **Step 2: Run the full gate and commit**
+- [x] **Step 2: Run the full gate and commit**
 
 ```bash
 mise run check
