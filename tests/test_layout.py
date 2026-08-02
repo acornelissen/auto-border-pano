@@ -27,13 +27,13 @@ def test_two_equal_panoramas_stack_at_portrait() -> None:
     # Two 2.33:1 panoramas in a 1080x1350 frame: a column wins easily,
     # because a row would make each panel about 0.9:1.
     solved = layout.solve([2.33, 2.33], geometry.PORTRAIT, STYLE)
-    assert solved.name == "column"
+    assert solved.name == "C(1,2)"
     assert len(solved.boxes) == 2
 
 
 def test_three_panoramas_stack_at_portrait() -> None:
     solved = layout.solve([2.33, 2.33, 2.33], geometry.PORTRAIT, STYLE)
-    assert solved.name == "column"
+    assert solved.name == "C(1,2,3)"
     assert len(solved.boxes) == 3
 
 
@@ -187,11 +187,11 @@ def test_winning_candidate_fills_at_least_as_much_as_the_alternatives() -> None:
                 assert solved.score >= other.score - 1e-9, (ratio.name, name)
 
 
-def test_only_two_or_three_images_are_supported() -> None:
+def test_only_counts_in_the_supported_range_are_accepted() -> None:
     with pytest.raises(ValueError):
         layout.solve([1.0], geometry.SQUARE, STYLE)
     with pytest.raises(ValueError):
-        layout.solve([1.0, 1.0, 1.0, 1.0], geometry.SQUARE, STYLE)
+        layout.solve([1.0] * 7, geometry.SQUARE, STYLE)
 
 
 def test_two_panels_get_one_gutter() -> None:
@@ -222,7 +222,7 @@ def test_a_column_gutter_leaves_no_gap_on_either_side() -> None:
     # The whole point of the rectangle: every pixel between two adjacent
     # panels is covered by it, with nothing left uncoloured on either side.
     node = layout.Column((layout.Leaf(0), layout.Leaf(1), layout.Leaf(2)))
-    solved = layout.evaluate(node, "column", [2.33, 2.33, 2.33], geometry.PORTRAIT, STYLE)
+    solved = layout.evaluate(node, "C(1,2,3)", [2.33, 2.33, 2.33], geometry.PORTRAIT, STYLE)
     assert solved is not None
     pairs = list(zip(solved.boxes, solved.boxes[1:], strict=False))
     for gutter, (above, below) in zip(solved.gutters, pairs, strict=True):
@@ -234,7 +234,7 @@ def test_a_column_gutter_leaves_no_gap_on_either_side() -> None:
 
 def test_a_row_gutter_leaves_no_gap_on_either_side() -> None:
     node = layout.Row((layout.Leaf(0), layout.Leaf(1), layout.Leaf(2)))
-    solved = layout.evaluate(node, "row", [0.5, 0.5, 0.5], geometry.LANDSCAPE, STYLE)
+    solved = layout.evaluate(node, "R(1,2,3)", [0.5, 0.5, 0.5], geometry.LANDSCAPE, STYLE)
     assert solved is not None
     pairs = list(zip(solved.boxes, solved.boxes[1:], strict=False))
     for gutter, (before, after) in zip(solved.gutters, pairs, strict=True):
@@ -264,3 +264,80 @@ def test_gutter_width_tracks_the_style() -> None:
     assert wide.gutters[0].width > narrow.gutters[0].width or (
         wide.gutters[0].height > narrow.gutters[0].height
     )
+
+
+def test_candidate_counts_are_the_one_level_arrangements() -> None:
+    """Compositions of n into two or more consecutive blocks, times two
+    orientations: 2^(n-1) - 1 doubled. Worked by hand rather than read off
+    the implementation, so a change in the recursion fails here."""
+    counts = {n: len(list(layout.candidates(n))) for n in range(2, 7)}
+    assert counts == {2: 2, 3: 6, 4: 14, 5: 30, 6: 62}
+
+
+def test_every_candidate_name_is_unique() -> None:
+    for count in range(2, 7):
+        names = [name for name, _ in layout.candidates(count)]
+        assert len(set(names)) == len(names)
+
+
+def test_the_three_panel_set_is_what_the_hand_written_list_gave() -> None:
+    """The old list, renamed. Nothing at the current ceiling may move."""
+    assert {name for name, _ in layout.candidates(3)} == {
+        "R(1,2,3)",
+        "C(1,2,3)",
+        "R(1,C(2,3))",
+        "R(C(1,2),3)",
+        "C(1,R(2,3))",
+        "C(R(1,2),3)",
+    }
+
+
+def test_the_two_panel_set_is_the_pair() -> None:
+    assert {name for name, _ in layout.candidates(2)} == {"R(1,2)", "C(1,2)"}
+
+
+def test_a_six_panel_grid_is_offered() -> None:
+    names = {name for name, _ in layout.candidates(6)}
+    assert "C(R(1,2,3),R(4,5,6))" in names
+    assert "R(C(1,2),C(3,4),C(5,6))" in names
+    assert "R(1,2,3,4,5,6)" in names
+
+
+def _leaves(node: layout.Node) -> list[int]:
+    if isinstance(node, layout.Leaf):
+        return [node.index]
+    return [index for child in node.children for index in _leaves(child)]
+
+
+def test_every_candidate_uses_each_image_once_in_order() -> None:
+    for count in range(2, 7):
+        for name, node in layout.candidates(count):
+            assert _leaves(node) == list(range(count)), name
+
+
+def test_no_candidate_nests_more_than_one_level() -> None:
+    for count in range(2, 7):
+        for name, node in layout.candidates(count):
+            assert layout.node_depth(node) <= 2, name
+
+
+def test_a_group_never_repeats_its_parent_orientation() -> None:
+    """R(R(1,2),3) and R(1,2,3) are the same picture. The alternation is
+    what stops both being generated, so it is asserted directly."""
+    for count in range(2, 7):
+        for name, node in layout.candidates(count):
+            assert not isinstance(node, layout.Leaf)
+            for child in node.children:
+                assert not isinstance(child, type(node)), name
+
+
+@pytest.mark.parametrize("count", [0, 1, 7, 12])
+def test_a_count_outside_the_range_is_refused_by_number(count: int) -> None:
+    with pytest.raises(ValueError, match=f"got {count}"):
+        list(layout.candidates(count))
+
+
+def test_a_name_reads_the_tree_with_images_numbered_from_one() -> None:
+    node = layout.Row((layout.Leaf(0), layout.Column((layout.Leaf(1), layout.Leaf(2)))))
+    assert layout.name_of(node) == "R(1,C(2,3))"
+    assert layout.name_of(layout.Leaf(3)) == "4"

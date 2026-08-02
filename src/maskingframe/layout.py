@@ -65,26 +65,79 @@ class Column:
 Node = Leaf | Row | Column
 
 
-def candidates(count: int) -> Iterator[tuple[str, Node]]:
-    """Every arrangement considered, in tie-break order.
+MIN_PANELS = 2
+MAX_PANELS = 6
 
-    Order is fixed and never permuted -- panel 0 always holds image 0.
+
+def name_of(node: Node) -> str:
+    """This arrangement's canonical name, images numbered from one.
+
+    `R(1,C(2,3))` is image 1 beside images 2 and 3 stacked. The numbering
+    matches the numerals the sources list draws, so a name read off the
+    interface points at the panels it names. Generated rather than written
+    down: at six panels there are 62 of these.
     """
-    if count == 2:
-        a, b = Leaf(0), Leaf(1)
-        yield "row", Row((a, b))
-        yield "column", Column((a, b))
-        return
-    if count == 3:
-        a, b, c = Leaf(0), Leaf(1), Leaf(2)
-        yield "row", Row((a, b, c))
-        yield "column", Column((a, b, c))
-        yield "row-one-then-two", Row((a, Column((b, c))))
-        yield "row-two-then-one", Row((Column((a, b)), c))
-        yield "column-one-then-two", Column((a, Row((b, c))))
-        yield "column-two-then-one", Column((Row((a, b)), c))
-        return
-    raise ValueError(f"expected 2 or 3 images, got {count}")
+    if isinstance(node, Leaf):
+        return str(node.index + 1)
+    letter = "R" if isinstance(node, Row) else "C"
+    return f"{letter}({','.join(name_of(child) for child in node.children)})"
+
+
+def node_depth(node: Node) -> int:
+    """How many levels of grouping this arrangement has. A leaf is 0."""
+    if isinstance(node, Leaf):
+        return 0
+    return 1 + max(node_depth(child) for child in node.children)
+
+
+def _blocks(count: int) -> Iterator[tuple[int, ...]]:
+    """Every way to cut `count` ordered images into two or more blocks.
+
+    These are the compositions of `count`, less the single-block one:
+    2^(count-1) - 1 of them.
+    """
+
+    def walk(remaining: int, taken: tuple[int, ...]) -> Iterator[tuple[int, ...]]:
+        if remaining == 0:
+            if len(taken) >= 2:
+                yield taken
+            return
+        for size in range(1, remaining + 1):
+            yield from walk(remaining - size, (*taken, size))
+
+    yield from walk(count, ())
+
+
+def candidates(count: int) -> Iterator[tuple[str, Node]]:
+    """Every arrangement considered, generated rather than listed.
+
+    An arrangement is one root -- a row or a column -- whose parts are
+    consecutive blocks of the images in input order. A block of one image is
+    a leaf; a block of more is a group of the *opposite* orientation holding
+    only leaves. There is no third level.
+
+    The alternation is what makes the set canonical: without it `R(R(1,2),3)`
+    and `R(1,2,3)` would both be generated for the same picture.
+
+    One level is a restriction, not a consequence. Deeper trees exist -- 394
+    of them at six panels rather than 62 -- and they fill the frame better,
+    by up to 13 points. They are left out because the arrangements they win
+    with, `C(R(C(R(1,C(2,3)),4),5),6)` and its like, are not ones anybody
+    would lay out. The two- and three-panel sets are unaffected: every
+    arrangement the old hand-written list held has one level of grouping.
+    """
+    if not MIN_PANELS <= count <= MAX_PANELS:
+        raise ValueError(f"expected {MIN_PANELS} to {MAX_PANELS} images, got {count}")
+    for root, inner in ((Row, Column), (Column, Row)):
+        for sizes in _blocks(count):
+            parts: list[Node] = []
+            start = 0
+            for size in sizes:
+                leaves = tuple(Leaf(index) for index in range(start, start + size))
+                parts.append(leaves[0] if size == 1 else inner(leaves))
+                start += size
+            node = root(tuple(parts))
+            yield name_of(node), node
 
 
 def _coefficients(node: Node, aspects: Sequence[float], gutter: int) -> tuple[float, float]:
