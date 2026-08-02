@@ -468,7 +468,7 @@ def _rail_texts(built: ComposeTab) -> list[str]:
 def test_the_rail_reads_subject_then_format_then_destination(tab: ComposeTab) -> None:
     """Split's rail is subject, FORMAT, DESTINATION, primary. These two rails
     drifting apart is a bug that has been fixed twice."""
-    assert _rail_texts(tab) == ["SOURCES", "FORMAT", "BORDER", "DESTINATION"]
+    assert _rail_texts(tab) == ["SOURCES", "FORMAT", "ARRANGEMENT", "BORDER", "DESTINATION"]
 
 
 def test_preview_sits_below_save_and_is_not_a_peer_of_it(tab: ComposeTab) -> None:
@@ -609,9 +609,11 @@ def test_the_solve_carries_the_style_it_was_asked_for(
     seen: list[Any] = []
     original = pipeline.name_layout
 
-    def record(paths: Any, ratio: Any, style: Any = pipeline.DEFAULT_STYLE) -> str:
+    def record(
+        paths: Any, ratio: Any, arrangement: str = "", style: Any = pipeline.DEFAULT_STYLE
+    ) -> str:
         seen.append(style)
-        return original(paths, ratio, style=style)
+        return original(paths, ratio, arrangement, style=style)
 
     monkeypatch.setattr(pipeline, "name_layout", record)
     tab.border_controls.set_style(pipeline.FrameStyle(border_percent=13.0))
@@ -957,3 +959,106 @@ def test_a_chosen_compose_preset_survives_a_relaunch(qtbot: QtBot, isolated_sett
     qtbot.addWidget(relaunched)
     assert relaunched.border_controls.frame_style() == style
     assert relaunched.border_controls.presets.box.currentText() == "Wide gap"
+
+
+# --- the arrangement combo ---------------------------------------------------
+
+
+def _ratio(built: ComposeTab) -> pipeline.AspectRatio:
+    return pipeline.RATIOS[built._ratio_name()]
+
+
+def _with_sources(qtbot: QtBot, built: ComposeTab, paths: list[str]) -> None:
+    built._accept(paths)
+    _settled(qtbot, built)
+
+
+def test_the_arrangement_list_opens_on_automatic(qtbot: QtBot, tab: ComposeTab) -> None:
+    _with_sources(qtbot, tab, [WIDE, TALL, SQUARE])
+
+    assert tab.chosen_arrangement() == ""
+    assert tab.arrangement_combo.currentIndex() == 0
+    assert tab.arrangement_combo.itemText(0).startswith(compose_tab.AUTOMATIC)
+
+
+def test_the_list_names_the_automatic_pick_in_its_first_entry(
+    qtbot: QtBot, tab: ComposeTab
+) -> None:
+    """Choosing nothing still has to say what you are getting."""
+    _with_sources(qtbot, tab, [WIDE, TALL, SQUARE])
+
+    words = compose_tab.present_layout(tab.layout_name, 3)
+
+    assert words.lower() in tab.arrangement_combo.itemText(0).lower()
+
+
+def test_every_arrangement_is_offered_once(qtbot: QtBot, tab: ComposeTab) -> None:
+    _with_sources(qtbot, tab, [WIDE, TALL, SQUARE, SQUARE])
+    offered = [tab.arrangement_combo.itemText(i) for i in range(1, tab.arrangement_combo.count())]
+
+    assert len(offered) == len(set(offered))
+    assert len(offered) == len(pipeline.arrangements([WIDE, TALL, SQUARE, SQUARE], _ratio(tab)))
+
+
+def test_choosing_an_arrangement_is_remembered_and_used(qtbot: QtBot, tab: ComposeTab) -> None:
+    _with_sources(qtbot, tab, [WIDE, TALL, SQUARE])
+    tab.arrangement_combo.setCurrentIndex(2)
+
+    chosen = tab.chosen_arrangement()
+
+    assert chosen
+    assert chosen != ""
+    assert pipeline.name_layout([WIDE, TALL, SQUARE], _ratio(tab), chosen) == chosen
+
+
+def test_adding_a_source_drops_the_chosen_arrangement(qtbot: QtBot, tab: ComposeTab) -> None:
+    """An arrangement names a shape for exactly N panels. With a different
+    N it means nothing, so it goes back to automatic rather than being
+    quietly ignored."""
+    _with_sources(qtbot, tab, [WIDE, TALL, SQUARE])
+    tab.arrangement_combo.setCurrentIndex(2)
+    assert tab.chosen_arrangement()
+
+    _with_sources(qtbot, tab, [SQUARE])
+
+    assert tab.chosen_arrangement() == ""
+    assert tab.arrangement_combo.currentIndex() == 0
+
+
+def test_a_ratio_change_keeps_the_chosen_arrangement(qtbot: QtBot, tab: ComposeTab) -> None:
+    """The arrangement is still valid, and dropping a deliberate choice for
+    a reason the user did not ask about is what makes a control feel
+    unreliable."""
+    _with_sources(qtbot, tab, [WIDE, TALL, SQUARE])
+    tab.arrangement_combo.setCurrentIndex(2)
+    chosen = tab.chosen_arrangement()
+
+    tab.ratio_combo.setCurrentText(pipeline.RATIOS["1.91:1"].display)
+    _settled(qtbot, tab)
+
+    assert tab.chosen_arrangement() == chosen
+
+
+def test_a_border_change_keeps_the_chosen_arrangement(qtbot: QtBot, tab: ComposeTab) -> None:
+    _with_sources(qtbot, tab, [WIDE, TALL, SQUARE])
+    tab.arrangement_combo.setCurrentIndex(2)
+    chosen = tab.chosen_arrangement()
+
+    wider = pipeline.FrameStyle(border_percent=20.0)
+    tab.border_controls.set_style(wider)
+    tab._on_style_settled(wider)
+    _settled(qtbot, tab)
+
+    assert tab.chosen_arrangement() == chosen
+
+
+def test_reordering_keeps_the_chosen_arrangement(qtbot: QtBot, tab: ComposeTab) -> None:
+    _with_sources(qtbot, tab, [WIDE, TALL, SQUARE])
+    tab.arrangement_combo.setCurrentIndex(2)
+    chosen = tab.chosen_arrangement()
+
+    tab.listbox.select(0)
+    tab.move_down()
+    _settled(qtbot, tab)
+
+    assert tab.chosen_arrangement() == chosen

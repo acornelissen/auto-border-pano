@@ -43,6 +43,11 @@ from maskingframe.gui.work import submit
 MIN_IMAGES = pipeline.MIN_IMAGES
 MAX_IMAGES = pipeline.MAX_IMAGES
 
+AUTOMATIC = "Automatic"
+"""The first entry, and the empty choice. Named rather than blank, because
+a list whose first row is empty reads as a missing value rather than as a
+decision the application has already made for you."""
+
 EMPTY_STATE = "Add two to six sources."
 ONE_MORE = "Add one more source."
 NO_PREFIX = "Choose where the composite should go."
@@ -217,6 +222,7 @@ class _Solve:
     name: str
     count: int
     sizes: dict[str, tuple[int, int]]
+    options: tuple[pipeline.Arrangement, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -243,6 +249,7 @@ def _solve_job(
     sources: list[str],
     ratio_name: str,
     style: pipeline.FrameStyle,
+    arrangement: str = "",
 ) -> _Solve:
     """Runs on a worker. Opens files, touches no widget.
 
@@ -252,7 +259,9 @@ def _solve_job(
 
     The style arrives as an argument for the same reason the ratio does: a
     job that re-read the controls could solve for one gap and have its
-    answer captioned with another.
+    answer captioned with another. `pipeline.arrangements` is solved here
+    too, and only here: it opens files just as `name_layout` does, so it
+    must never run on the GUI thread.
     """
     sizes: dict[str, tuple[int, int]] = {}
     for source in sources:
@@ -261,11 +270,22 @@ def _solve_job(
         except OSError:
             continue
         sizes[source] = (facts.width, facts.height)
+    ratio = pipeline.RATIOS[ratio_name]
     try:
-        name = pipeline.name_layout(sources, pipeline.RATIOS[ratio_name], style=style)
+        options = pipeline.arrangements(sources, ratio, style)
+    except (ValueError, OSError):
+        options = ()
+    # A chosen arrangement can outlive the count it was solved for -- a
+    # source added or removed after the choice was made. It names no shape
+    # among this count's own options, so the automatic pick is used instead
+    # of failing the whole solve; the combo drops the stale choice once this
+    # answer lands.
+    wanted = arrangement if arrangement in {option.name for option in options} else ""
+    try:
+        name = pipeline.name_layout(sources, ratio, wanted, style=style)
     except (ValueError, OSError):
         name = ""
-    return _Solve(token=token, name=name, count=len(sources), sizes=sizes)
+    return _Solve(token=token, name=name, count=len(sources), sizes=sizes, options=options)
 
 
 class ComposeTab(QWidget):
@@ -291,6 +311,11 @@ class ComposeTab(QWidget):
         # was added cannot overwrite the newer answer.
         self._solved: str = ""
         self._solve_token = 0
+        # The name, not the row: the ranking moves with the ratio and the
+        # border, and an index would quietly come to mean a different
+        # arrangement.
+        self._arrangement = ""
+        self._filling = False
         # Monotonic too, and for the same reason: a settle during a render
         # starts a newer one, and the older answer must not land on top of it.
         self._render_token = 0
@@ -380,6 +405,14 @@ class ComposeTab(QWidget):
         rail.addSpacing(theme.S)
         self.layout_label = shell.help_label("")
         rail.addWidget(self.layout_label)
+
+        rail.addSpacing(theme.L)
+        rail.addWidget(shell.section("Arrangement"))
+        rail.addSpacing(theme.S)
+        self.arrangement_combo = shell.Combo()
+        self.arrangement_combo.setAccessibleName("Arrangement")
+        self.arrangement_combo.currentIndexChanged.connect(self._on_arrangement_change)
+        rail.addWidget(self.arrangement_combo)
 
         # Between FORMAT and DESTINATION, the same slot the Split tab gives
         # it: the two rails are one product and must not drift apart.
@@ -608,6 +641,10 @@ class ComposeTab(QWidget):
     def layout_name(self) -> str:
         return self.layout_label.text()
 
+    def chosen_arrangement(self) -> str:
+        """The arrangement to compose with, or empty for the solver's own."""
+        return self._arrangement
+
     def _set_status(self, text: str) -> None:
         self.status_label.setText(text)
 
@@ -698,8 +735,9 @@ class ComposeTab(QWidget):
         token = self._solve_token
         ratio_name = self._ratio_name()
         style = self._style()
+        arrangement = self._arrangement
         submit(
-            lambda: _solve_job(token, sources, ratio_name, style),
+            lambda: _solve_job(token, sources, ratio_name, style, arrangement),
             self._apply_layout_name,
             self._solve_failed,
             owner=self,
@@ -717,6 +755,7 @@ class ComposeTab(QWidget):
         self._solved = solved.name
         self.layout_label.setText(present_layout(solved.name, solved.count))
         self._update_status()
+        self._fill_arrangements(solved)
         if solved.sizes and not solved.sizes.items() <= self._sizes.items():
             self._sizes.update(solved.sizes)
             # Redraw the rows now the dimensions are known. Straight to the
@@ -725,6 +764,40 @@ class ComposeTab(QWidget):
             self.listbox.set_items(self._rows())
         # The gaps can only be solved once every source's shape is known,
         # which is exactly what has just arrived.
+        self._refresh_border_preview()
+
+    def _fill_arrangements(self, solved: _Solve) -> None:
+        """Rebuild the list, keeping the choice if it still exists.
+
+        Rebuilding fires `currentIndexChanged`, so the guard is a flag rather
+        than a disconnect: a disconnect that raised in between would leave the
+        combo permanently deaf.
+        """
+        self._filling = True
+        try:
+            self.arrangement_combo.clear()
+            automatic = present_layout(solved.name, solved.count)
+            self.arrangement_combo.addItem(f"{AUTOMATIC} — {automatic}" if automatic else AUTOMATIC)
+            for option in solved.options:
+                words = present_layout(option.name, solved.count)
+                self.arrangement_combo.addItem(f"{words} · {option.fill:.0%}", option.name)
+            names = [option.name for option in solved.options]
+            if self._arrangement in names:
+                self.arrangement_combo.setCurrentIndex(names.index(self._arrangement) + 1)
+            else:
+                # The count changed out from under it, so the shape it named
+                # no longer exists. Back to automatic rather than silently
+                # ignored.
+                self._arrangement = ""
+                self.arrangement_combo.setCurrentIndex(0)
+        finally:
+            self._filling = False
+
+    def _on_arrangement_change(self, index: int) -> None:
+        if self._filling:
+            return
+        self._arrangement = str(self.arrangement_combo.itemData(index) or "")
+        self._request_layout_name()
         self._refresh_border_preview()
 
     # --- the list -----------------------------------------------------------
@@ -837,11 +910,12 @@ class ComposeTab(QWidget):
         ratio = pipeline.RATIOS[self._ratio_name()]
         style = self._style()
         sources = list(self.images)
+        arrangement = self._arrangement
         self._set_buttons_enabled(False)
         self._set_status(WORKING)
 
         def job() -> _Composed:
-            result = pipeline.compose_images(sources, prefix, ratio, style=style)
+            result = pipeline.compose_images(sources, prefix, ratio, arrangement, style=style)
             return _Composed(result.path, result.layout_name, ratio.name)
 
         submit(job, self._finish, self._failed, owner=self)
@@ -872,6 +946,7 @@ class ComposeTab(QWidget):
         ratio = pipeline.RATIOS[self._ratio_name()]
         style = self._style()
         sources = list(self.images)
+        arrangement = self._arrangement
         if updating:
             self._set_status(shell.UPDATING_PREVIEW)
         else:
@@ -879,7 +954,7 @@ class ComposeTab(QWidget):
             self._set_status(WORKING)
 
         def job() -> _Previewed:
-            image, layout_name = pipeline.compose_preview(sources, ratio, style=style)
+            image, layout_name = pipeline.compose_preview(sources, ratio, arrangement, style=style)
             return _Previewed(image, layout_name, ratio.name, len(sources))
 
         def done(previewed: _Previewed) -> None:
