@@ -162,6 +162,17 @@ two tight crops on one subject is a legitimate choice.
 `section_count()` is unchanged and still gives the opening count. It is a first
 guess now, not a constraint.
 
+`Even` puts the spacing back without touching the count — `geometry.default_positions`
+at the count in hand, not at `section_count`'s guess, because spacing and count are
+separate decisions and resetting one must not silently discard the other.
+`geometry.positions_are_even` decides whether the button has anything to offer, and it
+is off while the frames already are. The recompute lives in `_set_positions`, which
+every change to the plan funnels through: `Even` reads the spacing rather than the
+count, so leaving it to `add_frame`/`remove_frame` left the button dark for exactly the
+person who had just made it applicable. All three count controls start unpressable —
+a `QPushButton` does not — and carry an accessible name equal to their tooltip, since
+a button whose whole label is `+` tells a screen reader nothing.
+
 The ribbon (`gui/ribbon.py`) sits above the contact strip and shows where the
 frames come from; the strip shows what they are. Both write to one tuple owned
 by `SplitTab`, so they cannot disagree. Folder mode hides the ribbon and cuts
