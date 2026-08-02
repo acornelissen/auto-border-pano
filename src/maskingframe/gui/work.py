@@ -20,6 +20,13 @@ been destroyed by the time the answer lands, neither callback is called.
 Pass one wherever a callback touches a widget. `shiboken6.isValid` is how
 that is asked, and this is the one module that asks it.
 
+One thing `owner` cannot cover is the process itself going away. `run()`
+ends in `sys.exit(app.exec())`, which fires the moment the last window
+closes, so a job still in flight finds its own signals object destroyed
+underneath it and `emit` raises on the worker thread -- a traceback on
+stderr that reads as a crash on quit, for an answer nobody was left to
+receive. `_Job._emit` drops exactly that case and nothing else.
+
 What also does not go away is staleness. A user can pick a second file
 before the first inspection returns, and the older answer must not overwrite
 the newer one, so callers still carry a token and compare it in the callback.
@@ -28,7 +35,7 @@ the newer one, so callers still carry a token and compare it in the callback.
 from collections.abc import Callable
 from typing import Any
 
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
+from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal, SignalInstance
 from shiboken6 import isValid
 
 _in_flight: set["_Job"] = set()
@@ -49,9 +56,32 @@ class _Job(QRunnable):
         try:
             result = self._work()
         except Exception as error:
-            self.signals.failed.emit(error)
+            self._emit(self.signals.failed, error)
             return
-        self.signals.done.emit(result)
+        self._emit(self.signals.done, result)
+
+    def _emit(self, signal: SignalInstance, payload: object) -> None:
+        """Announce the answer, unless there is no longer anybody to tell.
+
+        `submit` holds the job alive until its callback has run, so the only
+        way the signals object goes while this is still inside `run` is the
+        process itself going: `run()` ends in `sys.exit(app.exec())`, which
+        fires the moment the last window closes, and a preview still in
+        flight then finds its C++ half destroyed underneath it.
+
+        Nothing is lost by dropping it. The work had already finished, and
+        the callback it could not reach was going to touch a window that no
+        longer exists. What is lost by *not* dropping it is only a traceback
+        on stderr that reads as a crash on quit.
+
+        Deliberately narrow: `RuntimeError` from a dead sender, on a worker
+        thread, at teardown. An exception from the work itself is caught
+        above and reported like any other.
+        """
+        try:
+            signal.emit(payload)
+        except RuntimeError:
+            return
 
 
 def submit(

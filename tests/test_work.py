@@ -7,10 +7,12 @@ has gone would reach a deleted C++ object. `submit` takes an `owner` so it
 can decline to deliver.
 """
 
+import threading
 from typing import Any
 
 import pytest
 import shiboken6
+from PySide6.QtCore import QThreadPool
 from PySide6.QtWidgets import QWidget
 
 from maskingframe.gui import work
@@ -103,3 +105,52 @@ def _dead() -> QWidget:
     # C++ QWidget -- the thing a callback would reach into -- stays valid.
     shiboken6.delete(widget)
     return widget
+
+
+def test_a_job_whose_signals_have_gone_does_not_raise(qtbot: Any) -> None:
+    """The process going away is not a failure worth a traceback.
+
+    `sys.exit(app.exec())` runs the moment the last window closes, so a
+    preview still in flight finds its signals object destroyed underneath
+    it and `emit` raises on the worker thread. Nothing is lost -- the work
+    had finished, and the callback it could not reach was going to touch a
+    window that no longer exists -- but Qt prints the traceback to stderr,
+    where it reads as a crash on quit.
+    """
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow() -> str:
+        started.set()
+        release.wait(5)
+        return "done"
+
+    job = work._Job(slow)
+    QThreadPool.globalInstance().start(job)
+    assert started.wait(5)
+
+    # Exactly what teardown does: the C++ half goes while the worker is
+    # still inside `run`.
+    shiboken6.delete(job.signals)
+    release.set()
+
+    assert QThreadPool.globalInstance().waitForDone(5000)
+
+
+def test_a_failing_job_whose_signals_have_gone_does_not_raise(qtbot: Any) -> None:
+    started = threading.Event()
+    release = threading.Event()
+
+    def broken() -> str:
+        started.set()
+        release.wait(5)
+        raise ValueError("nobody is listening")
+
+    job = work._Job(broken)
+    QThreadPool.globalInstance().start(job)
+    assert started.wait(5)
+
+    shiboken6.delete(job.signals)
+    release.set()
+
+    assert QThreadPool.globalInstance().waitForDone(5000)
