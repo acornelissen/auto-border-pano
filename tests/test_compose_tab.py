@@ -696,7 +696,7 @@ def test_the_gaps_between_panels_are_previewed_too(qtbot: QtBot) -> None:
     style = tab.border_controls.frame_style()
     ratio = pipeline.RATIOS[tab._ratio_name()]
     aspects = [tab._sizes[path][0] / tab._sizes[path][1] for path in tab.images]
-    expected = pipeline.composite_rects(aspects, ratio, style).gaps
+    expected = pipeline.composite_rects(aspects, ratio, style=style).gaps
 
     preview = tab.previews.border_preview
     assert preview is not None
@@ -722,7 +722,7 @@ def test_the_panels_are_handed_over_so_the_border_includes_its_slack(qtbot: QtBo
     style = tab.border_controls.frame_style()
     ratio = pipeline.RATIOS[tab._ratio_name()]
     aspects = [tab._sizes[path][0] / tab._sizes[path][1] for path in tab.images]
-    expected = pipeline.composite_rects(aspects, ratio, style).panels
+    expected = pipeline.composite_rects(aspects, ratio, style=style).panels
 
     preview = tab.previews.border_preview
     assert preview is not None
@@ -1062,3 +1062,46 @@ def test_reordering_keeps_the_chosen_arrangement(qtbot: QtBot, tab: ComposeTab) 
     _settled(qtbot, tab)
 
     assert tab.chosen_arrangement() == chosen
+
+
+def test_choosing_an_arrangement_remakes_the_composite(qtbot: QtBot) -> None:
+    """The control has to change the picture, not only the rail.
+
+    `_on_arrangement_change` used to update the name and the overlay and
+    leave the composite on the table alone, so the rail named the
+    arrangement you had picked while the table went on showing the one you
+    had rejected, with nothing to say which was which.
+    """
+    built = ComposeTab()
+    qtbot.addWidget(built)
+    built._accept([WIDE, TALL, SQUARE])
+    _settled(qtbot, built)
+    remade: list[str] = []
+    built._rerender = lambda: remade.append(built._arrangement)  # type: ignore[method-assign]
+
+    built.arrangement_combo.setCurrentIndex(2)
+
+    assert remade == [built.chosen_arrangement()]
+    assert built.chosen_arrangement() != ""
+
+
+def test_the_overlay_is_drawn_for_the_chosen_arrangement(qtbot: QtBot) -> None:
+    """The panel rectangles under the border preview come from the solver
+    too, and were still the automatic ones after a choice."""
+    built = ComposeTab()
+    qtbot.addWidget(built)
+    built._accept([WIDE, TALL, SQUARE])
+    _settled(qtbot, built)
+    aspects = built._aspects()
+    assert aspects is not None
+    ratio = pipeline.RATIOS[built._ratio_name()]
+
+    built.arrangement_combo.setCurrentIndex(3)
+    chosen = built.chosen_arrangement()
+
+    wanted = pipeline.composite_rects(aspects, ratio, chosen, style=built._style())
+    automatic = pipeline.composite_rects(aspects, ratio, style=built._style())
+    assert wanted.panels != automatic.panels, "the fixture no longer distinguishes the two"
+    drawn = built.previews.border_preview
+    assert drawn is not None
+    assert tuple((r.x, r.y, r.width, r.height) for r in drawn.panels) == wanted.panels

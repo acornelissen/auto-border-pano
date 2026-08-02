@@ -568,13 +568,23 @@ class ComposeTab(QWidget):
         aspects = self._aspects()
         if aspects is not None:
             try:
-                solved = pipeline.composite_rects(aspects, ratio, style)
+                solved = pipeline.composite_rects(aspects, ratio, self._arrangement, style)
                 gaps = tuple(Rect(*gap) for gap in solved.gaps)
                 panels = tuple(Rect(*panel) for panel in solved.panels)
             except ValueError:
-                # No arrangement fits these shapes at this ratio. The outer
-                # border is still true, so it is still drawn.
-                gaps, panels = (), ()
+                # Either nothing fits these shapes at this ratio, or the
+                # held arrangement is for a count the sources no longer
+                # have -- the window between a source being added and the
+                # solve that clears the choice landing. Fall back to the
+                # automatic panels, which is what will be true a moment
+                # later anyway; if that fails too there is no arrangement to
+                # draw and the outer border goes on alone, still true.
+                try:
+                    solved = pipeline.composite_rects(aspects, ratio, "", style)
+                    gaps = tuple(Rect(*gap) for gap in solved.gaps)
+                    panels = tuple(Rect(*panel) for panel in solved.panels)
+                except ValueError:
+                    gaps, panels = (), ()
         self.previews.set_border_preview(
             BorderPreview(
                 aspect=ratio.width / ratio.height,
@@ -799,6 +809,13 @@ class ComposeTab(QWidget):
         self._arrangement = str(self.arrangement_combo.itemData(index) or "")
         self._request_layout_name()
         self._refresh_border_preview()
+        # The composite on the table was made with a different arrangement,
+        # so it is now a picture of a choice nobody has. Remade rather than
+        # dropped, exactly as a settled border change is: the old one stays
+        # up until the new one lands. Without this the rail named the
+        # arrangement you picked while the table went on showing the one you
+        # rejected, and nothing said which was which.
+        self._rerender()
 
     # --- the list -----------------------------------------------------------
 

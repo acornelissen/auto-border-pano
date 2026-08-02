@@ -590,7 +590,7 @@ def test_the_composite_overlay_matches_what_a_render_actually_produces(
     for path in sources:
         with Image.open(path) as opened:
             aspects.append(opened.width / opened.height)
-    solved = pipeline.composite_rects(aspects, ratio, style)
+    solved = pipeline.composite_rects(aspects, ratio, style=style)
 
     built = _built(qtbot, frames=1)
     built.resize(600, 700)

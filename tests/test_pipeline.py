@@ -518,7 +518,7 @@ def test_composite_rects_normalises_the_solved_layout() -> None:
     ratio = pipeline.RATIOS["4:5"]
     style = pipeline.FrameStyle(border_percent=8.0, gutter_percent=4.0)
 
-    rects = pipeline.composite_rects(aspects, ratio, style)
+    rects = pipeline.composite_rects(aspects, ratio, style=style)
     solved = layout.solve(aspects, ratio, style)
 
     assert rects.name == solved.name
@@ -546,7 +546,7 @@ def test_composite_rects_normalises_the_solved_layout() -> None:
 def test_composite_rects_has_no_gaps_when_there_is_no_gap() -> None:
     """A zero gap is nothing to draw, not a hairline to draw."""
     rects = pipeline.composite_rects(
-        [1.5, 0.75], pipeline.RATIOS["1:1"], pipeline.FrameStyle(gutter_percent=0.0)
+        [1.5, 0.75], pipeline.RATIOS["1:1"], style=pipeline.FrameStyle(gutter_percent=0.0)
     )
 
     assert rects.gaps == ()

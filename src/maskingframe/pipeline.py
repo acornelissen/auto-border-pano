@@ -534,6 +534,7 @@ class CompositeRects:
 def composite_rects(
     aspects: Sequence[float],
     ratio: AspectRatio = DEFAULT_RATIO,
+    arrangement: str = "",
     style: FrameStyle = DEFAULT_STYLE,
 ) -> CompositeRects:
     """Solve a composite's arrangement from aspect ratios alone.
@@ -544,8 +545,11 @@ def composite_rects(
     file's shape has read it already -- the user's scans reach 132MP and a
     header read on the GUI thread is exactly what stalls those.
 
-    Solves through the same `layout.solve` the render uses, so a previewed
-    arrangement and a saved one cannot disagree.
+    Solves through the same `_chosen_layout` the render uses -- and takes
+    the same `arrangement` -- so a previewed arrangement and a saved one
+    cannot disagree. Without that parameter the overlay went on drawing the
+    automatic panels after a different arrangement had been chosen, which is
+    exactly the disagreement this sentence promises there isn't.
     """
 
     def normalise(box: layout.Box) -> NormalisedRect:
@@ -556,7 +560,7 @@ def composite_rects(
             box.height / ratio.height,
         )
 
-    solved = layout.solve(aspects, ratio, style)
+    solved = _chosen_layout(arrangement, aspects, ratio, style)
     return CompositeRects(
         panels=tuple(normalise(box) for box in solved.boxes),
         gaps=tuple(normalise(box) for box in solved.gutters),

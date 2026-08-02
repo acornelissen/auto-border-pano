@@ -271,12 +271,22 @@ def _compose_main(argv: list[str]) -> int:
     # noun ("as a row-one-then-two"), and it is now notation, where "as a
     # R(1,C(2,3))" reads as a typo.
     print(f"Wrote {result.path} as {result.layout_name} at {args.ratio.display}")
-    short = next(
-        option.short_name
-        for option in pipeline.arrangements(args.inputs, args.ratio, style)
-        if option.name == result.layout_name
-    )
-    print(f"  --arrangement {short}")
+    # The composite is already on disk, so nothing here may fail the run.
+    # Naming the flag re-reads every source, and a source deleted in the
+    # meantime would otherwise turn a successful write into a traceback.
+    try:
+        short = next(
+            (
+                option.short_name
+                for option in pipeline.arrangements(args.inputs, args.ratio, style)
+                if option.name == result.layout_name
+            ),
+            "",
+        )
+    except Exception:
+        short = ""
+    if short:
+        print(f"  --arrangement {short}")
     return 0
 
 
