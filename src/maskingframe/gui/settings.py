@@ -8,6 +8,7 @@ style falls back to the default rather than failing the launch.
 
 import hashlib
 from collections.abc import Sequence
+from dataclasses import dataclass
 from itertools import pairwise
 from pathlib import Path
 
@@ -309,6 +310,19 @@ be stated, instead of one that depends on how much work you happen to do.
 _USED = "used"
 
 
+@dataclass(frozen=True)
+class Plan:
+    """What was remembered about one source.
+
+    The two facts travel together because they are restored together and
+    they belong to the same photograph: where its detail frames were placed,
+    and how many rows frame 1 was laid out in.
+    """
+
+    positions: tuple[float, ...]
+    rows: int = 1
+
+
 def _plan_key(path: Path) -> str:
     """A `QSettings` group name for a source path.
 
@@ -361,7 +375,7 @@ def _read_positions(value: object) -> tuple[float, ...] | None:
     return positions
 
 
-def load_plan(path: Path | str) -> tuple[float, ...] | None:
+def load_plan(path: Path | str) -> Plan | None:
     """The remembered frames for this source, or None.
 
     None whenever anything disagrees -- no plan, a plan for a file that has
@@ -390,8 +404,14 @@ def load_plan(path: Path | str) -> tuple[float, ...] | None:
     positions = _read_positions(store.value(f"{group}/positions"))
     if positions is None:
         return None
+    # Absent means one row, which is how every plan stored before rows
+    # existed was laid out. A count outside the range is a plan somebody
+    # has edited into nonsense, and it is refused like any other.
+    rows = _number(store.value(f"{group}/rows", 1)) or 1
+    if not 1 <= rows <= pipeline.MAX_ROWS:
+        return None
     _touch(store, group)
-    return positions
+    return Plan(positions, rows)
 
 
 def _number(value: object) -> int:
@@ -432,7 +452,7 @@ def _evict(store: QSettings) -> None:
         store.remove(f"{PLANS}/{group}")
 
 
-def save_plan(path: Path | str, positions: Sequence[float]) -> None:
+def save_plan(path: Path | str, positions: Sequence[float], rows: int = 1) -> None:
     """Remember where this source's frames are.
 
     Silently does nothing for a file that is not there or a plan that does
@@ -449,6 +469,7 @@ def save_plan(path: Path | str, positions: Sequence[float]) -> None:
     store.setValue(f"{group}/mtime", facts[0])
     store.setValue(f"{group}/size", facts[1])
     store.setValue(f"{group}/positions", [str(place) for place in checked])
+    store.setValue(f"{group}/rows", rows)
     _touch(store, group)
     _evict(store)
     store.sync()

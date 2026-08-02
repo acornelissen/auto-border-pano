@@ -300,6 +300,13 @@ which read against the key's *presence* and remove it when the value is None —
 so an unticked box and a store written before the field existed are the same
 thing on disk, and 0 (full bleed) never reads back as no choice made.
 
+A plan carries the row count as well as the positions — `settings.Plan` — because
+the right number of rows depends on the panorama's shape (three for a 6:1, two
+for a 2.33:1), so it belongs to the photograph rather than to a taste that would
+outlive it. That is also why it is not stored globally the way the border is. A
+plan written before rows existed reads back as one row, which is how it was laid
+out.
+
 The ratio is not part of the key. A position is a fraction of the panorama's
 width, which means the same thing at every ratio, and the count has been the
 user's decision since add and remove landed.

@@ -461,6 +461,7 @@ class SplitTab(QWidget):
         if self._filling_rows:
             return
         self._rows = int(self.rows_combo.itemData(index) or 1)
+        self._remember()
         self._refresh_border_preview()
         self._rerender()
 
@@ -713,7 +714,7 @@ class SplitTab(QWidget):
         source = self.source_row.text()
         if not source or self.folder_radio.isChecked() or not self._positions:
             return
-        settings.save_plan(source, self._positions)
+        settings.save_plan(source, self._positions, self._rows)
 
     def _forget_restored(self) -> None:
         """The frames have moved, so they are no longer as they arrived."""
@@ -955,7 +956,11 @@ class SplitTab(QWidget):
         # straight back to it. `load_plan` decides that, so the tab never
         # has to know what "the same file" means.
         remembered = settings.load_plan(self.source_row.text())
-        self._set_positions(remembered if remembered is not None else facts.positions)
+        # The row count comes back with the positions: the right count
+        # depends on the panorama's shape, so it belongs to the photograph
+        # rather than to a taste that would outlive it.
+        self._rows = remembered.rows if remembered is not None else 1
+        self._set_positions(remembered.positions if remembered is not None else facts.positions)
         # After, never before: `_set_positions` clears the flag for every
         # other caller, and setting it first would have it clear its own.
         self._restored = remembered is not None

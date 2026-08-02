@@ -1649,7 +1649,7 @@ def test_restoring_does_not_write_back_what_it_just_read(qtbot: Any, tmp_path: P
     saved: list[tuple[float, ...]] = []
     original = settings.save_plan
 
-    def counted(path: Path | str, positions: Sequence[float]) -> None:
+    def counted(path: Path | str, positions: Sequence[float], rows: int = 1) -> None:
         saved.append(tuple(positions))
         original(path, positions)
 
@@ -1672,7 +1672,7 @@ def test_folder_mode_remembers_nothing(qtbot: Any, tmp_path: Path) -> None:
     tab = loaded_tab(qtbot, tmp_path)
     saved: list[Any] = []
     original = settings.save_plan
-    settings.save_plan = lambda path, positions: saved.append(path)
+    settings.save_plan = lambda path, positions, rows=1: saved.append(path)
     try:
         tab.folder_radio.setChecked(True)
         tab.add_frame()
@@ -1762,3 +1762,34 @@ def test_the_rows_percentages_follow_the_ratio(qtbot: Any, tmp_path: Path) -> No
     qtbot.waitUntil(lambda: tab.rows_combo.itemText(1) != portrait, timeout=3000)
 
     assert tab.rows_combo.itemText(1) != portrait
+
+
+def test_reopening_a_source_restores_its_row_count(qtbot: Any, tmp_path: Path) -> None:
+    """The right number of rows depends on the panorama's shape, so it
+    belongs to the photograph rather than to a taste that outlives it."""
+    tab = loaded_tab(qtbot, tmp_path)
+    source = Path(tab.source_row.text())
+    tab.rows_combo.setCurrentIndex(2)
+    assert tab.rows() == 3
+
+    reopened = SplitTab()
+    qtbot.addWidget(reopened)
+    reopened.show()
+    reopened.source_row.setText(str(source))
+    qtbot.waitUntil(lambda: reopened.positions() != (), timeout=3000)
+
+    assert reopened.rows() == 3
+    assert reopened.rows_combo.currentIndex() == 2
+    assert reopened._style().padded_rows == 3
+
+
+def test_a_source_with_no_plan_opens_on_one_row(qtbot: Any, tmp_path: Path) -> None:
+    tab = loaded_tab(qtbot, tmp_path)
+    tab.rows_combo.setCurrentIndex(3)
+
+    other = tmp_path / "other.jpg"
+    conftest.synthetic_panorama(2400, 1000).save(other, "JPEG", quality=95)
+    tab.source_row.setText(str(other))
+    qtbot.waitUntil(lambda: tab._source_size == (2400, 1000), timeout=3000)
+
+    assert tab.rows() == 1

@@ -243,7 +243,9 @@ def test_a_plan_round_trips(tmp_path: Path) -> None:
     source = _source(tmp_path)
     settings.save_plan(source, (0.0, 0.3, 0.62))
 
-    assert settings.load_plan(source) == (0.0, 0.3, 0.62)
+    plan = settings.load_plan(source)
+    assert plan is not None
+    assert plan.positions == (0.0, 0.3, 0.62)
 
 
 def test_a_source_with_no_plan_returns_nothing(tmp_path: Path) -> None:
@@ -280,8 +282,10 @@ def test_two_sources_keep_their_own_plans(tmp_path: Path) -> None:
     settings.save_plan(one, (0.0, 0.5))
     settings.save_plan(two, (0.1, 0.2, 0.3))
 
-    assert settings.load_plan(one) == (0.0, 0.5)
-    assert settings.load_plan(two) == (0.1, 0.2, 0.3)
+    first, second = settings.load_plan(one), settings.load_plan(two)
+    assert first is not None and second is not None
+    assert first.positions == (0.0, 0.5)
+    assert second.positions == (0.1, 0.2, 0.3)
 
 
 def test_a_malformed_plan_is_dropped_on_its_own(tmp_path: Path) -> None:
@@ -297,7 +301,9 @@ def test_a_malformed_plan_is_dropped_on_its_own(tmp_path: Path) -> None:
     store.setValue(f"{settings.PLANS}/{settings._plan_key(bad)}/positions", "not a plan")
     store.sync()
 
-    assert settings.load_plan(good) == (0.0, 0.5)
+    good_plan = settings.load_plan(good)
+    assert good_plan is not None
+    assert good_plan.positions == (0.0, 0.5)
     assert settings.load_plan(bad) is None
 
 
@@ -344,7 +350,9 @@ def test_reading_a_plan_counts_as_using_it(tmp_path: Path) -> None:
     newcomer = _source(tmp_path, "new.jpg", width=2500)
     settings.save_plan(newcomer, (0.0, 0.5))
 
-    assert settings.load_plan(sources[0]) == (0.0, 0.5)
+    kept = settings.load_plan(sources[0])
+    assert kept is not None
+    assert kept.positions == (0.0, 0.5)
     assert settings.load_plan(sources[1]) is None
 
 
@@ -388,3 +396,39 @@ def test_a_preset_without_one_reads_back_as_none() -> None:
     settings.save_preset(settings.SPLIT, "Plain", pipeline.FrameStyle(border_percent=9.0))
 
     assert settings.load_presets(settings.SPLIT)["Plain"].padded_border_percent is None
+
+
+def test_a_plan_carries_the_row_count(tmp_path: Path) -> None:
+    source = _source(tmp_path)
+    settings.save_plan(source, (0.0, 0.4), rows=3)
+
+    plan = settings.load_plan(source)
+
+    assert plan is not None
+    assert plan.positions == (0.0, 0.4)
+    assert plan.rows == 3
+
+
+def test_a_plan_stored_before_rows_existed_reads_back_as_one(tmp_path: Path) -> None:
+    """One row is the whole panorama, which is what every plan stored before
+    this was laid out as."""
+    source = _source(tmp_path)
+    settings.save_plan(source, (0.0, 0.4), rows=1)
+    store = settings._store()
+    store.remove(f"{settings.PLANS}/{settings._plan_key(source)}/rows")
+    store.sync()
+
+    plan = settings.load_plan(source)
+
+    assert plan is not None
+    assert plan.rows == 1
+
+
+def test_a_plan_with_an_impossible_row_count_is_refused(tmp_path: Path) -> None:
+    source = _source(tmp_path)
+    settings.save_plan(source, (0.0, 0.4), rows=2)
+    store = settings._store()
+    store.setValue(f"{settings.PLANS}/{settings._plan_key(source)}/rows", "99")
+    store.sync()
+
+    assert settings.load_plan(source) is None
