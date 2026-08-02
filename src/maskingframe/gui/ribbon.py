@@ -100,6 +100,12 @@ class FrameRibbon(QWidget):
         self._grab_offset = 0.0
         self._font: QFont = theme.stencil_font(10, tracking=1.4)
         self._selected: int | None = None
+        # Its own plain identity, and nothing more. What is selected, and
+        # where along the panorama it sits, is the rail's sentence, and the
+        # tab pushes that verbatim into `setAccessibleDescription` -- so the
+        # two views and the screen reader say one thing, and the ribbon does
+        # not have to know what a percent of a panorama is.
+        self.setAccessibleName("Panorama overview")
         # Kept rather than read back from `hasFocus()`, for the reason
         # `ContactStrip` gives: Qt only reports focus on a widget whose
         # window is active, and the mark is checked by painting into an image.
@@ -139,7 +145,6 @@ class FrameRibbon(QWidget):
         # place to drop a selection the new plan can no longer support.
         if self._selected is not None and self._selected >= len(self._positions):
             self._selected = None
-            self._name_selection()
         self.update()
 
     def positions(self) -> tuple[float, ...]:
@@ -153,17 +158,10 @@ class FrameRibbon(QWidget):
         write it straight back.
         """
         self._selected = index
-        self._name_selection()
         self.update()
 
     def selected(self) -> int | None:
         return self._selected
-
-    def _select(self, index: int) -> None:
-        """Mark a frame internally. Announcing it is the caller's job, so
-        the one place that must stay silent -- `set_selected` -- can."""
-        self._selected = index
-        self._name_selection()
 
     def marked_rect(self) -> QRect:
         """Where the selection is drawn, or a null rect. Exposed so the
@@ -180,22 +178,6 @@ class FrameRibbon(QWidget):
         anything was drawn in chinagraph at all.
         """
         return theme.CHINAGRAPH if index == self._selected else theme.INK
-
-    def _name_selection(self) -> None:
-        """State the selection in words, for a screen reader.
-
-        Numbered as the carousel is: frame 1 is the whole panorama, so
-        detail frame 0 is frame 2. The rail says the same thing on screen,
-        because a selection carried by colour alone fails the floor this
-        project holds itself to.
-        """
-        if self._selected is None:
-            self.setAccessibleName("Panorama overview")
-            return
-        position = self._positions[self._selected] if self._positions else 0.0
-        self.setAccessibleName(
-            f"Frame {self._selected + 2}, {math.floor(position * 100 + 0.5)} percent along"
-        )
 
     # --- geometry, exposed so it can be checked without sampling pixels -----
 
@@ -305,7 +287,7 @@ class FrameRibbon(QWidget):
         # exactly what taking focus is.
         announce = self._selected is None and bool(self._positions)
         if announce:
-            self._select(0)
+            self._selected = 0
         super().focusInEvent(event)
         self.update()
         # Announced, not kept to itself: a frame marked here and nowhere
@@ -328,7 +310,6 @@ class FrameRibbon(QWidget):
             # Same as taking focus, and announced for the same reason: this
             # is reachable when the plan arrives after the focus did.
             self._selected = 0
-            self._name_selection()
             self.selection_changed.emit(0)
         key = event.key()
         coarse = event.modifiers() & Qt.KeyboardModifier.ShiftModifier
@@ -348,7 +329,7 @@ class FrameRibbon(QWidget):
             # frame back to the first would lose your place on a picture you
             # are reading left to right.
             if 0 <= wanted < len(self._positions):
-                self._select(wanted)
+                self._selected = wanted
                 self.update()
                 self.selection_changed.emit(wanted)
             return

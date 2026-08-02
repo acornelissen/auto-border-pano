@@ -1083,10 +1083,13 @@ def test_the_rail_and_the_widgets_say_the_same_thing(qtbot: Any, tmp_path: Path)
     # the travel, which puts the second one at 24% of the width. Stated literally: agreeing on
     # a wrong number is still wrong.
     assert tab.selection_label.text() == "Frame 3 · 24% along"
-    assert tab.ribbon.accessibleName() == "Frame 3, 24 percent along"
-    # The strip counts the frames it is showing, which is a different total
-    # until a render lands; the frame it names is the same one.
-    assert tab.strip.accessibleName().startswith("Frame 3 of ")
+    # Verbatim, into both views: one sentence, so a screen reader and the
+    # screen cannot say different things about the same frame.
+    assert tab.ribbon.accessibleDescription() == "Frame 3 · 24% along"
+    assert tab.strip.accessibleDescription() == "Frame 3 · 24% along"
+    # Each widget keeps its own plain identity beside that.
+    assert tab.ribbon.accessibleName() == "Panorama overview"
+    assert tab.strip.accessibleName() == "Contact strip"
 
 
 def test_the_readout_clears_when_the_source_goes(qtbot: Any, tmp_path: Path) -> None:
@@ -1219,3 +1222,27 @@ def test_the_tab_refuses_a_selection_with_no_positions_behind_it(qtbot: Any) -> 
     assert tab.strip.selected() is None
     assert tab.ribbon.selected() is None
     assert tab.selection_label.text() == ""
+
+
+def test_a_drag_keeps_the_spoken_selection_current(qtbot: Any, tmp_path: Path) -> None:
+    """A drag moves the frame, so the sentence both widgets speak has to
+    move with it -- it went stale between the drag and the drop."""
+    tab = loaded_tab(qtbot, tmp_path)
+    tab.ribbon.selection_changed.emit(1)
+    before = tab.ribbon.accessibleDescription()
+
+    tab.ribbon.frame_moved.emit(1, 0.5)
+
+    assert tab.ribbon.accessibleDescription() != before
+    assert tab.ribbon.accessibleDescription() == tab.selection_label.text()
+    assert tab.strip.accessibleDescription() == tab.selection_label.text()
+
+
+def test_the_widgets_say_nothing_when_nothing_is_selected(qtbot: Any, tmp_path: Path) -> None:
+    tab = loaded_tab(qtbot, tmp_path)
+    tab.ribbon.selection_changed.emit(1)
+
+    tab.source_row.setText("")
+
+    assert tab.ribbon.accessibleDescription() == ""
+    assert tab.strip.accessibleDescription() == ""

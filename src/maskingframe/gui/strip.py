@@ -328,6 +328,12 @@ class ContactStrip(QWidget):
         self._drag_index: int | None = None
         self._drag_origin = 0
         self._selected: int | None = None
+        # Its own plain identity, and nothing more. Which frame is selected
+        # is the rail's sentence, and the tab pushes that verbatim into
+        # `setAccessibleDescription`, so both views and a screen reader say
+        # one thing and it names where the frame sits on the panorama --
+        # which "Frame 3 of 5" never did.
+        self.setAccessibleName("Contact strip")
         # Kept rather than read back from `hasFocus()`: Qt only reports focus
         # on a widget whose window is active, so a strip painted into an
         # image -- which is how the mark is tested -- would never show it.
@@ -425,17 +431,10 @@ class ContactStrip(QWidget):
         position to move.
         """
         self._selected = index
-        self._name_selection()
         self.update()
 
     def selected(self) -> int | None:
         return self._selected
-
-    def _select(self, index: int) -> None:
-        """Mark a frame internally. Announcing it is the caller's job, so
-        the one place that must stay silent -- `set_selected` -- can."""
-        self._selected = index
-        self._name_selection()
 
     def marked_rect(self) -> QRect:
         """Where the selection is drawn, or a null rect."""
@@ -504,7 +503,6 @@ class ContactStrip(QWidget):
             # a shorter plan than the one that made it. Dropped at the cause
             # rather than guarded at every reader that indexes with it.
             self._selected = None
-            self._name_selection()
         self._remeasure()
 
     def show_paths(self, paths: Sequence[Path]) -> None:
@@ -749,7 +747,7 @@ class ContactStrip(QWidget):
         # same fact -- stayed empty and the ribbon was not even on screen.
         announce = self._selected is None and self._draggable and len(self._frames) > 1
         if announce:
-            self._select(1)
+            self._selected = 1
         super().focusInEvent(event)
         self.update()
         # Announced, not kept to itself: a frame marked here and nowhere
@@ -786,7 +784,6 @@ class ContactStrip(QWidget):
             # Same as taking focus, and announced for the same reason: this
             # is reachable when the frames arrive after the focus did.
             self._selected = 1
-            self._name_selection()
             self.selection_changed.emit(1)
         key = event.key()
         coarse = event.modifiers() & Qt.KeyboardModifier.ShiftModifier
@@ -805,22 +802,11 @@ class ContactStrip(QWidget):
             # Floor of 1: frame 0 shows the whole panorama, so there is no
             # position in it to select.
             if 1 <= wanted < len(self._frames):
-                self._select(wanted)
+                self._selected = wanted
                 self.update()
                 self.selection_changed.emit(wanted)
             return
         super().keyPressEvent(event)
-
-    def _name_selection(self) -> None:
-        """State the selection in words, for a screen reader.
-
-        The rail says the same thing on screen. Both, not either: a state
-        carried by colour alone fails the floor this project holds itself to.
-        """
-        if self._selected is None:
-            self.setAccessibleName("Contact strip")
-            return
-        self.setAccessibleName(f"Frame {self._selected + 1} of {len(self._frames)}")
 
     def _aperture(self, index: int) -> tuple[int, int]:
         """The top-left corner of one frame's square image area."""

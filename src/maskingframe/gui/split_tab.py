@@ -456,11 +456,25 @@ class SplitTab(QWidget):
         self._state_selection()
 
     def _state_selection(self) -> None:
+        """Say what is selected, once, in the one place that knows.
+
+        The rail's sentence is handed to both widgets verbatim as their
+        accessible description, so a screen reader and the screen say the
+        same thing wherever focus is. It has to come from here: a percent of
+        this panorama's width is knowledge neither widget has, and the strip
+        saying only "Frame 3 of 5" told a user pressing Right that nothing
+        had changed.
+        """
         if self._selected is None or not 0 <= self._selected < len(self._positions):
-            self.selection_label.setText("")
+            self._announce("")
             return
         along = math.floor(self._positions[self._selected] * 100 + 0.5)
-        self.selection_label.setText(f"Frame {self._selected + 2} · {along}% along")
+        self._announce(f"Frame {self._selected + 2} · {along}% along")
+
+    def _announce(self, sentence: str) -> None:
+        self.selection_label.setText(sentence)
+        self.ribbon.setAccessibleDescription(sentence)
+        self.strip.setAccessibleDescription(sentence)
 
     def _nudge(self, index: int, steps: int) -> None:
         """Move one detail frame by `steps` of `KEY_STEP`. GUI thread only.

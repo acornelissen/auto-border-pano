@@ -306,10 +306,14 @@ def test_the_selected_window_is_marked_in_chinagraph(qtbot: QtBot) -> None:
     assert _rendered(ribbon).pixelColor(ribbon.window_rects()[1].topLeft()) == theme.rgb(theme.INK)
 
 
-def test_the_ribbon_names_what_is_selected(qtbot: QtBot) -> None:
+def test_the_ribbon_keeps_its_own_plain_identity(qtbot: QtBot) -> None:
+    # What is selected, and where it sits, is the tab's sentence -- pushed in
+    # as the accessible description. A percent of a panorama's width is
+    # knowledge this widget has never had.
     ribbon = build(qtbot, (0.0, 0.6))
     ribbon.set_selected(1)
-    assert "3" in ribbon.accessibleName()
+    assert ribbon.accessibleName() == "Panorama overview"
+    assert "percent" not in ribbon.accessibleName()
 
 
 def test_a_shrunk_plan_drops_a_selection_it_can_no_longer_support(qtbot: QtBot) -> None:

@@ -155,11 +155,14 @@ so focus takes the widget's own outer edge in `INK`, two pixels wide
 `ContactStrip.aperture_pen`, `ContactStrip.numeral_colour` and
 `FrameRibbon.edge_pen` are the decisions themselves, exposed so a test can
 assert the colour rather than re-derive the geometry.
-Each widget also states its own selection to `setAccessibleName`, for a screen
-reader — the same frame numbering as the rail, but not the same string. The
-strip names the frame and its place in the sheet (`Frame 3 of 5`); it does not
-say a position in percent, because a percent of the panorama's width is
-knowledge it has never had, which is the whole reason the tab converts for it.
+The rail's sentence is also what a screen reader hears: `SplitTab` pushes it
+verbatim into both widgets with `setAccessibleDescription`, so the two views and
+the rail cannot say different things about the same frame. `setAccessibleName`
+stays each widget's plain identity — "Panorama overview", "Contact strip". The
+widgets compose no sentence of their own: a percent of the panorama's width is
+knowledge neither has ever had, which is the whole reason the tab converts for
+them, and the strip's old "Frame 3 of 5" said the same words after every arrow
+press.
 
 A selection is dropped at the cause, not guarded at every reader.
 `FrameRibbon.set_plan` and `ContactStrip.set_frames` both drop a selection the
