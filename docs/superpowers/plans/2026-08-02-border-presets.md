@@ -60,7 +60,7 @@
   - `settings.BUILT_INS: dict[str, dict[str, pipeline.FrameStyle]]` — keyed by scope, then name
   - `settings.seed_presets() -> None` — runs once, recorded by a flag
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `tests/test_gui_settings.py`. Every test takes the `isolated_settings` fixture — without it these write to the developer's real preferences:
 
@@ -176,12 +176,12 @@ def test_the_split_built_ins_carry_no_gap_decision(isolated_settings: Path) -> N
 
 The file already imports `pytest`, `Path`, `settings` and `pipeline`; add whatever is missing.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `mise exec -- uv run pytest tests/test_gui_settings.py -v`
 Expected: FAIL with `AttributeError: module 'maskingframe.gui.settings' has no attribute 'load_presets'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Add to `settings.py`, after `save_style`:
 
@@ -309,12 +309,12 @@ def seed_presets() -> None:
 
 Call `seed_presets()` from `configure()`, so it happens once at startup beside the other one-time settings work.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `mise exec -- uv run pytest tests/test_gui_settings.py -v`
 Expected: PASS, including every test already in the file.
 
-- [ ] **Step 5: Run the full gate and commit**
+- [x] **Step 5: Run the full gate and commit**
 
 ```bash
 mise run check
