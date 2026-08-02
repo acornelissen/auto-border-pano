@@ -477,8 +477,16 @@ class PresetRow(QWidget):
             line_edit.setTextMargins(0, 0, Combo.ARROW + theme.M, 0)
         # `currentIndexChanged` rather than `activated`: the latter is only
         # sent for a genuine user gesture on the popup, which a test cannot
-        # simulate via `setCurrentIndex`. The `_quiet` guard is what keeps
-        # this from firing during `set_names`/`set_current`.
+        # simulate via `setCurrentIndex`. `currentIndexChanged` is not "the
+        # user picked something", though -- `addItems` on an empty combo
+        # fires it too (`currentIndexChanged(0)`, because filling the list
+        # is itself an index change), so `set_names` needs the `_quiet`
+        # guard. `set_current` uses `setEditText`, which changes no index
+        # even when the typed text matches an item exactly -- it only fires
+        # `editTextChanged` -- so it is `_quiet` there only for symmetry.
+        # A tab that calls `box.setCurrentIndex()` directly, instead of
+        # going through `set_current`, would emit `chosen` for a choice
+        # nobody made.
         self.box.currentIndexChanged.connect(self._on_activated)
         self.box.editTextChanged.connect(self._on_text_changed)
         line = self.box.lineEdit()

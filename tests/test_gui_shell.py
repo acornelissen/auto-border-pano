@@ -448,6 +448,27 @@ def test_saving_a_name_with_a_separator_does_nothing(qtbot: QtBot) -> None:
         row.save_button.click()
 
 
+def test_the_return_key_on_a_separator_name_does_nothing(qtbot: QtBot) -> None:
+    # The Return key goes through `returnPressed`, not the button, so it
+    # bypasses the button's enabled state entirely -- this is the path that
+    # would break first if the check ever moved into `_sync_buttons` alone.
+    row = shell.PresetRow()
+    qtbot.addWidget(row)
+    row.box.setEditText("before/after")
+
+    with qtbot.assertNotEmitted(row.saved):
+        qtbot.keyClick(row.box.lineEdit(), Qt.Key.Key_Return)  # type: ignore[no-untyped-call]
+
+
+def test_the_return_key_on_a_blank_name_does_nothing(qtbot: QtBot) -> None:
+    row = shell.PresetRow()
+    qtbot.addWidget(row)
+    row.box.setEditText("   ")
+
+    with qtbot.assertNotEmitted(row.saved):
+        qtbot.keyClick(row.box.lineEdit(), Qt.Key.Key_Return)  # type: ignore[no-untyped-call]
+
+
 def test_the_edited_marker_appears_and_never_reaches_a_name(qtbot: QtBot) -> None:
     row = shell.PresetRow()
     qtbot.addWidget(row)
