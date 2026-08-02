@@ -289,6 +289,81 @@ def evaluate(
 # exists to stop.
 TIE_TOLERANCE = 1e-9
 
+TIE_DECIMALS = 9
+"""`TIE_TOLERANCE` as a number of decimal places, so the same fact can be a
+sort key as well as a comparison. Scores closer than the tolerance round to
+the same value and fall through to depth, then to name."""
+
+
+def short_name(node: Node) -> str:
+    """The shell-safe spelling: the root axis, then its blocks' sizes.
+
+    `R(C(1,2,3,4),C(5,6))` is `R4.2`. It says exactly as much, because one
+    level of grouping means an arrangement *is* a root axis plus a list of
+    block sizes -- and it contains nothing a shell reacts to, while the
+    parenthesised form is a syntax error unquoted in both zsh and bash.
+
+    A leaf has no axis and no blocks, so it has no short name. Every root
+    `candidates` yields is a group, so this is a programming error rather
+    than an input this has to tolerate.
+    """
+    if isinstance(node, Leaf):
+        raise ValueError("a leaf has no short name; short_name takes an arrangement's root")
+    letter = "R" if isinstance(node, Row) else "C"
+    sizes = (1 if isinstance(child, Leaf) else len(child.children) for child in node.children)
+    return letter + ".".join(str(size) for size in sizes)
+
+
+def parse_name(text: str, count: int) -> Node | None:
+    """Find the arrangement of `count` panels called `text`, in either
+    spelling, or None.
+
+    Matched against the generated list rather than parsed. A parser would be
+    a second definition of what a name means and could disagree with
+    `name_of` and `short_name`; comparing against what those two actually
+    produce cannot. There are at most 62 to compare.
+
+    Never raises, including for a count the solver does not accept: the
+    caller decides what an unknown name means, and for the CLI that is a
+    message rather than a traceback.
+    """
+    wanted = text.strip().upper()
+    if not wanted or not MIN_PANELS <= count <= MAX_PANELS:
+        return None
+    for name, node in candidates(count):
+        if wanted in (name.upper(), short_name(node).upper()):
+            return node
+    return None
+
+
+def rank(
+    aspects: Sequence[float],
+    ratio: AspectRatio,
+    style: FrameStyle = DEFAULT_STYLE,
+) -> tuple[Layout, ...]:
+    """Every arrangement that can be placed, best first.
+
+    One sort key expresses the whole rule -- fill, then the shallower tree,
+    then the earlier name -- because the score is rounded to the tie
+    tolerance before it is compared. `solve` is this list's head, so the
+    winner and the list a user picks from cannot disagree about the order.
+
+    An arrangement that cannot be placed is absent, exactly as it is absent
+    from the winner: `evaluate` returning None is a candidate declining to
+    be one.
+    """
+    for index, aspect in enumerate(aspects):
+        if not math.isfinite(aspect) or aspect <= 0:
+            raise ValueError(f"aspect at index {index} must be finite and positive, got {aspect!r}")
+
+    solved: list[tuple[float, int, str, Layout]] = []
+    for name, node in candidates(len(aspects)):
+        placed = evaluate(node, name, aspects, ratio, style)
+        if placed is not None:
+            solved.append((-round(placed.score, TIE_DECIMALS), node_depth(node), name, placed))
+    solved.sort(key=lambda entry: entry[:3])
+    return tuple(entry[3] for entry in solved)
+
 
 def solve(
     aspects: Sequence[float],
@@ -304,23 +379,11 @@ def solve(
     they are broken by the shallower tree first and the earlier name
     second. Both are properties of the arrangement itself, so the winner
     does not depend on the order `candidates` happens to generate in.
+
+    The head of `rank`, so the arrangement chosen automatically and the list
+    a user overrides it from are ordered by one rule rather than two.
     """
-    for index, aspect in enumerate(aspects):
-        if not math.isfinite(aspect) or aspect <= 0:
-            raise ValueError(f"aspect at index {index} must be finite and positive, got {aspect!r}")
-
-    ranked: list[tuple[int, str, Layout]] = []
-    best_score: float | None = None
-    for name, node in candidates(len(aspects)):
-        solved = evaluate(node, name, aspects, ratio, style)
-        if solved is None:
-            continue
-        ranked.append((node_depth(node), name, solved))
-        if best_score is None or solved.score > best_score:
-            best_score = solved.score
-    if best_score is None:
+    ranked = rank(aspects, ratio, style)
+    if not ranked:
         raise ValueError(f"no usable layout for aspects {list(aspects)} at {ratio.name}")
-
-    tied = [entry for entry in ranked if best_score - entry[2].score <= TIE_TOLERANCE]
-    tied.sort(key=lambda entry: (entry[0], entry[1]))
-    return tied[0][2]
+    return ranked[0]

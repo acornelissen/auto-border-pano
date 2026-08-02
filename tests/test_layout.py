@@ -438,3 +438,81 @@ def test_a_clear_win_on_score_beats_a_shallower_arrangement() -> None:
     solved = layout.solve([1.5] * 6, geometry.RATIOS["4:5"])
     assert solved.name != "R(1,2,3,4,5,6)"
     assert solved.score > 0.5
+
+
+def test_rank_puts_solve_at_its_head() -> None:
+    for aspects in ([1.5] * 6, [1.0, 2.0, 0.5], [3.0, 0.67, 1.0, 1.5]):
+        for ratio in geometry.RATIOS.values():
+            ranked = layout.rank(aspects, ratio, STYLE)
+            assert ranked
+            assert ranked[0].name == layout.solve(aspects, ratio, STYLE).name
+
+
+def test_rank_is_ordered_best_first() -> None:
+    ranked = layout.rank([1.5] * 6, geometry.SQUARE, STYLE)
+    scores = [solved.score for solved in ranked]
+    assert scores == sorted(scores, reverse=True)
+
+
+def test_rank_lists_every_placeable_arrangement_once() -> None:
+    aspects = [1.5, 0.67, 1.0, 1.5]
+    ranked = layout.rank(aspects, geometry.SQUARE, STYLE)
+    names = [solved.name for solved in ranked]
+    placeable = {
+        name
+        for name, node in layout.candidates(4)
+        if layout.evaluate(node, name, aspects, geometry.SQUARE, STYLE) is not None
+    }
+    assert len(names) == len(set(names))
+    assert set(names) == placeable
+
+
+def test_rank_raises_when_nothing_can_be_placed() -> None:
+    # Same inputs as test_no_usable_layout_raises: every candidate needs a
+    # leaf under half a pixel, so the ranking is empty and solve must say so
+    # rather than returning nothing.
+    assert layout.rank([0.001, 0.001], geometry.LANDSCAPE, STYLE) == ()
+    with pytest.raises(ValueError):
+        layout.solve([0.001, 0.001], geometry.LANDSCAPE, STYLE)
+
+
+def test_short_name_is_the_axis_and_the_block_sizes() -> None:
+    row = layout.Row((layout.Column((layout.Leaf(0), layout.Leaf(1))), layout.Leaf(2)))
+    assert layout.short_name(row) == "R2.1"
+    column = layout.Column((layout.Leaf(0), layout.Row((layout.Leaf(1), layout.Leaf(2)))))
+    assert layout.short_name(column) == "C1.2"
+
+
+def test_short_names_are_unique_at_every_count() -> None:
+    for count in range(layout.MIN_PANELS, layout.MAX_PANELS + 1):
+        shorts = [layout.short_name(node) for _, node in layout.candidates(count)]
+        assert len(set(shorts)) == len(shorts), count
+
+
+def test_every_arrangement_round_trips_through_both_spellings() -> None:
+    for count in range(layout.MIN_PANELS, layout.MAX_PANELS + 1):
+        for name, node in layout.candidates(count):
+            assert layout.parse_name(name, count) == node
+            assert layout.parse_name(layout.short_name(node), count) == node
+
+
+def test_a_name_is_read_case_insensitively_and_trimmed() -> None:
+    assert layout.parse_name("  r2.2  ", 4) == layout.parse_name("R2.2", 4)
+    assert layout.parse_name("r(c(1,2),c(3,4))", 4) == layout.parse_name("R2.2", 4)
+
+
+@pytest.mark.parametrize(
+    ("text", "count"),
+    [
+        ("", 4),
+        ("nonsense", 4),
+        ("R2.2", 3),  # well formed, but not an arrangement of three
+        ("R9.9", 4),  # block sizes that do not add up
+        ("R2.2", 1),  # a count the solver does not accept
+        ("R2.2", 7),
+    ],
+)
+def test_an_unknown_name_reads_as_nothing_rather_than_raising(text: str, count: int) -> None:
+    """`parse_name` never raises: the caller decides what an unknown name
+    means, and for the CLI that is a message rather than a traceback."""
+    assert layout.parse_name(text, count) is None
