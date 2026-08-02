@@ -13,6 +13,24 @@ from maskingframe.geometry import DEFAULT_STYLE, FrameStyle
 STYLE = FrameStyle(border_percent=9.0, gutter_percent=4.0)
 
 
+def _node_named(name: str, count: int) -> layout.Node:
+    for candidate_name, node in layout.candidates(count):
+        if candidate_name == name:
+            return node
+    raise AssertionError(f"no candidate named {name}")
+
+
+def _names_within(tolerance: float, aspects: list[float], ratio: geometry.AspectRatio) -> list[str]:
+    """Every candidate scoring within `tolerance` of the best."""
+    scored = {}
+    for name, node in layout.candidates(len(aspects)):
+        solved = layout.evaluate(node, name, aspects, ratio, geometry.DEFAULT_STYLE)
+        if solved is not None:
+            scored[name] = solved.score
+    best = max(scored.values())
+    return [name for name, score in scored.items() if best - score <= tolerance]
+
+
 def _touching_or_overlapping(a: layout.Box, b: layout.Box) -> bool:
     return not (
         a.x + a.width < b.x or b.x + b.width < a.x or a.y + a.height < b.y or b.y + b.height < a.y
@@ -341,3 +359,49 @@ def test_a_name_reads_the_tree_with_images_numbered_from_one() -> None:
     node = layout.Row((layout.Leaf(0), layout.Column((layout.Leaf(1), layout.Leaf(2)))))
     assert layout.name_of(node) == "R(1,C(2,3))"
     assert layout.name_of(layout.Leaf(3)) == "4"
+
+
+def test_node_depth_counts_levels_of_grouping() -> None:
+    assert layout.node_depth(layout.Leaf(0)) == 0
+    assert layout.node_depth(layout.Row((layout.Leaf(0), layout.Leaf(1)))) == 1
+    assert (
+        layout.node_depth(
+            layout.Row((layout.Leaf(0), layout.Column((layout.Leaf(1), layout.Leaf(2)))))
+        )
+        == 2
+    )
+
+
+def test_a_tie_is_won_by_the_flatter_arrangement() -> None:
+    """Six frames from one camera share an aspect, so many arrangements
+    fill the frame identically. Between them the flat one is the one a
+    person would have laid out."""
+    solved = layout.solve([1.0] * 6, geometry.RATIOS["1:1"])
+    tied = _names_within(1e-9, [1.0] * 6, geometry.RATIOS["1:1"])
+    assert len(tied) > 1, "no tie to break -- the test proves nothing"
+    assert layout.node_depth(_node_named(solved.name, 6)) == min(
+        layout.node_depth(_node_named(name, 6)) for name in tied
+    )
+
+
+def test_a_tie_at_equal_depth_is_won_by_the_first_name() -> None:
+    aspects = [1.0] * 4
+    ratio = geometry.RATIOS["1:1"]
+    solved = layout.solve(aspects, ratio)
+    shallowest = min(
+        layout.node_depth(_node_named(name, 4)) for name in _names_within(1e-9, aspects, ratio)
+    )
+    rivals = sorted(
+        name
+        for name in _names_within(1e-9, aspects, ratio)
+        if layout.node_depth(_node_named(name, 4)) == shallowest
+    )
+    assert solved.name == rivals[0]
+
+
+def test_a_clear_win_on_score_beats_a_shallower_arrangement() -> None:
+    """Depth only ever breaks a tie. A flat row of six 3:2 frames at 4:5
+    fills 5% of the frame; it must not win over a grid filling 88%."""
+    solved = layout.solve([1.5] * 6, geometry.RATIOS["4:5"])
+    assert solved.name != "R(1,2,3,4,5,6)"
+    assert solved.score > 0.5

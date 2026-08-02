@@ -283,6 +283,13 @@ def evaluate(
     return Layout(name, boxes, tuple(separators), score)
 
 
+# Two fill scores are the same score when they are this close. Exact float
+# equality would let a rounding artefact one part in 10^16 decide which
+# arrangement wins, which is precisely what the depth preference below
+# exists to stop.
+TIE_TOLERANCE = 1e-9
+
+
 def solve(
     aspects: Sequence[float],
     ratio: AspectRatio,
@@ -290,20 +297,30 @@ def solve(
 ) -> Layout:
     """Choose the arrangement that fills the frame best without cropping.
 
-    Every candidate keeps each panel at its own aspect ratio, so the choice
-    is purely about which one wastes the least white space.
+    Every candidate keeps each panel at its own aspect ratio, so the first
+    question is only which one wastes the least white space. Ties are
+    common -- a set of frames from one camera shares an aspect ratio, and
+    then whole families of arrangements fill the frame identically -- so
+    they are broken by the shallower tree first and the earlier name
+    second. Both are properties of the arrangement itself, so the winner
+    does not depend on the order `candidates` happens to generate in.
     """
     for index, aspect in enumerate(aspects):
         if not math.isfinite(aspect) or aspect <= 0:
             raise ValueError(f"aspect at index {index} must be finite and positive, got {aspect!r}")
 
-    best: Layout | None = None
+    ranked: list[tuple[int, str, Layout]] = []
+    best_score: float | None = None
     for name, node in candidates(len(aspects)):
         solved = evaluate(node, name, aspects, ratio, style)
         if solved is None:
             continue
-        if best is None or solved.score > best.score:
-            best = solved
-    if best is None:
+        ranked.append((node_depth(node), name, solved))
+        if best_score is None or solved.score > best_score:
+            best_score = solved.score
+    if best_score is None:
         raise ValueError(f"no usable layout for aspects {list(aspects)} at {ratio.name}")
-    return best
+
+    tied = [entry for entry in ranked if best_score - entry[2].score <= TIE_TOLERANCE]
+    tied.sort(key=lambda entry: (entry[0], entry[1]))
+    return tied[0][2]
