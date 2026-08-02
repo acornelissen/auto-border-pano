@@ -568,3 +568,19 @@ def test_a_frame_one_border_out_of_range_fails_at_parse_time(capsys: Any) -> Non
     with pytest.raises(SystemExit):
         cli.build_parser().parse_args(["in.jpg", "--frame1-border", "80"])
     assert "80" in capsys.readouterr().err
+
+
+def test_frame_one_rows_reaches_the_style() -> None:
+    args = cli.build_parser().parse_args(["in.jpg", "--frame1-rows", "3"])
+    assert cli._style_from_args(args).padded_rows == 3
+
+
+def test_frame_one_rows_defaults_to_the_whole_panorama() -> None:
+    assert cli._style_from_args(cli.build_parser().parse_args(["in.jpg"])).padded_rows == 1
+
+
+@pytest.mark.parametrize("value", ["0", "5", "two"])
+def test_a_bad_row_count_fails_at_parse_time(value: str, capsys: Any) -> None:
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(["in.jpg", "--frame1-rows", value])
+    assert value in capsys.readouterr().err

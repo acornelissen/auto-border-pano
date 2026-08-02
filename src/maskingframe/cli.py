@@ -40,6 +40,25 @@ def _percent_type(value: str) -> float:
     return number
 
 
+def _rows_type(value: str) -> int:
+    """Resolve --frame1-rows, as a count of rows.
+
+    Checked here so a typo fails with argparse's own message rather than
+    inside FrameStyle at render time.
+    """
+    try:
+        number = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"invalid row count '{value}': expected a number"
+        ) from None
+    if not 1 <= number <= pipeline.MAX_ROWS:
+        raise argparse.ArgumentTypeError(
+            f"invalid row count '{value}': must be between 1 and {pipeline.MAX_ROWS}"
+        )
+    return number
+
+
 def _colour_type(value: str) -> str:
     """Resolve a colour argument to a normalised #rrggbb string.
 
@@ -65,6 +84,7 @@ def _style_from_args(args: argparse.Namespace) -> pipeline.FrameStyle:
         gutter_colour=args.gutter_colour,
         border_detail_frames=args.border_detail_frames,
         padded_border_percent=args.frame1_border,
+        padded_rows=args.frame1_rows,
     )
 
 
@@ -162,6 +182,19 @@ def _add_style_arguments(parser: argparse.ArgumentParser) -> None:
             "so it can fill more of the frame without changing what the border "
             "means for the detail frames or a composite (default: the same as "
             "--border)"
+        ),
+    )
+    parser.add_argument(
+        "--frame1-rows",
+        dest="frame1_rows",
+        type=_rows_type,
+        default=1,
+        metavar="N",
+        help=(
+            f"splits only: lay the whole-panorama frame out as N rows read top "
+            f"to bottom, 1 to {pipeline.MAX_ROWS} (default: 1, the whole "
+            "panorama in one). Nothing is cropped; rows fill much more of a "
+            "tall frame and less of a wide one"
         ),
     )
     parser.add_argument(

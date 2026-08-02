@@ -44,6 +44,8 @@ move_position = geometry.move_position
 insert_position = geometry.insert_position
 drop_position = geometry.drop_position
 positions_are_even = geometry.positions_are_even
+MAX_ROWS = geometry.MAX_ROWS
+padded_rows_fill = geometry.padded_rows_fill
 frame_width = geometry.frame_width
 position_travel = geometry.position_travel
 

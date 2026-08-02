@@ -425,7 +425,15 @@ def test_the_rail_shows_every_line_of_its_help_text(qtbot: Any, tab: SplitTab) -
 
 def test_split_tab_offers_the_detail_frame_toggle(tab: SplitTab) -> None:
     assert tab.border_controls.detail_check is not None
-    assert tab.border_controls.gutter_slider is None
+
+
+def test_split_offers_the_gap_because_it_separates_the_rows(tab: SplitTab) -> None:
+    """Split hid the gap controls while nothing on that side used them. The
+    gap between frame 1's rows is the same distance a composite puts between
+    its panels, so it is the same control rather than a fourth setting that
+    means what the third already means."""
+    assert tab.border_controls.gutter_slider is not None
+    assert tab.border_controls.gutter_swatch is not None
 
 
 def test_border_controls_sit_between_the_format_and_the_destination(tab: SplitTab) -> None:
@@ -1667,3 +1675,60 @@ def test_the_restored_sentence_goes_on_any_change_not_only_a_drag(
     ]()
 
     assert reopened.ribbon_note.text() == split_tab.KEY_HELP
+
+
+def test_the_rows_list_offers_every_count(qtbot: Any) -> None:
+    tab = SplitTab()
+    qtbot.addWidget(tab)
+
+    assert tab.rows_combo.count() == pipeline.MAX_ROWS
+    assert tab.rows_combo.itemText(0) == split_tab.ROWS_OFF
+    assert tab.rows() == 1
+
+
+def test_the_rows_list_says_what_each_count_is_worth(qtbot: Any, tmp_path: Path) -> None:
+    """The number is the whole reason the control is a list rather than a
+    spinner: it turns a guess into a comparison."""
+    tab = loaded_tab(qtbot, tmp_path)
+
+    labels = [tab.rows_combo.itemText(i) for i in range(tab.rows_combo.count())]
+
+    assert all("%" in label for label in labels)
+    size = tab._source_size
+    assert size is not None
+    wanted = pipeline.padded_rows_fill(
+        size[0], size[1], pipeline.DEFAULT_RATIO, tab.border_controls.frame_style(), 2
+    )
+    assert f"{wanted:.0%}" in labels[1]
+
+
+def test_with_no_source_the_rows_carry_no_percentages(qtbot: Any) -> None:
+    """A number for a panorama nobody has chosen would be made up."""
+    tab = SplitTab()
+    qtbot.addWidget(tab)
+
+    assert not any("%" in tab.rows_combo.itemText(i) for i in range(tab.rows_combo.count()))
+
+
+def test_choosing_rows_reaches_the_style_and_re_renders(qtbot: Any, tmp_path: Path) -> None:
+    tab = loaded_tab(qtbot, tmp_path)
+    renders: list[int] = []
+    tab._rerender = lambda: renders.append(tab.rows())  # type: ignore[method-assign]
+
+    tab.rows_combo.setCurrentIndex(1)
+
+    assert tab.rows() == 2
+    assert tab._style().padded_rows == 2
+    assert renders == [2]
+
+
+def test_the_rows_percentages_follow_the_ratio(qtbot: Any, tmp_path: Path) -> None:
+    """Rows are worth much less at a wide ratio, and the list has to say so
+    rather than showing the portrait numbers forever."""
+    tab = loaded_tab(qtbot, tmp_path)
+    portrait = tab.rows_combo.itemText(1)
+
+    tab.ratio_box.setCurrentText(pipeline.RATIOS["1.91:1"].display)
+    qtbot.waitUntil(lambda: tab.rows_combo.itemText(1) != portrait, timeout=3000)
+
+    assert tab.rows_combo.itemText(1) != portrait

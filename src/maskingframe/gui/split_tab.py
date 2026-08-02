@@ -18,6 +18,7 @@ token, and the ratio still travels with its own answer rather than being
 re-read from a combobox that may have moved on.
 """
 
+import dataclasses
 import math
 from collections.abc import Sequence
 from pathlib import Path
@@ -97,6 +98,15 @@ comfortably longer than any repeat interval, so a held key renders once when
 it stops, and short enough that a single press still feels immediate. Only
 the render waits; the positions themselves move on the keystroke."""
 
+ROWS_OFF = "Off — the whole panorama"
+"""The first entry of the rows list. Named rather than blank, because a row
+that reads as empty looks like a missing value instead of the shape the
+thing has by default."""
+
+ROW_WORDS = {2: "Two rows", 3: "Three rows", 4: "Four rows"}
+"""What each count is called. Only counts above one appear here; one row is
+`ROWS_OFF`, since one row is not really rows."""
+
 UNCOUNTED_ACTION = "Cut frames"
 """The button's label while the count is unknown. Once it is known the
 button counts what it will produce."""
@@ -149,6 +159,11 @@ class SplitTab(QWidget):
         # of the even spread. Display only -- it says how the frames got
         # there, and stops being true the moment they move.
         self._restored = False
+        # How many rows frame 1 is laid out in. Held here rather than read
+        # off the combo, so a rebuild of the list -- which fires
+        # currentIndexChanged -- cannot be mistaken for a choice.
+        self._rows = 1
+        self._filling_rows = False
         # Parented to this widget, so it cannot outlive it and fire into a
         # destroyed tab.
         self._nudge_timer = QTimer(self)
@@ -164,6 +179,7 @@ class SplitTab(QWidget):
         # stopping a press doing something -- a button that looks live and
         # does nothing is worse than one that looks dead.
         self._apply_count_states()
+        self._fill_rows_combo()
         self._refresh_border_preview()
 
         self.source_row.field.textChanged.connect(self._on_selection_changed)
@@ -262,6 +278,19 @@ class SplitTab(QWidget):
         counter_row.addStretch(1)
         rail.addWidget(counter)
 
+        rail.addSpacing(theme.M)
+        self.rows_combo = shell.Combo()
+        self.rows_combo.setAccessibleName("How frame 1 is laid out")
+        self.rows_combo.currentIndexChanged.connect(self._on_rows_change)
+        rail.addWidget(self.rows_combo)
+        rail.addSpacing(theme.S)
+        rail.addWidget(
+            shell.help_label(
+                "Frame 1 only, and it crops nothing. Rows fill much more of a tall "
+                "frame and much less of a wide one."
+            )
+        )
+
         rail.addSpacing(theme.S)
         # The selection in words. The marking on the picture is chinagraph,
         # and a state carried by colour alone fails the floor this project
@@ -275,7 +304,7 @@ class SplitTab(QWidget):
         # nothing for a gap to sit between.
         self.border_controls = shell.BorderControls(
             scope=settings.SPLIT,
-            show_gutter=False,
+            show_gutter=True,
             show_detail_toggle=True,
             show_frame1=True,
         )
@@ -395,7 +424,45 @@ class SplitTab(QWidget):
         already taken, and the control it reads is `frame_style()` for the
         same reason.
         """
-        return self.border_controls.frame_style()
+        # The rows live in FORMAT rather than in BORDER -- they are a
+        # decision about frame 1's layout, not about its edge -- so they are
+        # folded in here, where the rail's one style is assembled.
+        return dataclasses.replace(self.border_controls.frame_style(), padded_rows=self._rows)
+
+    def rows(self) -> int:
+        """How many rows frame 1 is laid out in. One is the whole panorama."""
+        return self._rows
+
+    def _fill_rows_combo(self) -> None:
+        """Rebuild the list, saying what each count is worth.
+
+        The percentages need the panorama's shape, which arrives with the
+        header read, so before a source is loaded the choices read without
+        them rather than with a number made up for a panorama nobody has
+        chosen yet.
+        """
+        self._filling_rows = True
+        try:
+            self.rows_combo.clear()
+            ratio = pipeline.RATIOS[self._ratio_name()]
+            style = self.border_controls.frame_style()
+            size = self._source_size
+            for count in range(1, pipeline.MAX_ROWS + 1):
+                words = ROWS_OFF if count == 1 else ROW_WORDS[count]
+                if size is not None:
+                    fill = pipeline.padded_rows_fill(size[0], size[1], ratio, style, count)
+                    words = f"{words} · {fill:.0%}"
+                self.rows_combo.addItem(words, count)
+            self.rows_combo.setCurrentIndex(self._rows - 1)
+        finally:
+            self._filling_rows = False
+
+    def _on_rows_change(self, index: int) -> None:
+        if self._filling_rows:
+            return
+        self._rows = int(self.rows_combo.itemData(index) or 1)
+        self._refresh_border_preview()
+        self._rerender()
 
     def _on_style_changed(self, style: pipeline.FrameStyle) -> None:
         """Every movement of a control. Cheap work only.
@@ -407,6 +474,7 @@ class SplitTab(QWidget):
         the length of the drag.
         """
         settings.save_style(settings.SPLIT, style)
+        self._fill_rows_combo()
         self._refresh_border_preview()
 
     def _on_style_settled(self, style: pipeline.FrameStyle) -> None:
@@ -897,6 +965,9 @@ class SplitTab(QWidget):
         self._show_ribbon(True)
         self._load_ribbon_picture(token)
         self._apply_count_states()
+        # The shape has just arrived, so the rows list can finally say what
+        # each count is worth.
+        self._fill_rows_combo()
         self._state_selection()
         self._rerender()
 
@@ -915,6 +986,7 @@ class SplitTab(QWidget):
         self._show_ribbon(False)
         self._set_selected(None)
         self._apply_count_states()
+        self._fill_rows_combo()
 
     def _set_error(self, message: str) -> None:
         self.error_label.setText(message)
