@@ -191,7 +191,28 @@ a group stacked the other way — one level of grouping, so every arrangement is
 a grid you would recognise. That gives 2, 6, 14, 30 and 62 arrangements for two
 through six photographs, and the tool keeps whichever fills the frame best.
 It reports the winner in notation: `R(1,C(2,3))` is photograph 1 beside
-photographs 2 and 3 stacked. Panels are never
+photographs 2 and 3 stacked.
+
+You do not have to accept its choice. The Compose tab has an **Arrangement**
+list — every arrangement, best fit first, in plain words with how much of the
+frame each one fills — and the `compose` subcommand takes `--arrangement`:
+
+```bash
+mise run split -- compose a.jpg b.jpg c.jpg d.jpg -o out --arrangement R2.2
+```
+
+`R2.2` is a row of two blocks, two stacked then two stacked. The letter is the
+direction the blocks run in — `R` across, `C` down — and the numbers are how
+many photographs are in each, which must add up to how many you gave it. Every
+run prints the flag for the arrangement it used, so you can put the same one
+back:
+
+```text
+Wrote out_tetraptych.jpg as R(C(1,2),C(3,4)) at Portrait (4:5)
+  --arrangement R2.2
+```
+
+The long form works too, but a shell needs it quoted. Panels are never
 cropped: each keeps its own aspect ratio, and whatever space is left over
 becomes border. That is what lets a 6x17 panorama, a square 6x6 and a
 35mm frame sit in one composite without any of them losing content.
