@@ -55,6 +55,17 @@ NO_POSITIONS = "Frames are spread evenly. Load one panorama to place them by han
 folder mode, or no source. Silence would read as a missing feature rather
 than a decision."""
 
+KEY_HELP = (
+    "Left and Right move the selected frame, Shift by ten steps, "
+    "Home and End to the ends. Up and Down pick a frame."
+)
+"""What the keys do, said where the frames are actually placed.
+
+Nothing else in the interface mentioned them, so the keyboard route existed
+and was undiscoverable. It stands in the same line as `NO_POSITIONS`: the
+sentence under the ribbon says either what you can do or why you cannot.
+"""
+
 KEY_STEP = 0.01
 """How far one arrow press moves a frame, as a fraction of the panorama's
 width. Shift is ten of these and Home/End a hundred, which spans the whole
@@ -406,9 +417,13 @@ class SplitTab(QWidget):
             self._state_selection()
 
     def _show_ribbon(self, visible: bool) -> None:
-        """The ribbon and the sentence explaining its absence are exclusive."""
+        """Show the ribbon, or the sentence explaining why there isn't one.
+
+        The note stays put either way: with the ribbon up it states the keys,
+        because a user placing frames is exactly who needs to know they exist.
+        """
         self.ribbon.setVisible(visible)
-        self.ribbon_note.setVisible(not visible)
+        self.ribbon_note.setText(KEY_HELP if visible else NO_POSITIONS)
         self.strip.set_draggable(visible)
 
     def _move_position(

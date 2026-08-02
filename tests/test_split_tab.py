@@ -1246,3 +1246,14 @@ def test_the_widgets_say_nothing_when_nothing_is_selected(qtbot: Any, tmp_path: 
 
     assert tab.ribbon.accessibleDescription() == ""
     assert tab.strip.accessibleDescription() == ""
+
+
+def test_the_interface_says_the_keys_exist(qtbot: Any, tmp_path: Path) -> None:
+    """A keyboard route nothing mentions is a keyboard route nobody finds.
+    It belongs where the frames are placed, not in a manual."""
+    tab = loaded_tab(qtbot, tmp_path)
+
+    note = tab.ribbon_note.text()
+    assert tab.ribbon_note.isVisibleTo(tab)
+    for key in ("Left", "Right", "Shift", "Home", "End", "Up", "Down"):
+        assert key in note

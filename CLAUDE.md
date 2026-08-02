@@ -128,7 +128,9 @@ says so where the ribbon would be, because silence would read as a missing
 feature. The CLI has no position flags for the same reason.
 
 Both views also take focus and handle keys, because a feature that decides what
-every output frame contains must not need a pointer. Left and Right move the
+every output frame contains must not need a pointer. The line under the ribbon
+says so (`split_tab.KEY_HELP`): with the ribbon up it states the keys, and with
+it hidden it says why there is nothing to place. Left and Right move the
 selected frame by `split_tab.KEY_STEP` (1% of the panorama's width), Shift makes
 that ten steps, Home and End send it to the ends of its travel, and Up and Down
 move the selection, stopping at the ends rather than wrapping. A key press goes
