@@ -887,3 +887,34 @@ def test_choosing_a_compose_preset_applies_the_gap(qtbot: QtBot, isolated_settin
     style = tab.border_controls.frame_style()
     assert style.gutter_percent == 9.0
     assert style.gutter_colour == "#102030"
+
+
+def test_a_restored_compose_style_that_is_a_preset_is_named(
+    qtbot: QtBot, isolated_settings: Path
+) -> None:
+    """Compose restores and names in its own right, not by resembling Split."""
+    style = pipeline.FrameStyle(gutter_percent=9.0, gutter_colour="#102030")
+    settings.save_preset(settings.COMPOSE, "Wide gap", style)
+    settings.save_style(settings.COMPOSE, style)
+
+    tab = ComposeTab()
+    qtbot.addWidget(tab)
+
+    assert tab.border_controls.frame_style() == style
+    assert tab.border_controls.presets.box.currentText() == "Wide gap"
+
+
+def test_a_chosen_compose_preset_survives_a_relaunch(qtbot: QtBot, isolated_settings: Path) -> None:
+    """The Compose wiring is a copy of Split's, so it needs its own proof."""
+    style = pipeline.FrameStyle(gutter_percent=9.0, gutter_colour="#102030")
+    settings.save_preset(settings.COMPOSE, "Wide gap", style)
+    tab = ComposeTab()
+    qtbot.addWidget(tab)
+    tab.border_controls.reload_presets()
+
+    tab.border_controls.presets.chosen.emit("Wide gap")
+
+    relaunched = ComposeTab()
+    qtbot.addWidget(relaunched)
+    assert relaunched.border_controls.frame_style() == style
+    assert relaunched.border_controls.presets.box.currentText() == "Wide gap"
