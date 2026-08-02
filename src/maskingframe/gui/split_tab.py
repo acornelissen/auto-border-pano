@@ -748,6 +748,20 @@ class SplitTab(QWidget):
         self._source_size = (facts.width, facts.height)
         self._window_fraction = facts.window_fraction
         self._set_positions(facts.positions)
+        # The strip learns the count here, not when the first render lands.
+        # Everything above this line already states it -- the rail, the band
+        # and the button -- and the strip used to keep its construction-time
+        # apertures until a preview arrived, so two parts of one screen
+        # disagreed about how many frames there were.
+        #
+        # Only while the apertures are empty, because `set_frames` discards
+        # every thumbnail. With a preview up the old picture stays up and is
+        # relabelled by the render that is about to replace it -- that is the
+        # rule `_rerender` documents, and it reads `strip.exposed` to decide,
+        # so blanking the strip here would tell it there was nothing to redo
+        # and no new preview would ever start.
+        if self.strip.exposed == 0 and self.strip.frame_count != facts.frame_count:
+            self._set_strip_frames(preview_titles(len(facts.positions)))
         self._show_ribbon(True)
         self._load_ribbon_picture(token)
         self._apply_count_states()

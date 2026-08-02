@@ -15,7 +15,7 @@ from PySide6.QtWidgets import QDialog, QLabel, QMessageBox, QRadioButton, QWidge
 from pytestqt.qtbot import QtBot
 
 from maskingframe import pipeline
-from maskingframe.gui import settings, shell, split_tab
+from maskingframe.gui import settings, shell, split_tab, strip
 from maskingframe.gui.split_tab import NO_COUNT, UNCOUNTED_ACTION, SplitTab, preview_titles
 from tests import conftest
 from tests.conftest import synthetic_panorama
@@ -1409,3 +1409,63 @@ def test_a_changed_selection_is_announced_not_only_stored(
 
     assert (tab.ribbon, QAccessible.Event.DescriptionChanged) in raised
     assert (tab.strip, QAccessible.Event.DescriptionChanged) in raised
+
+
+def test_the_strip_takes_its_count_from_the_header_not_the_first_render(
+    qtbot: Any, tmp_path: Path
+) -> None:
+    """The rail's count comes from the header read, which lands long before
+    the first preview. The strip used to keep its four construction-time
+    apertures until a render arrived, so two parts of the same screen
+    disagreed about how many frames there were.
+
+    A 6.25:1 panorama is chosen deliberately: it plans nine frames, so a
+    strip still showing the default four is unmistakable rather than a
+    coincidence.
+    """
+    source = tmp_path / "wide.jpg"
+    conftest.synthetic_panorama(5000, 800).save(source, "JPEG", quality=95)
+    tab = SplitTab()
+    qtbot.addWidget(tab)
+    assert tab.strip.frame_count == strip.DEFAULT_FRAME_COUNT
+
+    facts = pipeline.inspect_source(source, pipeline.DEFAULT_RATIO)
+    tab._apply_facts(tab._inspect_token, facts, pipeline.DEFAULT_RATIO.display, str(source))
+
+    assert facts.frame_count == 9, "the fixture no longer exercises a count unlike the default"
+    assert tab.strip.frame_count == facts.frame_count
+    assert tab.count_label.text() == f"{facts.frame_count} frames"
+
+
+def test_a_header_read_never_blanks_a_strip_with_a_preview_on_it(
+    qtbot: Any, tmp_path: Path
+) -> None:
+    """The relabel above must not fire while pictures are up, even when the
+    count really has changed.
+
+    `set_frames` discards every thumbnail, and `_rerender` reads
+    `strip.exposed` to decide whether a render is worth redoing. Blanking
+    the strip on a header read therefore does two wrong things at once: it
+    takes down a picture the user is looking at, and it tells `_rerender`
+    there was nothing there, so the replacement render never starts and the
+    strip stays empty for good.
+
+    A 4:5 to 1:1 change on this panorama plans five frames then four, so the
+    count genuinely differs and the guard is doing the work rather than the
+    counts happening to match.
+    """
+    tab = loaded_tab(qtbot, tmp_path)
+    source = Path(tab.source_row.text())
+    portrait = pipeline.inspect_source(source, pipeline.RATIOS["4:5"])
+    square = pipeline.inspect_source(source, pipeline.RATIOS["1:1"])
+    assert portrait.frame_count != square.frame_count, "the fixture no longer changes count"
+
+    tab._set_strip_frames(preview_titles(len(portrait.positions)))
+    tab.strip.show_images([synthetic_panorama(40, 40)] * tab.strip.frame_count)
+    exposed = tab.strip.exposed
+    assert exposed > 0
+
+    tab._apply_facts(tab._inspect_token, square, pipeline.RATIOS["1:1"].display, "pano.jpg")
+
+    assert tab.strip.exposed == exposed, "a header read took the preview down"
+    assert tab.strip.frame_count == portrait.frame_count, "relabelled out from under the pictures"
