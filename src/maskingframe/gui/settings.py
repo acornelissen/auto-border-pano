@@ -148,10 +148,18 @@ rather than about a look.
 
 
 def clean_name(name: str) -> str:
-    """The name as it will be stored. Raises if there is nothing left of it."""
+    """The name as it will be stored. Raises if there is nothing left of it.
+
+    Rejects `/` and `\\` rather than escaping them: both are group
+    separators to `QSettings` on some backends, and a preset name is a
+    label a person types and reads back -- a silently escaped name that
+    later displays differently from what was typed is its own confusion.
+    """
     cleaned = name.strip()[:MAX_NAME].strip()
     if not cleaned:
         raise ValueError("a preset needs a name")
+    if "/" in cleaned or "\\" in cleaned:
+        raise ValueError("a preset name cannot contain / or \\")
     return cleaned
 
 
@@ -205,9 +213,19 @@ def save_preset(scope: str, name: str, style: pipeline.FrameStyle) -> None:
 
 
 def delete_preset(scope: str, name: str) -> None:
-    """Remove one preset. Quiet if it was not there."""
+    """Remove one preset. Quiet if it was not there, or was never valid.
+
+    Normalises through `clean_name`, the same path `save_preset` uses, so
+    there is one notion of what a preset's name is rather than two. A name
+    that `clean_name` rejects cannot have been saved under, so there is
+    nothing to remove -- that is a no-op, not an error worth reporting.
+    """
+    try:
+        key = _preset_key(scope, clean_name(name))
+    except ValueError:
+        return
     store = _store()
-    store.remove(_preset_key(scope, name.strip()))
+    store.remove(key)
     store.sync()
 
 

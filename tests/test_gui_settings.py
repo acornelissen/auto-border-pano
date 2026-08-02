@@ -188,3 +188,29 @@ def test_the_split_built_ins_carry_no_gap_decision(isolated_settings: Path) -> N
     for style in settings.BUILT_INS[settings.SPLIT].values():
         assert style.gutter_percent == pipeline.DEFAULT_STYLE.gutter_percent
         assert style.gutter_colour == pipeline.DEFAULT_STYLE.gutter_colour
+
+
+@pytest.mark.parametrize("separator", ["/", "\\"])
+def test_a_name_with_a_separator_is_rejected(separator: str) -> None:
+    with pytest.raises(ValueError, match="/"):
+        settings.clean_name(f"a{separator}b Portrait")
+
+
+def test_a_rejected_name_does_not_disturb_a_good_neighbour(isolated_settings: Path) -> None:
+    settings.save_preset(settings.SPLIT, "Good", pipeline.DEFAULT_STYLE)
+
+    with pytest.raises(ValueError):
+        settings.save_preset(settings.SPLIT, "a/b Portrait", pipeline.DEFAULT_STYLE)
+
+    presets = settings.load_presets(settings.SPLIT)
+    assert list(presets) == ["Good"]
+    assert presets["Good"] == pipeline.DEFAULT_STYLE
+
+
+def test_deleting_an_unusable_name_is_quiet(isolated_settings: Path) -> None:
+    settings.save_preset(settings.SPLIT, "Good", pipeline.DEFAULT_STYLE)
+
+    settings.delete_preset(settings.SPLIT, "a/b Portrait")
+    settings.delete_preset(settings.SPLIT, "   ")
+
+    assert list(settings.load_presets(settings.SPLIT)) == ["Good"]
