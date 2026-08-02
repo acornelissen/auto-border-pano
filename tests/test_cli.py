@@ -490,3 +490,57 @@ def test_compose_help_mentions_the_subcommand() -> None:
 def test_compose_help_names_the_range() -> None:
     parser = cli.build_compose_parser()
     assert "two to six" in parser.format_help()
+
+
+def _compose_sources(tmp_path: Path, count: int = 4) -> list[str]:
+    paths = []
+    for index in range(count):
+        path = tmp_path / f"s{index}.jpg"
+        synthetic_panorama(500 + index * 50, 400).save(path, "JPEG", quality=95)
+        paths.append(str(path))
+    return paths
+
+
+def test_both_spellings_compose_the_same_arrangement(tmp_path: Path, capsys: Any) -> None:
+    sources = _compose_sources(tmp_path)
+
+    cli.main(["compose", *sources, "-o", str(tmp_path / "short"), "--arrangement", "R2.2"])
+    cli.main(
+        ["compose", *sources, "-o", str(tmp_path / "long"), "--arrangement", "R(C(1,2),C(3,4))"]
+    )
+
+    assert (tmp_path / "short_tetraptych.jpg").read_bytes() == (
+        tmp_path / "long_tetraptych.jpg"
+    ).read_bytes()
+
+
+def test_the_success_line_shows_what_to_type_back(tmp_path: Path, capsys: Any) -> None:
+    """A name you cannot copy is not an identifier. The long form needs
+    quoting in a shell, so the line that offers it prints the short one."""
+    sources = _compose_sources(tmp_path)
+
+    cli.main(["compose", *sources, "-o", str(tmp_path / "out"), "--arrangement", "R2.2"])
+
+    printed = capsys.readouterr().out
+    assert "R(C(1,2),C(3,4))" in printed
+    assert "--arrangement R2.2" in printed
+
+
+def test_a_misspelt_arrangement_fails_at_parse_time(tmp_path: Path, capsys: Any) -> None:
+    sources = _compose_sources(tmp_path)
+
+    with pytest.raises(SystemExit):
+        cli.main(["compose", *sources, "-o", str(tmp_path / "out"), "--arrangement", "sideways"])
+
+    assert "sideways" in capsys.readouterr().err
+
+
+def test_an_arrangement_for_the_wrong_count_names_both_numbers(tmp_path: Path, capsys: Any) -> None:
+    sources = _compose_sources(tmp_path, count=3)
+
+    with pytest.raises(SystemExit):
+        cli.main(["compose", *sources, "-o", str(tmp_path / "out"), "--arrangement", "R2.2"])
+
+    message = capsys.readouterr().err
+    assert "R2.2" in message
+    assert "3" in message

@@ -1,6 +1,7 @@
 """Command-line entry points."""
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -67,6 +68,26 @@ def _style_from_args(args: argparse.Namespace) -> pipeline.FrameStyle:
 
 
 COMPOSE_COMMAND = "compose"
+
+_ARRANGEMENT = re.compile(r"^(?:[RC][0-9](?:\.[0-9])*|[RC]\(.+\))$", re.IGNORECASE)
+
+
+def _arrangement(value: str) -> str:
+    """Check the *spelling* here, not the arrangement.
+
+    Whether an arrangement exists depends on how many sources there are,
+    which argparse does not know: the inputs are `nargs="+"` and are counted
+    afterwards. So a typo fails here with argparse's own message and a
+    well-spelt name that no arrangement answers to fails in the run, where
+    the count is known and can be named.
+    """
+    text = value.strip()
+    if text and not _ARRANGEMENT.match(text):
+        raise argparse.ArgumentTypeError(
+            f"invalid arrangement '{value}': spell it like R2.2, "
+            "or the long form 'R(C(1,2),C(3,4))' in quotes"
+        )
+    return text
 
 
 def _add_style_arguments(parser: argparse.ArgumentParser) -> None:
@@ -189,6 +210,15 @@ def build_compose_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("inputs", type=Path, nargs="+", metavar="IMAGE", help="two to six images")
     parser.add_argument(
+        "--arrangement",
+        type=_arrangement,
+        default="",
+        help=(
+            "force an arrangement instead of choosing the best fit, "
+            "e.g. R2.2 (two columns of two). The long form needs quoting."
+        ),
+    )
+    parser.add_argument(
         "-o",
         "--output",
         type=Path,
@@ -225,10 +255,14 @@ def _compose_main(argv: list[str]) -> int:
             print(f"Error: '{path}' not found", file=sys.stderr)
             return 1
 
+    style = _style_from_args(args)
+
     try:
         result = pipeline.compose_images(
-            args.inputs, args.output, args.ratio, style=_style_from_args(args)
+            args.inputs, args.output, args.ratio, args.arrangement, style=style
         )
+    except ValueError as error:
+        parser.error(str(error))
     except Exception as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1
@@ -237,6 +271,12 @@ def _compose_main(argv: list[str]) -> int:
     # noun ("as a row-one-then-two"), and it is now notation, where "as a
     # R(1,C(2,3))" reads as a typo.
     print(f"Wrote {result.path} as {result.layout_name} at {args.ratio.display}")
+    short = next(
+        option.short_name
+        for option in pipeline.arrangements(args.inputs, args.ratio, style)
+        if option.name == result.layout_name
+    )
+    print(f"  --arrangement {short}")
     return 0
 
 
