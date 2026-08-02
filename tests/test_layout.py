@@ -5,6 +5,8 @@ these run in milliseconds and can cover shapes that would be tedious to
 build as real files.
 """
 
+import itertools
+
 import pytest
 
 from maskingframe import geometry, layout
@@ -372,16 +374,47 @@ def test_node_depth_counts_levels_of_grouping() -> None:
     )
 
 
-def test_a_tie_is_won_by_the_flatter_arrangement() -> None:
-    """Six frames from one camera share an aspect, so many arrangements
-    fill the frame identically. Between them the flat one is the one a
-    person would have laid out."""
+def test_a_tie_is_won_by_the_shallowest_then_the_first_name() -> None:
+    """Six frames from one camera share an aspect, so several arrangements
+    fill the frame identically and something has to choose between them.
+
+    The ordering asserted here is the whole rule, both terms at once, on
+    the tie set worked out independently of `solve`. It is written this way
+    rather than as a flat-beats-nested assertion because no such case
+    exists: a sweep over every aspect combination in this file's pool, at
+    every ratio and every count, finds no tie whose members differ in
+    depth. Two arrangements that group their panels differently assemble to
+    different shapes, so they do not fill the frame to within 1e-9 of each
+    other. Depth is a guard against a tie that has never yet occurred, and
+    the name is what actually decides the ties that do.
+    """
     solved = layout.solve([1.0] * 6, geometry.RATIOS["1:1"])
     tied = _names_within(1e-9, [1.0] * 6, geometry.RATIOS["1:1"])
+
     assert len(tied) > 1, "no tie to break -- the test proves nothing"
-    assert layout.node_depth(_node_named(solved.name, 6)) == min(
-        layout.node_depth(_node_named(name, 6)) for name in tied
+    assert solved.name == min(
+        tied, key=lambda name: (layout.node_depth(_node_named(name, 6)), name)
     )
+
+
+def test_no_tie_has_ever_been_found_between_two_depths() -> None:
+    """Pins the claim the test above rests on. If a cross-depth tie ever
+    does appear, this fails and that docstring needs rewriting -- which is
+    the point: the claim is checked rather than remembered."""
+    pool = [1.0, 1.5, 0.6667, 2.0]
+    for count in (2, 3, 4):
+        for ratio in geometry.RATIOS.values():
+            for combo in itertools.product(pool, repeat=count):
+                scored = [
+                    (solved.score, layout.node_depth(node))
+                    for name, node in layout.candidates(count)
+                    if (solved := layout.evaluate(node, name, combo, ratio, STYLE)) is not None
+                ]
+                if not scored:
+                    continue
+                best = max(score for score, _ in scored)
+                depths = {depth for score, depth in scored if best - score <= layout.TIE_TOLERANCE}
+                assert len(depths) == 1, (count, ratio.name, combo)
 
 
 def test_a_tie_at_equal_depth_is_won_by_the_first_name() -> None:

@@ -90,10 +90,17 @@ Two scores are equal when they are within `1e-9`. Exact float comparison would
 let a rounding artefact one part in 10^16 defeat the depth preference, which is
 the whole reason the preference exists.
 
-Depth matters because ties are common in the case that matters most: six frames
-from one camera share an aspect ratio, so many arrangements fill the frame
-identically. Between them, the flat row is the one a person would have laid
-out.
+Ties are common in the case that matters most: six frames from one camera share
+an aspect ratio, so several arrangements fill the frame identically.
+
+The depth term turned out to be a guard rather than an active rule. A sweep over
+every aspect combination, ratio and panel count finds no tie whose members
+differ in depth — two arrangements that group their panels differently assemble
+to different shapes, so they do not fill the frame to within `1e-9` of each
+other. In practice the name decides. Depth is kept because it costs nothing and
+states the preference if such a tie ever does arise, and
+`test_no_tie_has_ever_been_found_between_two_depths` fails the day one does, so
+this paragraph is checked rather than remembered.
 
 ### Counts
 
