@@ -40,10 +40,10 @@ from maskingframe.gui.sources import Source, SourcesList
 from maskingframe.gui.strip import BorderPreview, ContactStrip, Rect
 from maskingframe.gui.work import submit
 
-MIN_IMAGES = 2
-MAX_IMAGES = 3
+MIN_IMAGES = pipeline.MIN_IMAGES
+MAX_IMAGES = pipeline.MAX_IMAGES
 
-EMPTY_STATE = "Add two sources for a diptych, three for a triptych."
+EMPTY_STATE = "Add two to six sources."
 ONE_MORE = "Add one more source."
 NO_PREFIX = "Choose where the composite should go."
 ORDER_HINT = "Left to right, in this order."
@@ -54,16 +54,31 @@ IMAGE_FILTER = "Image files (*.jpg *.jpeg *.JPG *.JPEG);;All files (*)"
 _RATIO_BY_DISPLAY: dict[str, str] = {r.display: r.name for r in pipeline.RATIOS.values()}
 
 
+# What this many sources makes, read off the filename it would be written
+# to. One table rather than two: a suffix and a button that disagreed about
+# what a five-panel composite is called would be a bug nobody would notice
+# until they went looking for the file.
+_COMPOSITE_NOUNS = {
+    count: suffix.removeprefix("_").removesuffix(".jpg")
+    for count, suffix in pipeline.COMPOSITE_SUFFIXES.items()
+}
+
+_NUMBER_WORDS = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six"}
+
+_PLURAL_AXIS = {"row": "rows", "column": "columns"}
+
+
 def _composite_noun(count: int) -> str:
     """What this many sources makes. Empty when it makes nothing yet."""
-    if count == MIN_IMAGES:
-        return "Diptych"
-    if count == MAX_IMAGES:
-        return "Triptych"
-    return ""
+    noun = _COMPOSITE_NOUNS.get(count, "")
+    return noun[:1].upper() + noun[1:]
 
 
-_NUMBER_WORDS = {2: "two", 3: "three"}
+def _save_label(count: int) -> str:
+    """Name what Save will actually write, live as the list changes."""
+    noun = _COMPOSITE_NOUNS.get(count)
+    return f"Save {noun}" if noun else "Save composite"
+
 
 # Two panels in a row or a column are not "a row of two" -- they are side by
 # side, or one above the other. Only these two cases get their own phrasing,
@@ -97,43 +112,101 @@ def _split_arrangement(axis: str, groups: list[str]) -> str:
     return ", ".join(parts)
 
 
+def _read_name(name: str) -> tuple[str, tuple[int, ...]] | None:
+    """Read a solver name into its root axis and its parts' sizes.
+
+    `R(1,C(2,3))` reads as `("row", (1, 2))`. Only the shape is wanted, not
+    which image sits where, because that is all the copy below says.
+
+    Returns None for anything that is not a name this solver produces, so an
+    arrangement from a future solver reaches the rail as itself rather than
+    as a wrong sentence.
+    """
+    axis = {"R": "row", "C": "column"}.get(name[:1])
+    if axis is None or not name.startswith(f"{name[:1]}(") or not name.endswith(")"):
+        return None
+    sizes: list[int] = []
+    size = 0
+    depth = 0
+    in_number = False
+    for char in name[2:-1]:
+        if char == "(":
+            depth += 1
+            in_number = False
+        elif char == ")":
+            depth -= 1
+            in_number = False
+        elif char == "," and depth == 0:
+            sizes.append(size)
+            size = 0
+            in_number = False
+        elif char.isdigit():
+            # Count numbers, not digits: a two-digit image number is one
+            # image. Unreachable at six panels, and cheaper than the bug.
+            if not in_number:
+                size += 1
+            in_number = True
+        elif char == ",":
+            in_number = False
+        elif char in "RC":
+            # The letter opening a nested group, e.g. the "C" in
+            # "R(1,C(2,3))". It carries no count of its own -- the digits
+            # inside its parens do that -- so it neither adds to `size` nor
+            # resets `in_number`.
+            pass
+        else:
+            return None
+    sizes.append(size)
+    if depth != 0 or len(sizes) < 2 or any(size < 1 for size in sizes):
+        return None
+    return axis, tuple(sizes)
+
+
 def present_layout(name: str, count: int) -> str:
     """Turn the solver's own name for an arrangement into human copy.
 
-    Derived mechanically from whatever `layout.candidates` yields. A bare
-    axis name (`row`, `column`) gets the count of panels in it, or the
-    everyday two-up phrasing; a split name (`row-one-then-two`) is read as
-    axis plus the two groups, and the axis alone says which side each group
-    sits on. Deliberately not a lookup table of every arrangement: such a
-    table rots silently the day the solver gains one, whereas this only ever
-    fails to *improve* on a name it has not seen.
+    The solver names an arrangement exactly, in notation the CLI prints and
+    a future override will accept; the rail says the same thing in English.
+    Derived from the name's shape rather than looked up, so a new
+    arrangement cannot arrive unnamed -- the only thing that changes with
+    six panels rather than three is how many shapes there are to describe.
+
     `test_present_layout_reads_the_solver_name_as_a_sentence` walks the
-    solver's own candidate list, so an unnamed arrangement fails the suite.
+    solver's whole candidate list, so an arrangement this cannot read fails
+    the suite.
     """
     if not name:
         return ""
-    axis, _, tail = name.partition("-")
-    if not tail:
+    read = _read_name(name)
+    if read is None:
+        return name
+    axis, sizes = read
+    _positions, pairing = _AXIS[axis]
+
+    if all(size == 1 for size in sizes):
+        # A pair is not "a row of two" -- it is side by side, or one above
+        # the other. Only two panels get that, and only because a diptych
+        # has an everyday name for its arrangement that nothing above it has.
         if count == MIN_IMAGES and axis in _TWO_UP_PHRASING:
             words = _TWO_UP_PHRASING[axis]
         else:
-            words = f"{axis} of {_NUMBER_WORDS.get(count, str(count))}"
-    elif axis in _AXIS and tail.count("-then-") == 1:
-        words = _split_arrangement(axis, tail.split("-then-"))
+            words = f"{axis} of {_NUMBER_WORDS.get(len(sizes), str(len(sizes)))}"
+    elif len(set(sizes)) == 1:
+        inner = _PLURAL_AXIS["column" if axis == "row" else "row"]
+        words = f"{_NUMBER_WORDS[len(sizes)]} {inner} of {_NUMBER_WORDS[sizes[0]]}"
+    elif len(sizes) == 2:
+        # Two parts have two sides, so the existing positional phrasing
+        # applies and the three-panel copy is preserved exactly.
+        words = _split_arrangement(axis, [_NUMBER_WORDS[size] for size in sizes])
     else:
-        # An arrangement whose name does not parse still reads as words
-        # rather than as a slug.
-        words = name.replace("-", " ")
+        # Three or more parts and positional words run out. List them in
+        # order instead, which is the order the images are in.
+        listed = ", ".join(
+            _NUMBER_WORDS[size] if size == 1 else f"{_NUMBER_WORDS[size]} {pairing}"
+            for size in sizes
+        )
+        words = f"{axis} of {_NUMBER_WORDS[len(sizes)]}: {listed}"
     return words[0].upper() + words[1:]
-
-
-def _save_label(count: int) -> str:
-    """Name what Save will actually write, live as the list changes."""
-    if count == MIN_IMAGES:
-        return "Save diptych"
-    if count == MAX_IMAGES:
-        return "Save triptych"
-    return "Save composite"
 
 
 @dataclass(frozen=True)

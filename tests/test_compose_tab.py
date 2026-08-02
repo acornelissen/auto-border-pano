@@ -62,8 +62,8 @@ def test_the_buttons_are_correct_at_construction(tab: ComposeTab) -> None:
     assert not tab.remove_btn.isEnabled()
 
 
-def test_add_stops_at_three_sources(tab: ComposeTab) -> None:
-    tab._accept([WIDE, TALL])
+def test_add_stops_at_six_sources(tab: ComposeTab) -> None:
+    tab._accept([WIDE, TALL, SQUARE, WIDE, TALL])
     assert tab.add_btn.isEnabled()
 
     tab._accept([SQUARE])
@@ -134,21 +134,21 @@ def test_add_takes_several_files_in_one_go(tab: ComposeTab) -> None:
     assert len(tab.listbox.items) == 3
 
 
-def test_over_the_limit_takes_the_three_that_fit_and_names_the_rest(tab: ComposeTab) -> None:
+def test_over_the_limit_takes_the_six_that_fit_and_names_the_rest(tab: ComposeTab) -> None:
     """Refusing the whole selection would be the modal this interface spent a
     stage removing; dropping them silently would be worse."""
-    tab._accept([WIDE, TALL, SQUARE, WIDE, TALL])
+    tab._accept([WIDE, TALL, SQUARE, WIDE, TALL, SQUARE, WIDE, TALL])
 
-    assert tab.images == [WIDE, TALL, SQUARE]
+    assert tab.images == [WIDE, TALL, SQUARE, WIDE, TALL, SQUARE]
     assert "Left out" in tab.hint
     assert Path(WIDE).name in tab.hint
 
 
 def test_a_full_list_leaves_a_further_pick_untouched(tab: ComposeTab) -> None:
-    tab._accept([WIDE, TALL, SQUARE])
+    tab._accept([WIDE, TALL, SQUARE, WIDE, TALL, SQUARE])
     tab._accept([TALL])
 
-    assert tab.images == [WIDE, TALL, SQUARE]
+    assert tab.images == [WIDE, TALL, SQUARE, WIDE, TALL, SQUARE]
     assert "Left out" in tab.hint
 
 
@@ -277,44 +277,68 @@ def test_a_stale_solve_does_not_overwrite_a_newer_one(tab: ComposeTab) -> None:
     tab.images = [WIDE, TALL, SQUARE]
     tab._solve_token = 7
 
-    stale = compose_tab._Solve(token=6, name="row", count=2, sizes={})
+    stale = compose_tab._Solve(token=6, name="R(1,2)", count=2, sizes={})
     tab._apply_layout_name(stale)
     assert tab.layout_name == ""
     assert tab._solved == ""
 
-    fresh = compose_tab._Solve(token=7, name="column", count=3, sizes={})
+    fresh = compose_tab._Solve(token=7, name="C(1,2,3)", count=3, sizes={})
     tab._apply_layout_name(fresh)
-    assert tab._solved == "column"
+    assert tab._solved == "C(1,2,3)"
     assert tab.layout_name == "Column of three"
 
 
-def test_every_solver_arrangement_has_a_name(tab: ComposeTab) -> None:
-    """Walks the solver's own candidate list, so a new arrangement cannot go
-    unnamed: `present_layout` is derived, not a lookup table."""
-    for count in (2, 3):
-        for name, _node in layout.candidates(count):
+def test_present_layout_reads_the_solver_name_as_a_sentence() -> None:
+    """Walks the solver's own list, so an arrangement it cannot read fails
+    the suite rather than reaching the rail as a formula."""
+    for count in range(pipeline.MIN_IMAGES, pipeline.MAX_IMAGES + 1):
+        for name, _ in layout.candidates(count):
             words = compose_tab.present_layout(name, count)
             assert words
-            assert "-" not in words
+            assert words != name, f"{name} was not read"
             assert words[0].isupper()
 
 
-def test_the_two_up_arrangements_get_their_everyday_names() -> None:
-    assert compose_tab.present_layout("row", 2) == "Side by side"
-    assert compose_tab.present_layout("column", 2) == "One above the other"
-    assert compose_tab.present_layout("row", 3) == "Row of three"
+@pytest.mark.parametrize(
+    ("name", "count", "expected"),
+    [
+        # Rule 1: a pair is not "a row of two".
+        ("R(1,2)", 2, "Side by side"),
+        ("C(1,2)", 2, "One above the other"),
+        # Rule 2: no grouping.
+        ("R(1,2,3)", 3, "Row of three"),
+        ("C(1,2,3,4,5,6)", 6, "Column of six"),
+        # Rule 3: even grouping.
+        ("C(R(1,2,3),R(4,5,6))", 6, "Two rows of three"),
+        ("R(C(1,2),C(3,4),C(5,6))", 6, "Three columns of two"),
+        # Rule 4: two uneven parts keep today's positional wording.
+        ("R(1,C(2,3))", 3, "One left, two stacked right"),
+        ("R(C(1,2),3)", 3, "Two stacked left, one right"),
+        ("C(1,R(2,3))", 3, "One on top, two side by side below"),
+        ("C(R(1,2),3)", 3, "Two side by side on top, one below"),
+        # Rule 5: three or more uneven parts are listed in order.
+        ("C(1,R(2,3),R(4,5,6))", 6, "Column of three: one, two side by side, three side by side"),
+        ("R(1,C(2,3),4)", 4, "Row of three: one, two stacked, one"),
+    ],
+)
+def test_present_layout_reads_a_notation_name(name: str, count: int, expected: str) -> None:
+    assert compose_tab.present_layout(name, count) == expected
 
 
-def test_a_split_arrangement_says_which_side_each_group_is_on() -> None:
-    assert compose_tab.present_layout("row-one-then-two", 3) == "One left, two stacked right"
-    assert (
-        compose_tab.present_layout("column-two-then-one", 3) == "Two side by side on top, one below"
-    )
-
-
-def test_an_unparsed_name_still_reads_as_words() -> None:
-    assert compose_tab.present_layout("spiral-of-doom", 3) == "Spiral of doom"
+def test_an_unreadable_name_is_shown_rather_than_swallowed() -> None:
+    assert compose_tab.present_layout("nonsense", 3) == "nonsense"
     assert compose_tab.present_layout("", 3) == ""
+
+
+def test_the_save_button_names_every_composable_count() -> None:
+    labels = {count: compose_tab._save_label(count) for count in range(2, 7)}
+    assert labels == {
+        2: "Save diptych",
+        3: "Save triptych",
+        4: "Save tetraptych",
+        5: "Save pentaptych",
+        6: "Save hexaptych",
+    }
 
 
 # --- saving and previewing -----------------------------------------------------
