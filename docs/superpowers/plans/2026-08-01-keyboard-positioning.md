@@ -895,10 +895,10 @@ git commit -m "docs: record how the keyboard places the detail frames"
 
 ## Verification
 
-- [ ] `mise run check` passes on a clean tree.
-- [ ] With a panorama loaded, Tab reaches the ribbon and then the strip, and both show a visible focus state.
-- [ ] Arrow keys move the selected frame; Shift moves it further; Home and End reach the ends; Up and Down change the selection and stop at the ends.
-- [ ] The rail names the selected frame and its position, and clears when the source is cleared.
-- [ ] The selected frame is marked in chinagraph in both views, and no other frame is.
-- [ ] In folder mode the strip's keys do nothing.
-- [ ] `grep -rn "import geometry" src/maskingframe/gui/` returns nothing.
+- [x] `mise run check` passes on a clean tree.
+- [x] With a panorama loaded, Tab reaches the ribbon and then the strip, and both show a visible focus state.
+- [x] Arrow keys move the selected frame; Shift moves it further; Home and End reach the ends; Up and Down change the selection and stop at the ends.
+- [x] The rail names the selected frame and its position, and clears when the source is cleared.
+- [x] The selected frame is marked in chinagraph in both views, and no other frame is.
+- [x] In folder mode the strip's keys do nothing.
+- [x] `grep -rn "import geometry" src/maskingframe/gui/` returns nothing.
