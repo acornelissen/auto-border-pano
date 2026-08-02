@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 from PIL import Image
+from PySide6.QtGui import QAccessible
 from PySide6.QtWidgets import QDialog, QLabel, QMessageBox, QRadioButton, QWidget
 from pytestqt.qtbot import QtBot
 
@@ -1387,3 +1388,24 @@ def test_a_restored_style_that_is_no_preset_names_nothing(
     qtbot.addWidget(tab)
 
     assert tab.border_controls.presets.box.currentText() == ""
+
+
+def test_a_changed_selection_is_announced_not_only_stored(
+    qtbot: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Setting `accessibleDescription` raises nothing on its own, so a screen
+    reader hears the sentence when focus arrives and never again. Holding
+    Right has to speak, not just repaint."""
+    tab = loaded_tab(qtbot, tmp_path)
+    tab.ribbon.setFocus()
+    raised: list[tuple[QWidget, QAccessible.Event]] = []
+    monkeypatch.setattr(
+        QAccessible,
+        "updateAccessibility",
+        lambda event: raised.append((event.object(), event.type())),
+    )
+
+    tab._nudge(0, 1)
+
+    assert (tab.ribbon, QAccessible.Event.DescriptionChanged) in raised
+    assert (tab.strip, QAccessible.Event.DescriptionChanged) in raised

@@ -24,6 +24,7 @@ from pathlib import Path
 
 from PIL import Image
 from PySide6.QtCore import QTimer, Signal
+from PySide6.QtGui import QAccessible, QAccessibleEvent
 from PySide6.QtWidgets import (
     QButtonGroup,
     QFileDialog,
@@ -496,9 +497,25 @@ class SplitTab(QWidget):
         self._announce(f"Frame {self._selected + 2} · {along}% along")
 
     def _announce(self, sentence: str) -> None:
+        """Say the sentence three times over: on screen, and to each view.
+
+        Setting `accessibleDescription` stores a string and raises nothing,
+        so a screen reader reads it once when focus arrives and never learns
+        that it changed -- a user holding Right heard silence while the rail
+        counted up. `updateAccessibility` is what turns the stored property
+        into something spoken.
+
+        The event goes to both views rather than to whichever has focus.
+        Assistive technology speaks events for the object the user is on and
+        ignores the rest, and the tab does not track focus; asking it to
+        would be a second copy of a fact Qt already holds.
+        """
         self.selection_label.setText(sentence)
-        self.ribbon.setAccessibleDescription(sentence)
-        self.strip.setAccessibleDescription(sentence)
+        for view in (self.ribbon, self.strip):
+            view.setAccessibleDescription(sentence)
+            QAccessible.updateAccessibility(
+                QAccessibleEvent(view, QAccessible.Event.DescriptionChanged)
+            )
 
     def _nudge(self, index: int, steps: int) -> None:
         """Move one detail frame by `steps` of `KEY_STEP`. GUI thread only.
