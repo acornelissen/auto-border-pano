@@ -67,6 +67,16 @@ and was undiscoverable. It stands in the same line as `NO_POSITIONS`: the
 sentence under the ribbon says either what you can do or why you cannot.
 """
 
+RESTORED = "Frames restored from last time."
+"""Said above the key help when a stored plan has just been put back.
+
+A plan that reappears unannounced looks like the application guessing, and
+the positions are just numbers -- there is nothing else on screen to tell a
+restored plan from a fresh one. It goes as soon as anything moves: the
+sentence is about how the plan arrived, and once you have changed it, it did
+not arrive that way.
+"""
+
 KEY_STEP = 0.01
 """How far one arrow press moves a frame, as a fraction of the panorama's
 width. Shift is ten of these and Home/End a hundred, which spans the whole
@@ -135,12 +145,16 @@ class SplitTab(QWidget):
         # Which detail frame is marked, in detail-frame indices. The one
         # copy: both views are told, neither is asked.
         self._selected: int | None = None
+        # Whether the plan on screen came out of the store rather than out
+        # of the even spread. Display only -- it says how the frames got
+        # there, and stops being true the moment they move.
+        self._restored = False
         # Parented to this widget, so it cannot outlive it and fire into a
         # destroyed tab.
         self._nudge_timer = QTimer(self)
         self._nudge_timer.setSingleShot(True)
         self._nudge_timer.setInterval(NUDGE_SETTLE_MS)
-        self._nudge_timer.timeout.connect(self._rerender)
+        self._nudge_timer.timeout.connect(self._on_nudge_settled)
 
         self._build()
         self._apply_button_states()
@@ -467,7 +481,10 @@ class SplitTab(QWidget):
         because a user placing frames is exactly who needs to know they exist.
         """
         self.ribbon.setVisible(visible)
-        self.ribbon_note.setText(KEY_HELP if visible else NO_POSITIONS)
+        if not visible:
+            self.ribbon_note.setText(NO_POSITIONS)
+        else:
+            self.ribbon_note.setText(f"{RESTORED} {KEY_HELP}" if self._restored else KEY_HELP)
         self.strip.set_draggable(visible)
 
     def _move_position(
@@ -481,6 +498,7 @@ class SplitTab(QWidget):
         grow: the tab is the only place that holds both, so it is the only
         place the rule can be applied once for both views.
         """
+        self._forget_restored()
         if self._source_size is None:
             return
         width, height = self._source_size
@@ -586,8 +604,35 @@ class SplitTab(QWidget):
         """Every movement of a ribbon drag. Cheap work only."""
         self._move_position(index, wanted)
 
+    def _on_nudge_settled(self) -> None:
+        """The keys have stopped, which is a settle like a drag release."""
+        self._remember()
+        self._rerender()
+
+    def _remember(self) -> None:
+        """Store this plan against the source it was made for.
+
+        On the settles, not on every drag move: a plan is written once when
+        the hand stops, the way the frames are rendered once when the hand
+        stops. Folder mode stores nothing -- there is no one panorama, and
+        the frames are cut on the even default.
+        """
+        source = self.source_row.text()
+        if not source or self.folder_radio.isChecked() or not self._positions:
+            return
+        settings.save_plan(source, self._positions)
+
+    def _forget_restored(self) -> None:
+        """The frames have moved, so they are no longer as they arrived."""
+        if not self._restored:
+            return
+        self._restored = False
+        if self.ribbon.isVisibleTo(self):
+            self.ribbon_note.setText(KEY_HELP)
+
     def _on_frame_settled(self, _index: int) -> None:
         """The hand has stopped. Now the frames themselves can be redone."""
+        self._remember()
         self._rerender()
 
     def _on_frame_dragged(self, index: int, delta: float) -> None:
@@ -607,6 +652,7 @@ class SplitTab(QWidget):
 
     def _on_frame_drag_settled(self, _index: int) -> None:
         self._drag_anchor = ()
+        self._remember()
         self._rerender()
 
     def add_frame(self) -> None:
@@ -624,6 +670,7 @@ class SplitTab(QWidget):
                 self._positions, width, height, pipeline.RATIOS[self._ratio_name()]
             )
         )
+        self._remember()
         self._rerender()
 
     def reset_frames(self) -> None:
@@ -644,6 +691,7 @@ class SplitTab(QWidget):
                 width, height, pipeline.RATIOS[self._ratio_name()], count=len(self._positions)
             )
         )
+        self._remember()
         self._rerender()
 
     def remove_frame(self) -> None:
@@ -651,6 +699,7 @@ class SplitTab(QWidget):
         if len(self._positions) <= 2:
             return
         self._set_positions(pipeline.drop_position(self._positions))
+        self._remember()
         self._rerender()
 
     def _apply_count_states(self) -> None:
@@ -808,7 +857,13 @@ class SplitTab(QWidget):
         self._set_band(subject, f"{ratio_name} · {facts.frame_count} frames" if ratio_name else "")
         self._source_size = (facts.width, facts.height)
         self._window_fraction = facts.window_fraction
-        self._set_positions(facts.positions)
+        # A remembered plan beats the even spread, and a source the store
+        # has never seen -- or one edited since it was stored -- falls
+        # straight back to it. `load_plan` decides that, so the tab never
+        # has to know what "the same file" means.
+        remembered = settings.load_plan(self.source_row.text())
+        self._restored = remembered is not None
+        self._set_positions(remembered if remembered is not None else facts.positions)
         # The strip learns the count here, not when the first render lands.
         # Everything above this line already states it -- the rail, the band
         # and the button -- and the strip used to keep its construction-time

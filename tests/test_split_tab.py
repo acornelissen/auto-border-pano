@@ -5,6 +5,7 @@ Widget visibility is asserted with `isVisibleTo(tab)` rather than
 False for everything and would pass whatever the code did.
 """
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -1532,3 +1533,112 @@ def test_the_counter_buttons_say_what_they_do(qtbot: Any, tmp_path: Path) -> Non
     for button in (tab.add_btn, tab.remove_btn, tab.even_btn):
         assert button.accessibleName()
         assert button.toolTip() == button.accessibleName()
+
+
+def test_reopening_a_source_restores_its_frames(qtbot: Any, tmp_path: Path) -> None:
+    """Positions are chosen by looking at one photograph. Throwing them away
+    when the file closes means doing that work again every time."""
+    tab = loaded_tab(qtbot, tmp_path)
+    source = Path(tab.source_row.text())
+    tab._move_position(1, tab.positions()[1] + 0.09)
+    tab.add_frame()
+    placed = tab.positions()
+
+    reopened = SplitTab()
+    qtbot.addWidget(reopened)
+    reopened.show()
+    reopened.source_row.setText(str(source))
+    qtbot.waitUntil(lambda: reopened.positions() != (), timeout=3000)
+
+    assert reopened.positions() == placed
+
+
+def test_a_restored_plan_says_so_until_it_is_changed(qtbot: Any, tmp_path: Path) -> None:
+    """A plan that reappears unannounced looks like the application guessing,
+    and the positions are just numbers -- there is nothing else to tell a
+    restored plan from a fresh one."""
+    tab = loaded_tab(qtbot, tmp_path)
+    source = Path(tab.source_row.text())
+    tab._move_position(1, tab.positions()[1] + 0.09)
+    # A move is not a settle, and only a settle stores. Going through the
+    # real settle handler is the point -- storing on every drag event would
+    # write a plan per mouse move.
+    tab._on_frame_drag_settled(2)
+
+    reopened = SplitTab()
+    qtbot.addWidget(reopened)
+    reopened.show()
+    reopened.source_row.setText(str(source))
+    qtbot.waitUntil(lambda: reopened.positions() != (), timeout=3000)
+
+    assert reopened.ribbon_note.text().startswith(split_tab.RESTORED)
+    assert split_tab.KEY_HELP in reopened.ribbon_note.text()
+
+    reopened._move_position(0, 0.2)
+
+    assert reopened.ribbon_note.text() == split_tab.KEY_HELP
+
+
+def test_a_source_edited_since_opens_on_the_even_spread(qtbot: Any, tmp_path: Path) -> None:
+    tab = loaded_tab(qtbot, tmp_path)
+    source = Path(tab.source_row.text())
+    tab._move_position(1, tab.positions()[1] + 0.09)
+    tab._on_frame_drag_settled(2)
+    conftest.synthetic_panorama(3400, 1000).save(source, "JPEG", quality=95)
+
+    reopened = SplitTab()
+    qtbot.addWidget(reopened)
+    reopened.show()
+    reopened.source_row.setText(str(source))
+    qtbot.waitUntil(lambda: reopened.positions() != (), timeout=3000)
+
+    size = reopened._source_size
+    assert size is not None
+    assert reopened.positions() == pipeline.default_positions(
+        size[0], size[1], pipeline.DEFAULT_RATIO
+    )
+    assert reopened.ribbon_note.text() == split_tab.KEY_HELP
+
+
+def test_restoring_does_not_write_back_what_it_just_read(qtbot: Any, tmp_path: Path) -> None:
+    """A restore is not a user edit. Writing on the header read would rewrite
+    what it has just read, and count as a use on every reopen."""
+    tab = loaded_tab(qtbot, tmp_path)
+    source = Path(tab.source_row.text())
+    tab._move_position(1, tab.positions()[1] + 0.09)
+    tab._on_frame_drag_settled(2)
+
+    saved: list[tuple[float, ...]] = []
+    original = settings.save_plan
+
+    def counted(path: Path | str, positions: Sequence[float]) -> None:
+        saved.append(tuple(positions))
+        original(path, positions)
+
+    reopened = SplitTab()
+    qtbot.addWidget(reopened)
+    reopened.show()
+    settings.save_plan = counted
+    try:
+        reopened.source_row.setText(str(source))
+        qtbot.waitUntil(lambda: reopened.positions() != (), timeout=3000)
+    finally:
+        settings.save_plan = original
+
+    assert saved == []
+
+
+def test_folder_mode_remembers_nothing(qtbot: Any, tmp_path: Path) -> None:
+    """There is no one panorama, the ribbon is hidden, and the frames are cut
+    on the even default -- so there is no plan to belong to anything."""
+    tab = loaded_tab(qtbot, tmp_path)
+    saved: list[Any] = []
+    original = settings.save_plan
+    settings.save_plan = lambda path, positions: saved.append(path)
+    try:
+        tab.folder_radio.setChecked(True)
+        tab.add_frame()
+    finally:
+        settings.save_plan = original
+
+    assert saved == []
