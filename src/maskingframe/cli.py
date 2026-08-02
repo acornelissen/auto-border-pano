@@ -233,7 +233,10 @@ def _compose_main(argv: list[str]) -> int:
         print(f"Error: {error}", file=sys.stderr)
         return 1
 
-    print(f"Wrote {result.path} as a {result.layout_name} at {args.ratio.display}")
+    # No article before the arrangement: it used to be a slug that read as a
+    # noun ("as a row-one-then-two"), and it is now notation, where "as a
+    # R(1,C(2,3))" reads as a typo.
+    print(f"Wrote {result.path} as {result.layout_name} at {args.ratio.display}")
     return 0
 
 
