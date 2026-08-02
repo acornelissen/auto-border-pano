@@ -260,7 +260,10 @@ class SplitTab(QWidget):
         # No gap control: a split writes one frame at a time, so there is
         # nothing for a gap to sit between.
         self.border_controls = shell.BorderControls(
-            scope=settings.SPLIT, show_gutter=False, show_detail_toggle=True
+            scope=settings.SPLIT,
+            show_gutter=False,
+            show_detail_toggle=True,
+            show_frame1=True,
         )
         self.border_controls.reload_presets()
         self.border_controls.restore_style(settings.load_style(settings.SPLIT))

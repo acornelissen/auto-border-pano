@@ -15,11 +15,11 @@ opens the colour dialog for real -- a modal would hang the suite -- so
 import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QColorDialog, QLayout
+from PySide6.QtWidgets import QCheckBox, QColorDialog, QLayout
 from pytestqt.qtbot import QtBot
 
 from maskingframe import pipeline
-from maskingframe.gui import shell, theme
+from maskingframe.gui import settings, shell, theme
 
 RAIL_CONTENT_WIDTH = theme.RAIL_WIDTH - 2 * theme.L
 """How wide a rail child actually is: the rail, less its own margins."""
@@ -541,3 +541,79 @@ def test_deleting_announces_the_name(qtbot: QtBot) -> None:
         row.delete_button.click()
 
     assert blocker.args == ["Gallery"]
+
+
+def _split_controls(qtbot: QtBot) -> tuple[shell.BorderControls, QCheckBox, shell.PercentSlider]:
+    """A Split rail, with its frame 1 pair already narrowed.
+
+    Both are Optional on the widget because Compose does not show them; a
+    Split rail always does, and asserting that here once beats repeating a
+    None check in every test."""
+    built = shell.BorderControls(
+        show_gutter=False, show_detail_toggle=True, scope=settings.SPLIT, show_frame1=True
+    )
+    qtbot.addWidget(built)
+    assert built.frame1_check is not None
+    assert built.frame1_slider is not None
+    return built, built.frame1_check, built.frame1_slider
+
+
+def test_the_frame_one_slider_is_off_until_it_is_asked_for(qtbot: QtBot) -> None:
+    controls, check, slider = _split_controls(qtbot)
+
+    assert not check.isChecked()
+    assert not slider.isEnabled()
+    assert controls.frame_style().padded_border_percent is None
+
+
+def test_ticking_frame_one_adopts_the_shared_width(qtbot: QtBot) -> None:
+    """Ticking must not move the frame. It starts from where you already
+    were, so the checkbox reveals a control rather than applying a change."""
+    controls, check, slider = _split_controls(qtbot)
+    controls.border_slider.setValue(14.0)
+
+    check.setChecked(True)
+
+    assert slider.isEnabled()
+    assert slider.value() == 14.0
+    assert controls.frame_style().padded_border_percent == 14.0
+
+
+def test_unticking_frame_one_gives_the_border_back(qtbot: QtBot) -> None:
+    controls, check, slider = _split_controls(qtbot)
+    check.setChecked(True)
+    slider.setValue(1.0)
+
+    check.setChecked(False)
+
+    assert controls.frame_style().padded_border_percent is None
+
+
+def test_a_frame_one_width_of_zero_survives_being_read_back(qtbot: QtBot) -> None:
+    """0 is full bleed, a real choice, and must not read as 'unset'."""
+    controls, check, _slider = _split_controls(qtbot)
+
+    controls.set_style(pipeline.FrameStyle(padded_border_percent=0.0))
+
+    assert check.isChecked()
+    assert controls.frame_style().padded_border_percent == 0.0
+
+
+def test_set_style_restores_the_frame_one_width(qtbot: QtBot) -> None:
+    controls, check, slider = _split_controls(qtbot)
+
+    controls.set_style(pipeline.FrameStyle(border_percent=9.0, padded_border_percent=3.0))
+
+    assert check.isChecked()
+    assert slider.value() == 3.0
+    assert controls.frame_style().padded_border_percent == 3.0
+
+
+def test_compose_is_not_offered_a_frame_one_border(qtbot: QtBot) -> None:
+    """A composite has no frame 1, so the rail must not offer a control for
+    one -- the same reason Compose has no detail-frames toggle."""
+    built = shell.BorderControls(show_gutter=True, show_detail_toggle=False, scope=settings.COMPOSE)
+    qtbot.addWidget(built)
+
+    assert built.frame1_check is None
+    assert built.frame_style().padded_border_percent is None

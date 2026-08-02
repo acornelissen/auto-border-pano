@@ -647,6 +647,11 @@ class BorderControls(QWidget):
         # the Split list by a caller that miscounted, and omitting it
         # silently is the same mistake with no argument at all to spot.
         scope: str = settings.SPLIT,
+        # A composite has no frame 1, so a Compose rail must not offer a
+        # control for one. Keyword-only and defaulted off for the same
+        # reason `scope` is: a fourth positional is a miscount waiting to
+        # happen, and this one would put a split-only control on Compose.
+        show_frame1: bool = False,
     ) -> None:
         super().__init__(parent)
         self._quiet = False
@@ -655,6 +660,8 @@ class BorderControls(QWidget):
         self.gutter_slider: PercentSlider | None = None
         self.gutter_swatch: Swatch | None = None
         self.detail_check: QCheckBox | None = None
+        self.frame1_check: QCheckBox | None = None
+        self.frame1_slider: PercentSlider | None = None
 
         # A word-wrapped label's height is a function of its width, and
         # `QLabel` says so by turning `heightForWidth` on in its size policy.
@@ -704,6 +711,29 @@ class BorderControls(QWidget):
             column.addSpacing(theme.S)
             column.addWidget(help_label("The gap between the panels."))
 
+        if show_frame1:
+            column.addSpacing(theme.M)
+            self.frame1_check = QCheckBox("Frame 1 has its own border")
+            self.frame1_check.setAccessibleName("Frame 1 has its own border")
+            self.frame1_check.toggled.connect(self._on_frame1_toggled)
+            column.addWidget(self.frame1_check)
+            column.addSpacing(theme.S)
+            self.frame1_slider = PercentSlider(
+                "Frame 1 border", pipeline.DEFAULT_STYLE.border_percent
+            )
+            self.frame1_slider.setEnabled(False)
+            self.frame1_slider.valueChanged.connect(self._emit)
+            self.frame1_slider.settled.connect(self._settle)
+            column.addWidget(self.frame1_slider)
+            column.addSpacing(theme.S)
+            column.addWidget(
+                help_label(
+                    "The whole-panorama frame only. Turn it down to fill more of "
+                    "the frame -- though at a tall ratio most of it stays border "
+                    "whatever this says, because the panorama is a different shape."
+                )
+            )
+
         if show_detail_toggle:
             column.addSpacing(theme.M)
             self.detail_check = QCheckBox("Border the detail frames too")
@@ -711,6 +741,21 @@ class BorderControls(QWidget):
             self.detail_check.toggled.connect(self._emit)
             self.detail_check.toggled.connect(self._settle)
             column.addWidget(self.detail_check)
+
+    def _on_frame1_toggled(self, checked: bool) -> None:
+        """Reveal the slider, starting from the width already in force.
+
+        Ticking the box must not move the frame -- it says "this one is
+        mine now", not "make it different". So the slider adopts the shared
+        border first, and only then becomes something you can drag.
+        """
+        if self.frame1_slider is None:
+            return
+        if checked:
+            self.frame1_slider.setValue(self.border_slider.value())
+        self.frame1_slider.setEnabled(checked)
+        self._emit()
+        self._settle()
 
     def _field(
         self,
@@ -797,6 +842,16 @@ class BorderControls(QWidget):
             border_detail_frames=(
                 self.detail_check.isChecked() if self.detail_check is not None else False
             ),
+            # None, not the slider's number, while the box is unticked: the
+            # slider goes on showing the shared width so that ticking the box
+            # starts where you already were instead of moving the frame.
+            padded_border_percent=(
+                self.frame1_slider.value()
+                if self.frame1_check is not None
+                and self.frame1_slider is not None
+                and self.frame1_check.isChecked()
+                else None
+            ),
         )
 
     def set_style(self, style: pipeline.FrameStyle) -> None:
@@ -815,6 +870,13 @@ class BorderControls(QWidget):
                 self.gutter_swatch.set_colour(style.gutter_colour)
             if self.detail_check is not None:
                 self.detail_check.setChecked(style.border_detail_frames)
+            if self.frame1_check is not None and self.frame1_slider is not None:
+                # `is not None`, never truthiness: 0 is full bleed, a real
+                # choice, and it must not read back as "no choice made".
+                wanted = style.padded_border_percent
+                self.frame1_check.setChecked(wanted is not None)
+                self.frame1_slider.setValue(style.border_percent if wanted is None else wanted)
+                self.frame1_slider.setEnabled(wanted is not None)
         finally:
             self._quiet = False
 
