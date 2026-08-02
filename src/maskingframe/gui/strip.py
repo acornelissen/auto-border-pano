@@ -743,7 +743,11 @@ class ContactStrip(QWidget):
 
     def focusInEvent(self, event: QFocusEvent) -> None:
         self._focused = True
-        announce = self._selected is None and len(self._frames) > 1
+        # The same condition the keys use. Selecting on focus where no key
+        # can move anything marked a frame in folder mode and told a screen
+        # reader about it, while the rail -- the non-colour statement of the
+        # same fact -- stayed empty and the ribbon was not even on screen.
+        announce = self._selected is None and self._draggable and len(self._frames) > 1
         if announce:
             self._select(1)
         super().focusInEvent(event)

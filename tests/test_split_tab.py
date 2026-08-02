@@ -1204,3 +1204,18 @@ def test_a_pending_settle_does_not_land_inside_a_run(qtbot: Any, tmp_path: Path)
     assert not tab._nudge_timer.isActive()
     assert tab.strip.exposed == exposed
     assert tab.status_label.text() == "Cutting frames"
+
+
+def test_the_tab_refuses_a_selection_with_no_positions_behind_it(qtbot: Any) -> None:
+    """Nothing is loaded, so there is nothing to select. A phantom kept here
+    would be promoted into a selection the user never made as soon as a
+    panorama arrived."""
+    tab = SplitTab()
+    qtbot.addWidget(tab)
+
+    tab.strip.selection_changed.emit(1)
+
+    assert tab.selected() is None
+    assert tab.strip.selected() is None
+    assert tab.ribbon.selected() is None
+    assert tab.selection_label.text() == ""

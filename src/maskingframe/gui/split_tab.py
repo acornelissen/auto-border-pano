@@ -444,6 +444,12 @@ class SplitTab(QWidget):
         The ribbon speaks detail indices and the strip speaks strip indices,
         so the conversion happens here -- the same place the drags convert.
         """
+        # An index with no position behind it is not a selection. Refused
+        # here rather than at each reader: without a plan there is nothing to
+        # place, and a phantom kept now would be promoted into a selection
+        # the user never made the moment a panorama loaded.
+        if index is not None and not 0 <= index < len(self._positions):
+            index = None
         self._selected = index
         self.ribbon.set_selected(index)
         self.strip.set_selected(None if index is None else index + 1)

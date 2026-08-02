@@ -862,3 +862,16 @@ def test_the_selected_strip_frame_is_marked_on_its_aperture(qtbot: QtBot) -> Non
     plain = widget.frame_rect_at(1).topLeft() - QPoint(1, 1)
     assert image.pixelColor(marked) == theme.rgb(theme.CHINAGRAPH)
     assert image.pixelColor(plain) == theme.rgb(theme.REBATE)
+
+
+def test_focus_selects_nothing_when_the_keys_cannot_move_anything(qtbot: QtBot) -> None:
+    """Folder mode: the strip is a display. Marking a frame here promised a
+    selection no key could move, and said so to a screen reader while the
+    rail stayed empty."""
+    widget = _built(qtbot)
+    widget.set_draggable(False)
+
+    with qtbot.assertNotEmitted(widget.selection_changed):
+        widget.focusInEvent(QFocusEvent(QEvent.Type.FocusIn))
+
+    assert widget.selected() is None
