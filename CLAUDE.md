@@ -202,6 +202,15 @@ knowledge neither has ever had, which is the whole reason the tab converts for
 them, and the strip's old "Frame 3 of 5" said the same words after every arrow
 press.
 
+Setting that property raises no event, so `_announce` also raises a
+`DescriptionChanged` through `QAccessible.updateAccessibility`. Without it a
+screen reader read the sentence when focus arrived and never learned it had
+changed: holding an arrow key moved the frame, counted up the rail on screen,
+and said nothing. The event goes to both views rather than to whichever has
+focus — assistive technology speaks the event for the object the user is on and
+ignores the other, so the tab does not have to keep its own copy of where focus
+is.
+
 A selection is dropped at the cause, not guarded at every reader.
 `FrameRibbon.set_plan` and `ContactStrip.set_frames` both drop a selection the
 incoming plan or frame list can no longer support, and `SplitTab._set_positions`
