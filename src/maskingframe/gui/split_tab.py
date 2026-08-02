@@ -238,7 +238,7 @@ class SplitTab(QWidget):
             scope=settings.SPLIT, show_gutter=False, show_detail_toggle=True
         )
         self.border_controls.reload_presets()
-        self.border_controls.set_style(settings.load_style(settings.SPLIT))
+        self.border_controls.restore_style(settings.load_style(settings.SPLIT))
         self.border_controls.style_changed.connect(self._on_style_changed)
         self.border_controls.style_settled.connect(self._on_style_settled)
         rail.addWidget(self.border_controls)

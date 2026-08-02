@@ -1327,3 +1327,43 @@ def test_moving_a_control_marks_the_preset_as_edited(qtbot: QtBot, isolated_sett
     tab.border_controls.border_slider.setValue(11.0)
 
     assert tab.border_controls.presets.box.currentText().endswith(shell.EDITED_SUFFIX)
+
+
+def test_scope_cannot_be_passed_by_position(qtbot: QtBot) -> None:
+    """A miscounted positional would give a Compose rail the Split list."""
+    with pytest.raises(TypeError):
+        shell.BorderControls(False, True, None, settings.COMPOSE)  # type: ignore[call-arg]
+
+
+def test_saving_an_unusable_name_is_ignored(qtbot: QtBot, isolated_settings: Path) -> None:
+    # The row will not emit this, but the handler must not raise out of a
+    # slot if anything else does -- delete already swallows it.
+    tab = SplitTab()
+    qtbot.addWidget(tab)
+
+    tab.border_controls.presets.saved.emit("a/b")
+
+    assert settings.load_presets(settings.SPLIT) == {}
+
+
+def test_a_restored_style_that_is_a_preset_is_named(qtbot: QtBot, isolated_settings: Path) -> None:
+    style = pipeline.FrameStyle(border_percent=20.0)
+    settings.save_preset(settings.SPLIT, "Wide", style)
+    settings.save_style(settings.SPLIT, style)
+
+    tab = SplitTab()
+    qtbot.addWidget(tab)
+
+    assert tab.border_controls.presets.box.currentText() == "Wide"
+
+
+def test_a_restored_style_that_is_no_preset_names_nothing(
+    qtbot: QtBot, isolated_settings: Path
+) -> None:
+    settings.save_preset(settings.SPLIT, "Wide", pipeline.FrameStyle(border_percent=20.0))
+    settings.save_style(settings.SPLIT, pipeline.FrameStyle(border_percent=21.0))
+
+    tab = SplitTab()
+    qtbot.addWidget(tab)
+
+    assert tab.border_controls.presets.box.currentText() == ""

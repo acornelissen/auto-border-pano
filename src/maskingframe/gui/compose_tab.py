@@ -315,7 +315,7 @@ class ComposeTab(QWidget):
             scope=settings.COMPOSE, show_gutter=True, show_detail_toggle=False
         )
         self.border_controls.reload_presets()
-        self.border_controls.set_style(settings.load_style(settings.COMPOSE))
+        self.border_controls.restore_style(settings.load_style(settings.COMPOSE))
         self.border_controls.style_changed.connect(self._on_style_changed)
         self.border_controls.style_settled.connect(self._on_style_settled)
         rail.addWidget(self.border_controls)

@@ -642,6 +642,10 @@ class BorderControls(QWidget):
         show_gutter: bool,
         show_detail_toggle: bool,
         parent: QWidget | None = None,
+        *,
+        # Keyword-only: fourth-positional would let a Compose rail be given
+        # the Split list by a caller that miscounted, and omitting it
+        # silently is the same mistake with no argument at all to spot.
         scope: str = settings.SPLIT,
     ) -> None:
         super().__init__(parent)
@@ -840,7 +844,27 @@ class BorderControls(QWidget):
         # honest when the choice arrived any other way.
         self.presets.set_current(name)
 
+    def restore_style(self, style: pipeline.FrameStyle) -> None:
+        """Adopt a stored style and name it if it is exactly a preset.
+
+        The list has to be loaded first. Equality is the whole test --
+        `FrameStyle` is frozen, so `==` compares every field, and naming a
+        preset the settings merely resemble would be worse than naming
+        none. Nothing matching leaves the box blank.
+        """
+        self.set_style(style)
+        match = next((name for name, saved in self._presets.items() if saved == style), "")
+        self.presets.set_current(match)
+
     def _on_preset_saved(self, name: str) -> None:
+        # `delete_preset` swallows an unusable name itself; saving raises.
+        # The row will not emit either for a name `clean_name` rejects, so
+        # this is only ever reached by a caller emitting the signal by
+        # hand -- but the two handlers should behave the same way.
+        try:
+            name = settings.clean_name(name)
+        except ValueError:
+            return
         settings.save_preset(self._scope, name, self.frame_style())
         self.reload_presets()
         self.presets.set_current(name)
