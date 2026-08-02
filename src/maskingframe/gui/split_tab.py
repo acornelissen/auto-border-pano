@@ -466,6 +466,13 @@ class SplitTab(QWidget):
             self._set_selected(None)
         else:
             self._state_selection()
+        # The frames are no longer as they arrived, whatever moved them --
+        # a drag, a key, add, remove or Even. Cleared here rather than in
+        # each of those, which is how add, remove and Even went on claiming
+        # a plan had just been restored after changing it. `_apply_facts`
+        # raises the flag again *after* calling this, so a restore does not
+        # clear its own sentence.
+        self._forget_restored()
         # Every change to the plan lands here -- a drag, a key, add, remove,
         # a reset, a fresh source -- so this is where the count controls are
         # brought up to date. `Even` reads the *spacing*, not the count, and
@@ -498,7 +505,6 @@ class SplitTab(QWidget):
         grow: the tab is the only place that holds both, so it is the only
         place the rule can be applied once for both views.
         """
-        self._forget_restored()
         if self._source_size is None:
             return
         width, height = self._source_size
@@ -862,8 +868,10 @@ class SplitTab(QWidget):
         # straight back to it. `load_plan` decides that, so the tab never
         # has to know what "the same file" means.
         remembered = settings.load_plan(self.source_row.text())
-        self._restored = remembered is not None
         self._set_positions(remembered if remembered is not None else facts.positions)
+        # After, never before: `_set_positions` clears the flag for every
+        # other caller, and setting it first would have it clear its own.
+        self._restored = remembered is not None
         # The strip learns the count here, not when the first render lands.
         # Everything above this line already states it -- the rail, the band
         # and the button -- and the strip used to keep its construction-time

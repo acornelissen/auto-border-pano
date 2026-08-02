@@ -77,6 +77,35 @@ def _flag(store: QSettings, key: str) -> bool:
     return str(value).strip().lower() in ("true", "1", "yes")
 
 
+def _set_optional(store: QSettings, key: str, value: float | None) -> None:
+    """Write a width that may be absent, removing the key when it is.
+
+    Removing rather than writing an empty string, so an unticked box and a
+    store that predates the field are the same thing on disk as well as in
+    memory.
+    """
+    if value is None:
+        store.remove(key)
+    else:
+        store.setValue(key, value)
+
+
+def _optional_percent(store: QSettings, key: str) -> float | None:
+    """A width that may legitimately be absent.
+
+    Absent means "follow the shared border", which is what every style
+    stored before the field existed meant. Read against the key's presence
+    rather than against the value, because 0 is full bleed -- a real choice
+    -- and must never read back as no choice made.
+    """
+    if not store.contains(key):
+        return None
+    value = store.value(key)
+    if value is None or str(value).strip() == "":
+        return None
+    return float(str(value))
+
+
 def load_style(scope: str) -> pipeline.FrameStyle:
     """Read a stored style, or the default if anything about it is wrong.
 
@@ -93,6 +122,7 @@ def load_style(scope: str) -> pipeline.FrameStyle:
             gutter_percent=_percent(store, f"{scope}/gutter_percent", default.gutter_percent),
             gutter_colour=str(store.value(f"{scope}/gutter_colour", default.gutter_colour)),
             border_detail_frames=_flag(store, f"{scope}/border_detail_frames"),
+            padded_border_percent=_optional_percent(store, f"{scope}/padded_border_percent"),
         )
     except (TypeError, ValueError):
         return default
@@ -111,6 +141,7 @@ def save_style(scope: str, style: pipeline.FrameStyle) -> None:
     store.setValue(f"{scope}/gutter_percent", style.gutter_percent)
     store.setValue(f"{scope}/gutter_colour", style.gutter_colour)
     store.setValue(f"{scope}/border_detail_frames", style.border_detail_frames)
+    _set_optional(store, f"{scope}/padded_border_percent", style.padded_border_percent)
     store.sync()
 
 
@@ -208,6 +239,7 @@ def load_presets(scope: str) -> dict[str, pipeline.FrameStyle]:
                 gutter_percent=_percent(store, f"{key}/gutter_percent", default.gutter_percent),
                 gutter_colour=str(store.value(f"{key}/gutter_colour", default.gutter_colour)),
                 border_detail_frames=_flag(store, f"{key}/border_detail_frames"),
+                padded_border_percent=_optional_percent(store, f"{key}/padded_border_percent"),
             )
         except (TypeError, ValueError):
             continue
@@ -223,6 +255,7 @@ def save_preset(scope: str, name: str, style: pipeline.FrameStyle) -> None:
     store.setValue(f"{key}/gutter_percent", style.gutter_percent)
     store.setValue(f"{key}/gutter_colour", style.gutter_colour)
     store.setValue(f"{key}/border_detail_frames", style.border_detail_frames)
+    _set_optional(store, f"{key}/padded_border_percent", style.padded_border_percent)
     store.sync()
 
 
@@ -291,8 +324,11 @@ def _plan_key(path: Path) -> str:
 def _file_facts(path: Path) -> tuple[int, int] | None:
     """This file's mtime and size, or None if it is not there.
 
-    The same two facts `pipeline.cached_preview_source` keys its decode on,
-    so there is one answer in this codebase to "is this the same file". A
+    `st_mtime_ns`, matching `pipeline.cached_preview_source` exactly, so
+    there is one answer in this codebase to "is this the same file".
+    Whole seconds would have been coarser than the cache: a rewrite landing
+    in the same second at the same size would have restored crops taken
+    from different pixels while the preview cache correctly noticed. A
     stat, never a read: deciding whether to restore a handful of floats must
     not cost hundreds of megabytes of I/O on a 132MP scan.
     """
@@ -300,7 +336,7 @@ def _file_facts(path: Path) -> tuple[int, int] | None:
         stat = Path(path).stat()
     except OSError:
         return None
-    return (int(stat.st_mtime), int(stat.st_size))
+    return (int(stat.st_mtime_ns), int(stat.st_size))
 
 
 def _read_positions(value: object) -> tuple[float, ...] | None:

@@ -1642,3 +1642,28 @@ def test_folder_mode_remembers_nothing(qtbot: Any, tmp_path: Path) -> None:
         settings.save_plan = original
 
     assert saved == []
+
+
+@pytest.mark.parametrize("change", ["add", "remove", "even"])
+def test_the_restored_sentence_goes_on_any_change_not_only_a_drag(
+    qtbot: Any, tmp_path: Path, change: str
+) -> None:
+    """Adding, removing and Even all change the plan just as a drag does, so
+    the note must stop claiming the frames arrived from the store."""
+    tab = loaded_tab(qtbot, tmp_path)
+    source = Path(tab.source_row.text())
+    tab._move_position(1, tab.positions()[1] + 0.09)
+    tab._on_frame_drag_settled(2)
+
+    reopened = SplitTab()
+    qtbot.addWidget(reopened)
+    reopened.show()
+    reopened.source_row.setText(str(source))
+    qtbot.waitUntil(lambda: reopened.positions() != (), timeout=3000)
+    assert reopened.ribbon_note.text().startswith(split_tab.RESTORED)
+
+    {"add": reopened.add_frame, "remove": reopened.remove_frame, "even": reopened.reset_frames}[
+        change
+    ]()
+
+    assert reopened.ribbon_note.text() == split_tab.KEY_HELP

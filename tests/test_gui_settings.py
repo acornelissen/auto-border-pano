@@ -346,3 +346,45 @@ def test_reading_a_plan_counts_as_using_it(tmp_path: Path) -> None:
 
     assert settings.load_plan(sources[0]) == (0.0, 0.5)
     assert settings.load_plan(sources[1]) is None
+
+
+def test_a_style_remembers_frame_ones_own_border() -> None:
+    settings.save_style(settings.SPLIT, pipeline.FrameStyle(padded_border_percent=2.0))
+
+    assert settings.load_style(settings.SPLIT).padded_border_percent == 2.0
+
+
+def test_a_style_with_no_frame_one_border_reads_back_as_none() -> None:
+    settings.save_style(settings.SPLIT, pipeline.FrameStyle(border_percent=14.0))
+
+    assert settings.load_style(settings.SPLIT).padded_border_percent is None
+
+
+def test_a_frame_one_border_of_zero_survives_a_relaunch() -> None:
+    """0 is full bleed, a real choice. Stored as a number, it must not read
+    back as the absence of one."""
+    settings.save_style(settings.SPLIT, pipeline.FrameStyle(padded_border_percent=0.0))
+
+    assert settings.load_style(settings.SPLIT).padded_border_percent == 0.0
+
+
+def test_a_style_stored_before_this_field_existed_reads_back_as_none() -> None:
+    """An older store has no such key, and the behaviour it was saved with
+    was frame 1 following the shared border."""
+    store = settings._store()
+    store.setValue(f"{settings.SPLIT}/border_percent", 11.0)
+    store.sync()
+
+    assert settings.load_style(settings.SPLIT).padded_border_percent is None
+
+
+def test_a_preset_remembers_frame_ones_own_border() -> None:
+    settings.save_preset(settings.SPLIT, "Fill", pipeline.FrameStyle(padded_border_percent=2.0))
+
+    assert settings.load_presets(settings.SPLIT)["Fill"].padded_border_percent == 2.0
+
+
+def test_a_preset_without_one_reads_back_as_none() -> None:
+    settings.save_preset(settings.SPLIT, "Plain", pipeline.FrameStyle(border_percent=9.0))
+
+    assert settings.load_presets(settings.SPLIT)["Plain"].padded_border_percent is None
