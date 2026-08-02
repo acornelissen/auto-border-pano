@@ -1357,6 +1357,26 @@ def test_a_restored_style_that_is_a_preset_is_named(qtbot: QtBot, isolated_setti
     assert tab.border_controls.presets.box.currentText() == "Wide"
 
 
+def test_a_chosen_preset_survives_a_relaunch(qtbot: QtBot, isolated_settings: Path) -> None:
+    """The real path: choose one, then build a fresh tab on the same store.
+
+    Writing both the style and the preset into the store by hand would prove
+    nothing here -- that is a state choosing a preset never produced.
+    """
+    style = pipeline.FrameStyle(border_percent=20.0)
+    settings.save_preset(settings.SPLIT, "Wide", style)
+    tab = SplitTab()
+    qtbot.addWidget(tab)
+    tab.border_controls.reload_presets()
+
+    tab.border_controls.presets.chosen.emit("Wide")
+
+    relaunched = SplitTab()
+    qtbot.addWidget(relaunched)
+    assert relaunched.border_controls.frame_style() == style
+    assert relaunched.border_controls.presets.box.currentText() == "Wide"
+
+
 def test_a_restored_style_that_is_no_preset_names_nothing(
     qtbot: QtBot, isolated_settings: Path
 ) -> None:

@@ -410,8 +410,14 @@ class ComposeTab(QWidget):
         self._request_layout_name()
         self._refresh_border_preview()
 
-    def _on_style_settled(self, _style: pipeline.FrameStyle) -> None:
-        """The hand has stopped. Now the composite itself can be redone."""
+    def _on_style_settled(self, style: pipeline.FrameStyle) -> None:
+        """The hand has stopped. Now the composite itself can be redone.
+
+        Persists too, and not only because a settle can follow a change:
+        choosing a preset settles without ever changing, so saving here is
+        the only thing that makes that choice survive a relaunch.
+        """
+        settings.save_style(settings.COMPOSE, style)
         self._rerender()
 
     def _aspects(self) -> list[float] | None:

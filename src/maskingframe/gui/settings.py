@@ -186,6 +186,15 @@ def load_presets(scope: str) -> dict[str, pipeline.FrameStyle]:
     presets: dict[str, pipeline.FrameStyle] = {}
     default = pipeline.DEFAULT_STYLE
     for name in sorted(names, key=str.casefold):
+        # A name this application cannot have written -- blank, or all
+        # whitespace -- would otherwise be undeletable: the row strips it to
+        # nothing, which disables the delete button, and `delete_preset`
+        # normalises through the same rule and finds nothing to remove.
+        # Dropping it on read is the same posture the fields already take.
+        try:
+            clean_name(name)
+        except ValueError:
+            continue
         key = _preset_key(scope, name)
         try:
             presets[name] = pipeline.FrameStyle(

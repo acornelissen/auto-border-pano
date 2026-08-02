@@ -367,8 +367,14 @@ class SplitTab(QWidget):
         settings.save_style(settings.SPLIT, style)
         self._refresh_border_preview()
 
-    def _on_style_settled(self, _style: pipeline.FrameStyle) -> None:
-        """The hand has stopped. Now the frames themselves can be redone."""
+    def _on_style_settled(self, style: pipeline.FrameStyle) -> None:
+        """The hand has stopped. Now the frames themselves can be redone.
+
+        Persists too, and not only because a settle can follow a change:
+        choosing a preset settles without ever changing, so saving here is
+        the only thing that makes that choice survive a relaunch.
+        """
+        settings.save_style(settings.SPLIT, style)
         self._rerender()
 
     def _refresh_border_preview(self) -> None:

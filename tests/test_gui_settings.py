@@ -145,6 +145,18 @@ def test_a_malformed_preset_is_dropped_without_taking_its_neighbours(
     assert list(presets) == ["Good"]
 
 
+def test_a_preset_named_only_whitespace_is_dropped(isolated_settings: Path) -> None:
+    # Nothing here writes such a name, but a hand-edited or foreign-written
+    # store can hold one, and the interface has no way to delete it: the row
+    # strips it to nothing and `delete_preset` finds nothing to remove.
+    settings.save_preset(settings.SPLIT, "Good", pipeline.DEFAULT_STYLE)
+    store = settings._store()
+    store.setValue(f"{settings.SPLIT}/presets/  /border_colour", "#ffffff")
+    store.sync()
+
+    assert list(settings.load_presets(settings.SPLIT)) == ["Good"]
+
+
 def test_a_name_is_trimmed_and_bounded() -> None:
     assert settings.clean_name("  Warm white  ") == "Warm white"
     assert len(settings.clean_name("x" * 100)) == settings.MAX_NAME
