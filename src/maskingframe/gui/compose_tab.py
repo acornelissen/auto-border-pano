@@ -311,7 +311,10 @@ class ComposeTab(QWidget):
         # Between FORMAT and DESTINATION, the same slot the Split tab gives
         # it: the two rails are one product and must not drift apart.
         rail.addSpacing(theme.L)
-        self.border_controls = shell.BorderControls(show_gutter=True, show_detail_toggle=False)
+        self.border_controls = shell.BorderControls(
+            scope=settings.COMPOSE, show_gutter=True, show_detail_toggle=False
+        )
+        self.border_controls.reload_presets()
         self.border_controls.set_style(settings.load_style(settings.COMPOSE))
         self.border_controls.style_changed.connect(self._on_style_changed)
         self.border_controls.style_settled.connect(self._on_style_settled)

@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 from PIL import Image
 from PySide6.QtWidgets import QDialog, QLabel, QMessageBox, QRadioButton, QWidget
+from pytestqt.qtbot import QtBot
 
 from maskingframe import pipeline
 from maskingframe.gui import settings, shell, split_tab
@@ -1257,3 +1258,72 @@ def test_the_interface_says_the_keys_exist(qtbot: Any, tmp_path: Path) -> None:
     assert tab.ribbon_note.isVisibleTo(tab)
     for key in ("Left", "Right", "Shift", "Home", "End", "Up", "Down"):
         assert key in note
+
+
+def test_choosing_a_preset_applies_the_whole_style(qtbot: QtBot, isolated_settings: Path) -> None:
+    settings.save_preset(
+        settings.SPLIT,
+        "Wide",
+        pipeline.FrameStyle(border_percent=20.0, border_colour="#102030"),
+    )
+    tab = SplitTab()
+    qtbot.addWidget(tab)
+    tab.border_controls.reload_presets()
+
+    tab.border_controls.presets.chosen.emit("Wide")
+
+    style = tab.border_controls.frame_style()
+    assert style.border_percent == 20.0
+    assert style.border_colour == "#102030"
+
+
+def test_choosing_a_preset_settles_once(qtbot: QtBot, isolated_settings: Path) -> None:
+    # A preset is a user action, so the preview re-renders -- once, the way
+    # a slider release does, not once per field it moved.
+    settings.save_preset(settings.SPLIT, "Wide", pipeline.FrameStyle(border_percent=20.0))
+    tab = SplitTab()
+    qtbot.addWidget(tab)
+    tab.border_controls.reload_presets()
+    settled: list[object] = []
+    tab.border_controls.style_settled.connect(settled.append)
+
+    tab.border_controls.presets.chosen.emit("Wide")
+
+    assert len(settled) == 1
+
+
+def test_saving_a_preset_stores_what_the_rail_shows(qtbot: QtBot, isolated_settings: Path) -> None:
+    tab = SplitTab()
+    qtbot.addWidget(tab)
+    tab.border_controls.border_slider.setValue(15.0)
+
+    tab.border_controls.presets.saved.emit("Mine")
+
+    assert settings.load_presets(settings.SPLIT)["Mine"].border_percent == 15.0
+
+
+def test_deleting_a_preset_takes_it_out_of_the_list(qtbot: QtBot, isolated_settings: Path) -> None:
+    settings.save_preset(settings.SPLIT, "Mine", pipeline.DEFAULT_STYLE)
+    tab = SplitTab()
+    qtbot.addWidget(tab)
+    tab.border_controls.reload_presets()
+
+    tab.border_controls.presets.deleted.emit("Mine")
+
+    assert "Mine" not in settings.load_presets(settings.SPLIT)
+    assert "Mine" not in [
+        tab.border_controls.presets.box.itemText(i)
+        for i in range(tab.border_controls.presets.box.count())
+    ]
+
+
+def test_moving_a_control_marks_the_preset_as_edited(qtbot: QtBot, isolated_settings: Path) -> None:
+    settings.save_preset(settings.SPLIT, "Wide", pipeline.FrameStyle(border_percent=20.0))
+    tab = SplitTab()
+    qtbot.addWidget(tab)
+    tab.border_controls.reload_presets()
+    tab.border_controls.presets.chosen.emit("Wide")
+
+    tab.border_controls.border_slider.setValue(11.0)
+
+    assert tab.border_controls.presets.box.currentText().endswith(shell.EDITED_SUFFIX)

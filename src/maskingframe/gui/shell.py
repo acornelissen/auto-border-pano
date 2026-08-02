@@ -505,6 +505,17 @@ class PresetRow(QWidget):
         self.delete_button.setAccessibleName("Delete this preset")
         self.delete_button.clicked.connect(self._on_delete)
 
+        # Qt gives every push button an 80px minimum width. On a 320px rail
+        # that leaves the two buttons wider than the name they act on, and
+        # the name is the part worth reading. Size each to its own text.
+        # The save button is measured against its widest wording, not its
+        # current one, so swapping "Save" for "Update" does not shove the
+        # delete button sideways under the pointer.
+        wordings = ((self.save_button, ("Save", "Update")), (self.delete_button, ("x",)))
+        for button, labels in wordings:
+            widest = max(button.fontMetrics().horizontalAdvance(label) for label in labels)
+            button.setFixedWidth(widest + 2 * theme.M)
+
         row.addWidget(self.box, 1)
         row.addWidget(self.save_button)
         row.addWidget(self.delete_button)
@@ -631,9 +642,12 @@ class BorderControls(QWidget):
         show_gutter: bool,
         show_detail_toggle: bool,
         parent: QWidget | None = None,
+        scope: str = settings.SPLIT,
     ) -> None:
         super().__init__(parent)
         self._quiet = False
+        self._scope = scope
+        self._presets: dict[str, pipeline.FrameStyle] = {}
         self.gutter_slider: PercentSlider | None = None
         self.gutter_swatch: Swatch | None = None
         self.detail_check: QCheckBox | None = None
@@ -655,6 +669,12 @@ class BorderControls(QWidget):
         column.setSpacing(0)
 
         column.addWidget(section("Border"))
+        column.addSpacing(theme.S)
+        self.presets = PresetRow()
+        self.presets.chosen.connect(self._on_preset_chosen)
+        self.presets.saved.connect(self._on_preset_saved)
+        self.presets.deleted.connect(self._on_preset_deleted)
+        column.addWidget(self.presets)
         column.addSpacing(theme.S)
         self.border_slider, self.border_swatch, border_row = self._field(
             "Border width",
@@ -794,9 +814,46 @@ class BorderControls(QWidget):
         finally:
             self._quiet = False
 
+    def reload_presets(self) -> None:
+        """Re-read the stored list. GUI thread only."""
+        self._presets = settings.load_presets(self._scope)
+        self.presets.set_names(list(self._presets))
+
+    def apply_preset(self, style: pipeline.FrameStyle) -> None:
+        """Adopt a style as a user action, not as a restore.
+
+        `set_style` is silent because restoring stored state must not be
+        written straight back. Choosing a preset is the opposite: the user
+        did it on purpose, and the preview should follow -- once, the way a
+        slider release does, rather than once per field it moved.
+        """
+        self.set_style(style)
+        self._settle()
+
+    def _on_preset_chosen(self, name: str) -> None:
+        style = self._presets.get(name)
+        if style is None:
+            return
+        self.apply_preset(style)
+        # The box already shows this name when a person picked it from the
+        # popup, but saying so again costs nothing and leaves the row
+        # honest when the choice arrived any other way.
+        self.presets.set_current(name)
+
+    def _on_preset_saved(self, name: str) -> None:
+        settings.save_preset(self._scope, name, self.frame_style())
+        self.reload_presets()
+        self.presets.set_current(name)
+
+    def _on_preset_deleted(self, name: str) -> None:
+        settings.delete_preset(self._scope, name)
+        self.reload_presets()
+        self.presets.set_current("")
+
     def _emit(self, *_args: object) -> None:
         if self._quiet:
             return
+        self.presets.mark_edited()
         self.style_changed.emit(self.frame_style())
 
     def _settle(self, *_args: object) -> None:

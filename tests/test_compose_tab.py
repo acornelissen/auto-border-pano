@@ -853,3 +853,37 @@ def test_a_solve_landing_does_not_pull_a_preview_off_the_table(
     tab._refresh_border_preview()
 
     assert tab.previews.exposed == 1
+
+
+def test_compose_sees_only_its_own_presets(qtbot: QtBot, isolated_settings: Path) -> None:
+    # A split border and a composite border are different decisions, so the
+    # two lists never mix.
+    settings.save_preset(settings.SPLIT, "Split only", pipeline.DEFAULT_STYLE)
+    settings.save_preset(settings.COMPOSE, "Compose only", pipeline.DEFAULT_STYLE)
+    tab = ComposeTab()
+    qtbot.addWidget(tab)
+    tab.border_controls.reload_presets()
+
+    names = [
+        tab.border_controls.presets.box.itemText(i)
+        for i in range(tab.border_controls.presets.box.count())
+    ]
+    assert "Compose only" in names
+    assert "Split only" not in names
+
+
+def test_choosing_a_compose_preset_applies_the_gap(qtbot: QtBot, isolated_settings: Path) -> None:
+    settings.save_preset(
+        settings.COMPOSE,
+        "Wide gap",
+        pipeline.FrameStyle(gutter_percent=9.0, gutter_colour="#102030"),
+    )
+    tab = ComposeTab()
+    qtbot.addWidget(tab)
+    tab.border_controls.reload_presets()
+
+    tab.border_controls.presets.chosen.emit("Wide gap")
+
+    style = tab.border_controls.frame_style()
+    assert style.gutter_percent == 9.0
+    assert style.gutter_colour == "#102030"
