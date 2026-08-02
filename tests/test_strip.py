@@ -824,3 +824,41 @@ def test_the_strips_focus_mark_goes_when_focus_does(qtbot: QtBot) -> None:
     left = _rendered(widget)
     assert left != focused
     assert left.pixelColor(QPoint(0, 0)) == theme.rgb(theme.EDGE)
+
+
+def _has_colour(image: QImage, colour: str) -> bool:
+    wanted = theme.rgb(colour).rgb()
+    return any(
+        image.pixel(x, y) == wanted for y in range(image.height()) for x in range(image.width())
+    )
+
+
+def test_every_numeral_is_chinagraph(qtbot: QtBot) -> None:
+    """The numbering is what makes this read as a marked-up contact sheet,
+    and chinagraph is the marking-up layer. Nothing is selected here, so a
+    single chinagraph pixel can only be a numeral."""
+    widget = _built(qtbot)
+    widget.resize(600, 300)
+    widget.set_selected(None)
+
+    assert all(
+        widget.numeral_colour(index) == theme.CHINAGRAPH for index in range(widget.frame_count)
+    )
+    assert _has_colour(_rendered(widget), theme.CHINAGRAPH)
+
+
+def test_the_selected_strip_frame_is_marked_on_its_aperture(qtbot: QtBot) -> None:
+    """The selection is carried by the frame's edge, as it is on a ribbon
+    window and on a sources row -- not by demoting every other numeral."""
+    widget = _built(qtbot)
+    widget.resize(600, 300)
+    widget.set_selected(2)
+
+    assert widget.aperture_pen(2) == (theme.CHINAGRAPH, strip.SELECTED_APERTURE)
+    assert widget.aperture_pen(1) == (theme.REBATE, strip.APERTURE)
+
+    image = _rendered(widget)
+    marked = widget.frame_rect_at(2).topLeft() - QPoint(1, 1)
+    plain = widget.frame_rect_at(1).topLeft() - QPoint(1, 1)
+    assert image.pixelColor(marked) == theme.rgb(theme.CHINAGRAPH)
+    assert image.pixelColor(plain) == theme.rgb(theme.REBATE)

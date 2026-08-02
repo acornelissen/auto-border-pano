@@ -90,6 +90,10 @@ APERTURE = 1
 """Hairline around a frame's image, drawn whether or not there is a
 photograph in it yet -- an unexposed strip should still read as film."""
 
+SELECTED_APERTURE = 2
+"""The marked frame's aperture. Two pixels, the weight a ribbon window's
+edge already uses, so the same mark reads the same in both views."""
+
 FOCUS_EDGE = 2
 """How heavy the surrounding edge goes when the widget holds focus.
 
@@ -438,6 +442,27 @@ class ContactStrip(QWidget):
         if self._selected is None or not 0 <= self._selected < len(self._frames):
             return QRect()
         return self._frame_rect(self._selected)
+
+    def numeral_colour(self, index: int) -> str:
+        """The colour frame `index`'s number is drawn in.
+
+        Always chinagraph. The numbering *is* the marked-up contact sheet,
+        which is what the ribbon and the sources list both do; demoting the
+        unselected numerals to ink took that away and left the sheet reading
+        as a machine's output.
+        """
+        return theme.CHINAGRAPH
+
+    def aperture_pen(self, index: int) -> tuple[str, int]:
+        """The colour and weight of frame `index`'s aperture edge.
+
+        This is where the selection is marked, as it is on a ribbon window:
+        chinagraph instead of the film-base rebate, at the ribbon's own edge
+        weight so the two widgets mark the same thing the same way.
+        """
+        if index == self._selected:
+            return theme.CHINAGRAPH, SELECTED_APERTURE
+        return theme.REBATE, APERTURE
 
     def frame_rect_at(self, index: int) -> QRect:
         """Where the output frame sits inside frame `index`'s aperture."""
@@ -829,7 +854,7 @@ class ContactStrip(QWidget):
         left, top = self._aperture(index)
         row_top = top - TOP - NUMBER_ROW
 
-        painter.setPen(theme.rgb(theme.CHINAGRAPH if index == self._selected else theme.INK))
+        painter.setPen(theme.rgb(self.numeral_colour(index)))
         painter.drawText(
             QRect(left, row_top + TOP, size, NUMBER_ROW),
             int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
@@ -837,9 +862,12 @@ class ContactStrip(QWidget):
         )
 
         # The aperture. An empty frame is still a frame.
-        painter.setPen(theme.rgb(theme.REBATE))
-        painter.drawRect(
-            QRect(left - APERTURE, top - APERTURE, size + 2 * APERTURE - 1, size + 2 * APERTURE - 1)
+        colour, width = self.aperture_pen(index)
+        draw_edge(
+            painter,
+            QRect(left - width, top - width, size + 2 * width, size + 2 * width),
+            colour,
+            width,
         )
 
         thumbnail = frame.at(size)

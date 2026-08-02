@@ -141,9 +141,20 @@ panorama is — so `ribbon.py` and `strip.py` stay presentation only. Each widge
 speaks its own numbering: the ribbon's windows are detail frames, the strip's
 frames include frame 1, and the tab converts, exactly as it does for the drags.
 
-The selection is marked in chinagraph on the selected frame's numeral and edge,
-and stated in words in the rail (`Frame 3 · 42% along`). Both, not either: a
-state carried by colour alone fails the WCAG 2.2 AA floor this project holds.
+The selection is marked in chinagraph on the selected frame's edge — the
+ribbon window's border, the strip frame's aperture — and stated in words in the
+rail (`Frame 3 · 42% along`). Both, not either: a state carried by colour alone
+fails the WCAG 2.2 AA floor this project holds. Every numeral in both widgets
+stays chinagraph whatever is selected, as the sources list's do: the numbering
+is the marked-up sheet, and demoting it to ink to make one numeral stand out
+spends the thing that made it read that way.
+
+Focus is a different state from selection and the two can be present at once,
+so focus takes the widget's own outer edge in `INK`, two pixels wide
+(`strip.FOCUS_EDGE`), exactly as a focused field does. `ContactStrip.edge_pen`,
+`ContactStrip.aperture_pen`, `ContactStrip.numeral_colour` and
+`FrameRibbon.edge_pen` are the decisions themselves, exposed so a test can
+assert the colour rather than re-derive the geometry.
 Each widget also states its own selection to `setAccessibleName`, for a screen
 reader — the same frame numbering as the rail, but not the same string. The
 strip names the frame and its place in the sheet (`Frame 3 of 5`); it does not
