@@ -1407,17 +1407,47 @@ def test_a_changed_selection_is_announced_not_only_stored(
     Right has to speak, not just repaint."""
     tab = loaded_tab(qtbot, tmp_path)
     tab.ribbon.setFocus()
-    raised: list[tuple[QWidget, QAccessible.Event]] = []
+    spoken: list[str] = []
     monkeypatch.setattr(
         QAccessible,
         "updateAccessibility",
-        lambda event: raised.append((event.object(), event.type())),
+        lambda event: (
+            spoken.append(event.message())
+            if event.type() == QAccessible.Event.Announcement
+            else None
+        ),
     )
 
     tab._nudge(0, 1)
 
-    assert (tab.ribbon, QAccessible.Event.DescriptionChanged) in raised
-    assert (tab.strip, QAccessible.Event.DescriptionChanged) in raised
+    # Once, not once per view: the message travels with the event, so
+    # raising it on both would say the same sentence twice.
+    assert spoken == [tab.selection_label.text()]
+    assert spoken[0]
+    # The property still carries it, which is what a reader gets on arrival.
+    assert tab.ribbon.accessibleDescription() == spoken[0]
+    assert tab.strip.accessibleDescription() == spoken[0]
+
+
+def test_nothing_is_spoken_when_there_is_no_selection(
+    qtbot: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An empty sentence is not an announcement, it is the absence of one."""
+    tab = loaded_tab(qtbot, tmp_path)
+    spoken: list[str] = []
+    monkeypatch.setattr(
+        QAccessible,
+        "updateAccessibility",
+        lambda event: (
+            spoken.append(event.message())
+            if event.type() == QAccessible.Event.Announcement
+            else None
+        ),
+    )
+
+    tab._set_selected(None)
+
+    assert spoken == []
 
 
 def test_the_strip_takes_its_count_from_the_header_not_the_first_render(

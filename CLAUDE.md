@@ -248,13 +248,22 @@ them, and the strip's old "Frame 3 of 5" said the same words after every arrow
 press.
 
 Setting that property raises no event, so `_announce` also raises a
-`DescriptionChanged` through `QAccessible.updateAccessibility`. Without it a
-screen reader read the sentence when focus arrived and never learned it had
-changed: holding an arrow key moved the frame, counted up the rail on screen,
-and said nothing. The event goes to both views rather than to whichever has
-focus — assistive technology speaks the event for the object the user is on and
-ignores the other, so the tab does not have to keep its own copy of where focus
-is.
+`QAccessibleAnnouncementEvent`. Without it a screen reader read the sentence
+when focus arrived and never learned it had changed: holding an arrow key moved
+the frame, counted up the rail on screen, and said nothing.
+
+An earlier version raised `DescriptionChanged` instead, which was very likely
+never spoken. Both views report `Role.Client` with no value interface — a
+generic container — and a description change on one of those is not something
+assistive technology is obliged to announce; a `QSlider`, which is announced,
+reports `Role.Slider` and a value interface. The announcement event is the tool
+for this and does not depend on the role: it says "speak this now", politely, so
+it queues behind whatever the user is already being told.
+
+Raised once, on the tab, rather than once per view — the message travels with
+the event — and only when the sentence has actually changed. One keystroke
+reaches `_announce` twice, and a reader that said the position twice per arrow
+press would be worse than one that never said it.
 
 The strip takes its frame count from the header read, in `_apply_facts`,
 not from the first render — the rail, the band and the button all state it

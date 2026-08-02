@@ -25,7 +25,7 @@ from pathlib import Path
 
 from PIL import Image
 from PySide6.QtCore import QTimer, Signal
-from PySide6.QtGui import QAccessible, QAccessibleEvent
+from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent
 from PySide6.QtWidgets import (
     QButtonGroup,
     QFileDialog,
@@ -633,23 +633,34 @@ class SplitTab(QWidget):
     def _announce(self, sentence: str) -> None:
         """Say the sentence three times over: on screen, and to each view.
 
-        Setting `accessibleDescription` stores a string and raises nothing,
-        so a screen reader reads it once when focus arrives and never learns
-        that it changed -- a user holding Right heard silence while the rail
-        counted up. `updateAccessibility` is what turns the stored property
-        into something spoken.
+        The description is what a screen reader reads when focus arrives, so
+        both views carry it. But setting it raises nothing, and an earlier
+        version of this raised `DescriptionChanged` instead -- which was
+        very likely never spoken: both views report `Role.Client` with no
+        value interface, a generic container, and a description change on
+        one of those is not something assistive technology is obliged to
+        announce. A `QSlider`, which is announced, reports `Role.Slider`
+        and a value interface.
 
-        The event goes to both views rather than to whichever has focus.
-        Assistive technology speaks events for the object the user is on and
-        ignores the rest, and the tab does not track focus; asking it to
-        would be a second copy of a fact Qt already holds.
+        `QAccessibleAnnouncementEvent` is the tool for this and does not
+        depend on the role: it says "speak this now". Politely, so it queues
+        behind whatever the user is already being told rather than cutting
+        across it.
+
+        Raised once, on the tab, rather than once per view: the message
+        travels with the event, so raising it on both would say the same
+        sentence twice.
         """
+        said = sentence != self.selection_label.text()
         self.selection_label.setText(sentence)
         for view in (self.ribbon, self.strip):
             view.setAccessibleDescription(sentence)
-            QAccessible.updateAccessibility(
-                QAccessibleEvent(view, QAccessible.Event.DescriptionChanged)
-            )
+        # Only when it has actually changed. One keystroke reaches here
+        # twice -- `_set_positions` states the selection, and then the tab
+        # re-marks it -- and a reader that said the position twice per arrow
+        # press would be worse than one that never said it at all.
+        if sentence and said:
+            QAccessible.updateAccessibility(QAccessibleAnnouncementEvent(self, sentence))
 
     def _nudge(self, index: int, steps: int) -> None:
         """Move one detail frame by `steps` of `KEY_STEP`. GUI thread only.
