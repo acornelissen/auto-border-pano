@@ -290,13 +290,28 @@ def test_a_stale_solve_does_not_overwrite_a_newer_one(tab: ComposeTab) -> None:
 
 def test_present_layout_reads_the_solver_name_as_a_sentence() -> None:
     """Walks the solver's own list, so an arrangement it cannot read fails
-    the suite rather than reaching the rail as a formula."""
+    the suite rather than reaching the rail as a formula.
+
+    `words != name` alone would pass a partial leak -- "Row of three: 1, 2,
+    C(3,4)" is not the name and is not English either -- so the notation's
+    own characters are barred outright. That is what the version of this
+    test before the rename got wrong: it asked for no hyphen and a capital,
+    both of which raw notation satisfies, and so waved the breakage through.
+    """
+    seen: dict[int, set[str]] = {}
     for count in range(pipeline.MIN_IMAGES, pipeline.MAX_IMAGES + 1):
         for name, _ in layout.candidates(count):
             words = compose_tab.present_layout(name, count)
             assert words
             assert words != name, f"{name} was not read"
             assert words[0].isupper()
+            assert "(" not in words and ")" not in words, f"{name} leaked notation: {words}"
+            assert not any(char.isdigit() for char in words), f"{name} leaked a numeral: {words}"
+            # Two arrangements reading the same sentence would put a wrong
+            # description on one of them, which no other assertion here
+            # would notice.
+            assert words not in seen.setdefault(count, set()), f"{name} reads as an earlier one"
+            seen[count].add(words)
 
 
 @pytest.mark.parametrize(

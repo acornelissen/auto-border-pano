@@ -566,7 +566,7 @@ def compose_images(
     ratio: AspectRatio = DEFAULT_RATIO,
     style: FrameStyle = DEFAULT_STYLE,
 ) -> CompositeResult:
-    """Compose two or three images into one frame at the target ratio.
+    """Compose two to six images into one frame at the target ratio.
 
     `style` is a parameter with a default rather than module state, so a run
     and the preview it followed cannot disagree about border or gutter.

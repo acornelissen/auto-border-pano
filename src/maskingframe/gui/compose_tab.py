@@ -269,7 +269,7 @@ def _solve_job(
 
 
 class ComposeTab(QWidget):
-    """Two or three sources, one frame."""
+    """Two to six sources, one frame."""
 
     band_changed = Signal(str, str)
 

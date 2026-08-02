@@ -47,8 +47,8 @@ install.bat
 
 **GUI:** `mise run gui` (or `run_gui.bat` on Windows). The window is a
 two-tab notebook: **Split** for the single-panorama/batch workflow below,
-and **Compose** for composing two or three photos into one frame
-(see [Diptychs and triptychs](#diptychs-and-triptychs)).
+and **Compose** for composing two to six photos into one frame
+(see [Composites](#composites)).
 
 **CLI:**
 
@@ -76,9 +76,9 @@ mode writes to `./output` if you omit the output argument.
      anything
    - Click "Cut frames" to write them
 
-   Switch to the **Compose** tab to compose two or three photos
+   Switch to the **Compose** tab to compose two to six photos
    into one frame instead — see
-   [Diptychs and triptychs](#diptychs-and-triptychs).
+   [Composites](#composites).
 
 2. **CLI - single file:**
    ```bash
@@ -106,8 +106,9 @@ mode writes to `./output` if you omit the output argument.
    ```bash
    mise run split -- compose left.jpg right.jpg -o seaside --ratio 1:1
    ```
-   Creates `seaside_diptych.jpg`, and prints which arrangement won. Give it a
-   third image and you get `seaside_triptych.jpg` instead. The output is the
+   Creates `seaside_diptych.jpg`, and prints which arrangement won. Add more
+   images, up to six, and the name follows: `_triptych`, `_tetraptych`,
+   `_pentaptych`, `_hexaptych`. The output is the
    `-o` option rather than a trailing path, because a bare path after a list
    of images could be read as either another source or the destination.
 
@@ -179,14 +180,18 @@ table going blank while you wait.
 mise run split -- panorama.jpg my_prefix --border 12 --border-colour '#000000'
 ```
 
-## Diptychs and triptychs
+## Composites
 
-The second tab, and the `compose` subcommand, join two or three photographs
+The second tab, and the `compose` subcommand, join two to six photographs
 into a single frame at any of the three ratios.
 
-The layout is chosen for you. The tool tries each sensible arrangement — a
-row, a column, and for three images the variants with one large panel beside
-two stacked ones — and keeps whichever fills the frame best. Panels are never
+The layout is chosen for you. An arrangement is a row or a column whose parts
+are consecutive blocks of your images, each block either a single photograph or
+a group stacked the other way — one level of grouping, so every arrangement is
+a grid you would recognise. That gives 2, 6, 14, 30 and 62 arrangements for two
+through six photographs, and the tool keeps whichever fills the frame best.
+It reports the winner in notation: `R(1,C(2,3))` is photograph 1 beside
+photographs 2 and 3 stacked. Panels are never
 cropped: each keeps its own aspect ratio, and whatever space is left over
 becomes border. That is what lets a 6x17 panorama, a square 6x6 and a
 35mm frame sit in one composite without any of them losing content.
