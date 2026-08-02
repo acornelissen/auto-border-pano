@@ -346,7 +346,7 @@ A widget that owns the naming rules and the button's wording, and nothing else. 
     - `current_name() -> str` — the shown name with any suffix stripped
     - `save_button: QPushButton`, `delete_button: QPushButton`, `box: Combo`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `tests/test_gui_shell.py`:
 
@@ -495,12 +495,12 @@ def test_deleting_announces_the_name(qtbot: QtBot) -> None:
 
 Annotate `qtbot` input calls with `# type: ignore[no-untyped-call]` where mypy --strict requires it, matching the file's existing convention.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `mise exec -- uv run pytest tests/test_gui_shell.py -k preset -v`
 Expected: FAIL with `AttributeError: module 'maskingframe.gui.shell' has no attribute 'PresetRow'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Add to `shell.py`, above `BorderControls`:
 
@@ -657,12 +657,12 @@ class PresetRow(QWidget):
 
 Add `QComboBox`-adjacent imports as needed — `Sequence` from `collections.abc`, and `QPushButton` if `shell.py` does not already import it.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `mise exec -- uv run pytest tests/test_gui_shell.py -v`
 Expected: PASS, including every test already in the file.
 
-- [ ] **Step 5: Run the full gate and commit**
+- [x] **Step 5: Run the full gate and commit**
 
 ```bash
 mise run check
