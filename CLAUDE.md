@@ -59,7 +59,43 @@ A stored value is untrusted input — the file is plain text the user can edit, 
 
 Split and Compose store their styles under separate scopes (`settings.SPLIT`, `settings.COMPOSE`). A split border and a composite border are different decisions, and sharing one value would surprise whichever tab the user touched second.
 
-`BorderControls.frame_style()` is deliberately not called `style()`: `QWidget` already owns that name for its `QStyle`, and shadowing it would return a different type from an inherited method. `set_style()` restores stored state without emitting, so a tab that saves on `style_changed` does not write back what it has just read.
+`BorderControls.frame_style()` is deliberately not called `style()`: `QWidget` already owns that name for its `QStyle`, and shadowing it would return a different type from an inherited method. `set_style()` restores stored state without emitting, so a tab that saves on `style_changed` does not write back what it has just read. `scope` is keyword-only, so a caller cannot silently hand a Compose rail the Split list.
+
+A border can also be saved under a name. Presets follow the scopes: Split and
+Compose keep separate lists, and a preset carries only what its own tab can
+show — the split entries leave the gap at its default, because Split has no gap
+control.
+
+A stored preset is untrusted input like a stored style, but the failure rule
+differs on purpose. `load_style` falls back whole, because half a remembered
+style is more confusing than none. `load_presets` drops a malformed preset on
+its own, because losing four good presets over one bad one would be worse than
+the bug that wrote it.
+
+Three built-ins are seeded per scope on first run and are ordinary presets
+afterwards: delete one and it stays deleted, edit one and the edit stands. The
+cost is that a preset added in a later release will not reach an existing
+install — accepted against a tombstone list and two kinds of preset the
+interface would then have to tell apart.
+
+`shell.PresetRow` owns the naming rules and the button's wording and never
+touches `QSettings`; `BorderControls` holds the scope and does the storing. The
+button reads Save for a new name and Update for one that exists — that is what
+stands in for a confirmation dialog, and it says which you are about to do
+before you do it. `shell.EDITED_SUFFIX` marks settings that have moved away
+from the preset they started as, and is stripped before any name is saved,
+matched or deleted. `clean_name` also rejects a name containing `/` or `\`,
+both group separators to `QSettings`; `PresetRow` disables the save button for
+such a name rather than letting it reach the store.
+
+At startup a tab calls `BorderControls.restore_style()`, not `set_style()`
+directly: it restores the stored style quietly and then names it as a preset
+if the style is exactly equal to one, so a border chosen before a relaunch
+still shows as chosen. `PresetRow` listens for `Combo.currentIndexChanged`
+rather than `activated`, because filling the list on that restore fires an
+index change the row has to guard against; a tab that later wants to show a
+name without announcing a choice should call `set_current()`, not
+`setCurrentIndex()` directly.
 
 ### Concurrency
 
