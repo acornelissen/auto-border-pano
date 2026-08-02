@@ -366,3 +366,157 @@ def test_a_rail_reserves_the_height_the_border_section_needs(qtbot: QtBot) -> No
     # The floor, not just the preference: a short window must not be allowed
     # to squeeze the help text back down to one line.
     assert rail.rail_layout.minimumSize().height() >= needed
+
+
+def test_the_row_lists_the_names_it_is_given(qtbot: QtBot) -> None:
+    row = shell.PresetRow()
+    qtbot.addWidget(row)
+
+    row.set_names(["Alder", "Gallery"])
+
+    assert [row.box.itemText(i) for i in range(row.box.count())] == ["Alder", "Gallery"]
+
+
+def test_setting_the_list_says_nothing(qtbot: QtBot) -> None:
+    # Filling the list is not a user choice, and a tab that saved on
+    # `chosen` would otherwise write back what it has just read.
+    row = shell.PresetRow()
+    qtbot.addWidget(row)
+    with qtbot.assertNotEmitted(row.chosen):
+        row.set_names(["Alder", "Gallery"])
+        row.set_current("Gallery")
+
+
+def test_choosing_from_the_list_announces_it(qtbot: QtBot) -> None:
+    row = shell.PresetRow()
+    qtbot.addWidget(row)
+    row.set_names(["Alder", "Gallery"])
+
+    with qtbot.waitSignal(row.chosen, timeout=1000) as blocker:
+        row.box.setCurrentIndex(1)
+
+    assert blocker.args == ["Gallery"]
+
+
+def test_the_button_says_save_for_a_new_name_and_update_for_a_known_one(
+    qtbot: QtBot,
+) -> None:
+    # This is what stands in for a confirmation dialog: it tells you which
+    # you are about to do before you do it.
+    row = shell.PresetRow()
+    qtbot.addWidget(row)
+    row.set_names(["Gallery"])
+
+    row.box.setEditText("Gallery")
+    assert row.save_button.text() == "Update"
+
+    row.box.setEditText("Something else")
+    assert row.save_button.text() == "Save"
+
+
+def test_the_button_and_the_enter_key_do_the_same_thing(qtbot: QtBot) -> None:
+    row = shell.PresetRow()
+    qtbot.addWidget(row)
+
+    row.box.setEditText("Warm white")
+    with qtbot.waitSignal(row.saved, timeout=1000) as by_button:
+        row.save_button.click()
+    with qtbot.waitSignal(row.saved, timeout=1000) as by_key:
+        qtbot.keyClick(row.box.lineEdit(), Qt.Key.Key_Return)  # type: ignore[no-untyped-call]
+
+    assert by_button.args == by_key.args == ["Warm white"]
+
+
+def test_saving_a_blank_name_does_nothing(qtbot: QtBot) -> None:
+    row = shell.PresetRow()
+    qtbot.addWidget(row)
+    row.box.setEditText("   ")
+
+    with qtbot.assertNotEmitted(row.saved):
+        row.save_button.click()
+
+
+def test_saving_a_name_with_a_separator_does_nothing(qtbot: QtBot) -> None:
+    # `/` and `\` are group separators to `QSettings`; a name containing one
+    # must never reach `saved`, the same as a blank name.
+    row = shell.PresetRow()
+    qtbot.addWidget(row)
+    row.box.setEditText("before/after")
+
+    assert not row.save_button.isEnabled()
+    with qtbot.assertNotEmitted(row.saved):
+        row.save_button.click()
+
+
+def test_the_edited_marker_appears_and_never_reaches_a_name(qtbot: QtBot) -> None:
+    row = shell.PresetRow()
+    qtbot.addWidget(row)
+    row.set_names(["Gallery"])
+    row.set_current("Gallery")
+
+    row.mark_edited()
+
+    assert row.box.currentText() == "Gallery" + shell.EDITED_SUFFIX
+    assert row.current_name() == "Gallery"
+    with qtbot.waitSignal(row.saved, timeout=1000) as blocker:
+        row.save_button.click()
+    assert blocker.args == ["Gallery"]
+
+
+def test_marking_twice_does_not_stack_the_suffix(qtbot: QtBot) -> None:
+    row = shell.PresetRow()
+    qtbot.addWidget(row)
+    row.set_names(["Gallery"])
+    row.set_current("Gallery")
+
+    row.mark_edited()
+    row.mark_edited()
+
+    assert row.box.currentText() == "Gallery" + shell.EDITED_SUFFIX
+
+
+def test_marking_an_empty_box_leaves_it_empty(qtbot: QtBot) -> None:
+    # With no preset chosen there is nothing to have edited.
+    row = shell.PresetRow()
+    qtbot.addWidget(row)
+
+    row.mark_edited()
+
+    assert row.box.currentText() == ""
+
+
+def test_setting_a_name_clears_the_marker(qtbot: QtBot) -> None:
+    row = shell.PresetRow()
+    qtbot.addWidget(row)
+    row.set_names(["Gallery", "Alder"])
+    row.set_current("Gallery")
+    row.mark_edited()
+
+    row.set_current("Alder")
+
+    assert row.box.currentText() == "Alder"
+
+
+def test_delete_is_available_only_for_a_name_that_exists(qtbot: QtBot) -> None:
+    row = shell.PresetRow()
+    qtbot.addWidget(row)
+    row.set_names(["Gallery"])
+
+    row.box.setEditText("Gallery")
+    assert row.delete_button.isEnabled()
+
+    row.box.setEditText("Never saved")
+    assert not row.delete_button.isEnabled()
+
+
+def test_deleting_announces_the_name(qtbot: QtBot) -> None:
+    row = shell.PresetRow()
+    qtbot.addWidget(row)
+    row.set_names(["Gallery"])
+    row.set_current("Gallery")
+    row.mark_edited()
+
+    with qtbot.waitSignal(row.deleted, timeout=1000) as blocker:
+        row.delete_button.click()
+
+    assert blocker.args == ["Gallery"]

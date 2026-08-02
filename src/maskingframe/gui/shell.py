@@ -11,6 +11,8 @@ imported from `pipeline` rather than `geometry` so the rule that `gui/`
 depends on `pipeline` alone still holds.
 """
 
+from collections.abc import Sequence
+
 from PySide6.QtCore import QPointF, Qt, Signal
 from PySide6.QtGui import QFontMetrics, QPainter, QPaintEvent, QPen, QResizeEvent
 from PySide6.QtWidgets import (
@@ -30,7 +32,7 @@ from PySide6.QtWidgets import (
 )
 
 from maskingframe import pipeline
-from maskingframe.gui import theme
+from maskingframe.gui import settings, theme
 
 UPDATING_PREVIEW = "Updating the preview."
 """What both tabs say while a loaded render is being made again.
@@ -426,6 +428,171 @@ class PercentSlider(QWidget):
         self.readout.setText(reading)
         self.slider.setAccessibleDescription(reading)
         self.setToolTip(f"{self.accessibleName()}: {reading}")
+
+
+EDITED_SUFFIX = " (edited)"
+"""Marks settings that started from a preset and have moved away from it.
+
+Display only. It is stripped before a name is saved, matched or deleted, so
+a preset can never end up called "Warm white (edited)"."""
+
+
+class PresetRow(QWidget):
+    """Pick a saved border, save the current one, or delete one.
+
+    Owns the naming rules and the button's wording, and nothing else: it
+    never touches `QSettings`, so a tab decides what a name means and where
+    it is kept. That is the same split every other widget in this file
+    makes -- the rail describes, the tab decides.
+    """
+
+    chosen = Signal(str)
+    """A preset was picked from the list."""
+
+    saved = Signal(str)
+    """Save or update was asked for, under this cleaned name."""
+
+    deleted = Signal(str)
+    """Delete was asked for, for this name."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._quiet = False
+
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(theme.S)
+
+        self.box = Combo()
+        self.box.setEditable(True)
+        self.box.setInsertPolicy(Combo.InsertPolicy.NoInsert)
+        self.box.setAccessibleName("Border preset")
+        line_edit = self.box.lineEdit()
+        if line_edit is not None:
+            # `Combo` draws its own chevron over its right-hand end, because
+            # flattening the field takes Qt's themed arrow with it. An
+            # editable combo fills that same space with a line edit, so a
+            # long name would run underneath the mark. Reserve the room the
+            # chevron actually occupies.
+            line_edit.setTextMargins(0, 0, Combo.ARROW + theme.M, 0)
+        # `currentIndexChanged` rather than `activated`: the latter is only
+        # sent for a genuine user gesture on the popup, which a test cannot
+        # simulate via `setCurrentIndex`. The `_quiet` guard is what keeps
+        # this from firing during `set_names`/`set_current`.
+        self.box.currentIndexChanged.connect(self._on_activated)
+        self.box.editTextChanged.connect(self._on_text_changed)
+        line = self.box.lineEdit()
+        if line is not None:
+            line.returnPressed.connect(self._on_save)
+
+        # Chrome, not the primary action: chinagraph is for marking up, and
+        # a second filled block of it beside the one that writes to disk
+        # would cost that one its primacy.
+        self.save_button = QPushButton("Save")
+        self.save_button.setObjectName("Secondary")
+        self.save_button.clicked.connect(self._on_save)
+
+        self.delete_button = QPushButton("x")
+        self.delete_button.setObjectName("Secondary")
+        self.delete_button.setAccessibleName("Delete this preset")
+        self.delete_button.clicked.connect(self._on_delete)
+
+        row.addWidget(self.box, 1)
+        row.addWidget(self.save_button)
+        row.addWidget(self.delete_button)
+        self._sync_buttons()
+
+    # --- what it is showing -------------------------------------------------
+
+    def set_names(self, names: Sequence[str]) -> None:
+        """Replace the list. Emits nothing."""
+        current = self.box.currentText()
+        self._quiet = True
+        try:
+            self.box.clear()
+            self.box.addItems(list(names))
+            self.box.setEditText(current)
+        finally:
+            self._quiet = False
+        self._sync_buttons()
+
+    def set_current(self, name: str) -> None:
+        """Show this name, unmarked. Emits nothing."""
+        self._quiet = True
+        try:
+            self.box.setEditText(name)
+        finally:
+            self._quiet = False
+        self._sync_buttons()
+
+    def current_name(self) -> str:
+        """The shown name, with any marker stripped."""
+        text = self.box.currentText()
+        if text.endswith(EDITED_SUFFIX):
+            text = text[: -len(EDITED_SUFFIX)]
+        return text.strip()
+
+    def mark_edited(self) -> None:
+        """Say the settings have moved away from the preset they started as.
+
+        Nothing happens with an empty box: with no preset chosen there is
+        nothing to have edited.
+        """
+        name = self.current_name()
+        if not name:
+            return
+        self.set_current(name + EDITED_SUFFIX)
+
+    # --- acting -------------------------------------------------------------
+
+    def _names(self) -> list[str]:
+        return [self.box.itemText(index) for index in range(self.box.count())]
+
+    def _is_usable(self, name: str) -> bool:
+        # A name reaching `save_preset` with a `/` or `\` in it would
+        # silently corrupt the stored key path -- `settings.clean_name` is
+        # the one place that rule lives, so it is asked rather than
+        # restated here.
+        try:
+            settings.clean_name(name)
+        except ValueError:
+            return False
+        return True
+
+    def _sync_buttons(self) -> None:
+        """The one place the two buttons' state is decided.
+
+        The button's wording is what stands in for a confirmation dialog:
+        it says whether a save will add or replace before it is pressed.
+        """
+        name = self.current_name()
+        known = name in self._names()
+        self.save_button.setText("Update" if known else "Save")
+        self.save_button.setEnabled(self._is_usable(name))
+        self.delete_button.setEnabled(known)
+
+    def _on_text_changed(self, _text: str) -> None:
+        self._sync_buttons()
+
+    def _on_activated(self, index: int) -> None:
+        if self._quiet or not 0 <= index < self.box.count():
+            return
+        name = self.box.itemText(index)
+        self.set_current(name)
+        self.chosen.emit(name)
+
+    def _on_save(self) -> None:
+        name = self.current_name()
+        if not self._is_usable(name):
+            return
+        self.set_current(name)
+        self.saved.emit(name)
+
+    def _on_delete(self) -> None:
+        name = self.current_name()
+        if name not in self._names():
+            return
+        self.deleted.emit(name)
 
 
 class BorderControls(QWidget):
