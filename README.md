@@ -158,6 +158,7 @@ at `4:5` and `1:1`, 51px at `1.91:1`.
 | `--gutter PERCENT` | `4` | Composites only: the gap between panels |
 | `--gutter-colour HEX` | `#ffffff` | Composites only: the colour of that gap |
 | `--border-detail-frames` | off | Splits only: border the zoomed detail frames too, not just the first frame |
+| `--frame1-border PERCENT` | same as `--border` | Splits only: give the first frame its own border, so it can fill more of the frame |
 
 `--border-color` and `--gutter-color` work as well, if you prefer them. Every
 flag in the table is accepted by both `maskingframe` and `maskingframe
@@ -179,6 +180,20 @@ table going blank while you wait.
 ```bash
 mise run split -- panorama.jpg my_prefix --border 12 --border-colour '#000000'
 ```
+
+The first frame can have a border of its own, which is what to reach for when
+it looks too small in the frame:
+
+```bash
+mise run split -- panorama.jpg my_prefix --frame1-border 2
+```
+
+That only moves the whole-panorama frame; the detail frames and any composite
+keep the border `--border` names. Be aware there is a limit to what it can do.
+A panorama is a much wider shape than a portrait frame, so at `4:5` a 2.33:1
+panorama covers 23% of the first frame at the default border and 34% with no
+border at all — the rest is the shape difference, not the border. At `1.91:1`
+the same panorama already covers 67%.
 
 ## Composites
 

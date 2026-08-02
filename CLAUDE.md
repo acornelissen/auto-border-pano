@@ -157,6 +157,12 @@ That asymmetry is inherent: the panorama's aspect doesn't match the frame's, and
 
 At a tall ratio like `4:5`, most of the padded frame is border — that is the intended aesthetic, not a bug.
 
+`style.padded_border_percent` is frame 1's own border, `None` meaning it follows `border_percent`, resolved by `padded_border_px()` and read only by `make_padded_frame()`. It exists because turning the shared border down to let the panorama fill more of frame 1 also changes every detail frame that carries one, the composite, and the gutter's neighbours. `border_px` is untouched, so nothing about what the border means elsewhere moves with it.
+
+What it cannot do is make a panorama fill a portrait frame. For a 2.33:1 panorama at `4:5` the share of frame 1 goes 23.1% at the default 9%, 29.1% at 4%, and **34.3% at zero** — the ceiling, because what leaves the space is the mismatch between a 2.33:1 picture and a 0.8:1 frame, not the border. `test_the_measured_ceiling_at_portrait` pins that number, since it is the reason the feature is bounded the way it is. Filling more would mean cropping, which frame 1 exists not to do, or cutting the panorama into stacked rows, which is a different feature.
+
+The GUI control is a checkbox and a slider on Split only — a composite has no frame 1, so `BorderControls` takes `show_frame1` alongside `show_gutter` and `show_detail_toggle`. Ticking adopts the shared width, so the box reveals a control rather than moving the frame. `frame_style()` reports `None` while unticked rather than the slider's number, and `set_style` tests the stored value against `None` rather than for truthiness: 0 is full bleed, a real choice, and must not read back as no choice made.
+
 `make_padded_frame()` scales the panorama directly to its fitted size with `Image.Resampling.LANCZOS` and pastes it onto a canvas already sized to `(ratio.width, ratio.height)` — the same pixel size as every detail frame — rather than compositing at source scale and downscaling. That keeps a large-format scan from briefly allocating a huge intermediate canvas as well as avoiding a many-megabyte first frame beside sub-megabyte detail frames.
 
 Detail frames are full-bleed by default. The border is what makes frame 1 the establishing shot, and giving every frame one flattens that distinction. `style.border_detail_frames` turns it on for people who want the whole carousel to read as one object; the crop then targets the inset box and the border is drawn around it.
@@ -252,6 +258,35 @@ relabelling with a preview up would take the picture down and stop its
 replacement ever starting. With a preview up the old picture stays up and the
 render that replaces it does the relabelling.
 
+### Remembering where the frames were
+
+`gui/settings.py` stores a plan per source, keyed on the source's **path,
+mtime and size** — the same three facts `cached_preview_source` keys its
+decode on, so there is one answer in this codebase to "is this the same
+file". A stat, never a read: deciding whether to restore a handful of floats
+must not cost hundreds of megabytes of I/O on a 132MP scan. An edit that
+preserves both mtime and size is missed; that takes a deliberate `touch`, and
+the cost is crops a few pixels off rather than anything corrupted.
+
+The `QSettings` group is a hash of the resolved path, not the path: a path is
+full of the separators `QSettings` reads as group boundaries, which is the
+trap a preset name containing a slash fell into. `MAX_PLANS` is 50, least
+recently used evicted, and **reading counts as using** — otherwise the
+panorama you reopen every day would be evicted by files you saved once and
+never came back to. A malformed plan is dropped on its own, following
+`load_presets` rather than `load_style`.
+
+The ratio is not part of the key. A position is a fraction of the panorama's
+width, which means the same thing at every ratio, and the count has been the
+user's decision since add and remove landed.
+
+Stored on the settles — a drag release, the keys stopping, add, remove,
+Even — never on a drag move, which would write a plan per mouse event.
+Folder mode stores nothing. `split_tab.RESTORED` says a plan was put back,
+above the key help, and goes as soon as anything moves: the sentence is about
+how the plan arrived, and once you have changed it, it did not arrive that
+way.
+
 A selection is dropped at the cause, not guarded at every reader.
 `FrameRibbon.set_plan` and `ContactStrip.set_frames` both drop a selection the
 incoming plan or frame list can no longer support, and `SplitTab._set_positions`
@@ -297,6 +332,8 @@ A composite has a border colour and a gutter colour, and they cover different th
 - Composites take two to six images rather than two or three. The arrangement is still chosen automatically and input order is still never permuted; the candidate list is generated rather than hand-written, and is restricted to one level of grouping (see `layout.py` above for why).
 - Arrangement names changed from slugs to notation: `row-one-then-two` is now `R(1,C(2,3))`, images numbered from one. The three-panel arrangements are the same six pictures under new names, and the rail's English for them is unchanged — `present_layout()` parses the notation instead of the slug and reaches the same words.
 - The composite arrangement can be forced rather than only accepted: an ARRANGEMENT combo in the Compose tab, and `--arrangement` on the CLI. The Compose tab holds the choice as a *name*, never a row index — the ranking moves with the ratio and the border, so an index would quietly come to mean a different arrangement. The choice survives a ratio, border, gutter or reorder change and is dropped only when the number of sources changes, where the shape it names stops existing. It is not remembered between launches: a border is a house style, which is why presets exist for it, but an arrangement belongs to one particular set of photographs.
+- Frame 1 can carry a different border from everything else (`--frame1-border`, or the checkbox in the Split rail). Unset by default, which is exactly the old behaviour, so no stored style, stored preset, scripted run or golden hash moved.
+- The Split tab remembers where a source's detail frames were placed and puts them back when it is reopened. The CLI has no position flags and gains none: a position is chosen by looking at a photograph.
 - The default border at `1.91:1` changed from 100px to 51px. That is the point of measuring in percent: the old fixed 100px took a third of a 566px-tall frame, while the same constant was a thin edge at `4:5`. Output at `4:5` and `1:1` moved too, from 100px to 97px.
 
 
