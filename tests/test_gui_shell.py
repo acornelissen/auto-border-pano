@@ -675,3 +675,27 @@ def test_each_tab_says_what_its_own_gap_separates(qtbot: QtBot) -> None:
     assert "rows" in split
     assert "panels" not in split
     assert "panels" in compose
+
+
+def test_the_preset_buttons_are_wide_enough_for_their_own_labels(qtbot: QtBot) -> None:
+    """Their width is pinned so swapping Save for Update does not shove the
+    delete button under the pointer. Pinning it from a spacing constant
+    rather than from Qt's own measurement made it 6px short of the
+    stylesheet's padding, and the delete button clipped its glyph."""
+    row = shell.PresetRow()
+    qtbot.addWidget(row)
+
+    for button in (row.save_button, row.delete_button):
+        assert button.width() >= button.sizeHint().width(), button.text()
+
+
+def test_the_save_button_keeps_one_width_across_both_wordings(qtbot: QtBot) -> None:
+    row = shell.PresetRow()
+    qtbot.addWidget(row)
+
+    row.save_button.setText("Save")
+    saving = row.save_button.width()
+    row.save_button.setText("Update")
+
+    assert row.save_button.width() == saving
+    assert saving >= row.save_button.sizeHint().width()

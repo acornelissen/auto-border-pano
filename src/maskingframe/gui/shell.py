@@ -533,8 +533,18 @@ class PresetRow(QWidget):
         # delete button sideways under the pointer.
         wordings = ((self.save_button, ("Save", "Update")), (self.delete_button, ("x",)))
         for button, labels in wordings:
-            widest = max(button.fontMetrics().horizontalAdvance(label) for label in labels)
-            button.setFixedWidth(widest + 2 * theme.M)
+            # Measured by asking Qt for each wording rather than by adding a
+            # spacing constant to the text width: the real chrome is the
+            # stylesheet's `padding: 7px 14px` plus a 1px border, 30px, and
+            # the constant said 24 -- so the delete button came out 31px
+            # against a 37px hint and clipped its own glyph.
+            current = button.text()
+            widest = 0
+            for label in labels:
+                button.setText(label)
+                widest = max(widest, button.sizeHint().width())
+            button.setText(current)
+            button.setFixedWidth(widest)
 
         row.addWidget(self.box, 1)
         row.addWidget(self.save_button)
