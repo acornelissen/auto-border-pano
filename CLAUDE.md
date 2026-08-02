@@ -217,6 +217,16 @@ focus — assistive technology speaks the event for the object the user is on an
 ignores the other, so the tab does not have to keep its own copy of where focus
 is.
 
+The strip takes its frame count from the header read, in `_apply_facts`,
+not from the first render — the rail, the band and the button all state it
+there, and a strip still showing its construction-time apertures made two
+halves of one screen disagree. It is relabelled only while the apertures are
+empty: `ContactStrip.set_frames` discards every thumbnail, and `_rerender`
+reads `strip.exposed` to decide whether a render is worth redoing, so
+relabelling with a preview up would take the picture down and stop its
+replacement ever starting. With a preview up the old picture stays up and the
+render that replaces it does the relabelling.
+
 A selection is dropped at the cause, not guarded at every reader.
 `FrameRibbon.set_plan` and `ContactStrip.set_frames` both drop a selection the
 incoming plan or frame list can no longer support, and `SplitTab._set_positions`
