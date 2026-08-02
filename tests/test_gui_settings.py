@@ -79,3 +79,112 @@ def test_a_corrupt_value_in_one_scope_does_not_poison_the_other() -> None:
     store.sync()
     assert settings.load_style(settings.SPLIT) == pipeline.DEFAULT_STYLE
     assert settings.load_style(settings.COMPOSE).border_percent == 20.0
+
+
+def test_a_preset_round_trips(isolated_settings: Path) -> None:
+    style = pipeline.FrameStyle(border_percent=12.5, border_colour="#102030")
+    settings.save_preset(settings.SPLIT, "Warm white", style)
+
+    assert settings.load_presets(settings.SPLIT)["Warm white"] == style
+
+
+def test_presets_come_back_alphabetically_whatever_order_they_went_in(
+    isolated_settings: Path,
+) -> None:
+    # The list grows, and insertion order stops being findable once it does.
+    for name in ("zinc", "Alder", "mahogany"):
+        settings.save_preset(settings.SPLIT, name, pipeline.DEFAULT_STYLE)
+
+    assert list(settings.load_presets(settings.SPLIT)) == ["Alder", "mahogany", "zinc"]
+
+
+def test_the_two_scopes_keep_separate_lists(isolated_settings: Path) -> None:
+    # A split border and a composite border are different decisions.
+    settings.save_preset(settings.SPLIT, "Mine", pipeline.DEFAULT_STYLE)
+
+    assert "Mine" in settings.load_presets(settings.SPLIT)
+    assert "Mine" not in settings.load_presets(settings.COMPOSE)
+
+
+def test_saving_under_an_existing_name_replaces_it(isolated_settings: Path) -> None:
+    settings.save_preset(settings.SPLIT, "Mine", pipeline.DEFAULT_STYLE)
+    wider = pipeline.FrameStyle(border_percent=20.0)
+    settings.save_preset(settings.SPLIT, "Mine", wider)
+
+    presets = settings.load_presets(settings.SPLIT)
+    assert len(presets) == 1
+    assert presets["Mine"] == wider
+
+
+def test_deleting_removes_only_that_preset(isolated_settings: Path) -> None:
+    settings.save_preset(settings.SPLIT, "Keep", pipeline.DEFAULT_STYLE)
+    settings.save_preset(settings.SPLIT, "Drop", pipeline.DEFAULT_STYLE)
+
+    settings.delete_preset(settings.SPLIT, "Drop")
+
+    assert list(settings.load_presets(settings.SPLIT)) == ["Keep"]
+
+
+def test_deleting_something_that_is_not_there_is_quiet(isolated_settings: Path) -> None:
+    settings.delete_preset(settings.SPLIT, "Never existed")
+
+
+def test_a_malformed_preset_is_dropped_without_taking_its_neighbours(
+    isolated_settings: Path,
+) -> None:
+    # Losing four good presets over one bad one would be worse than the bug,
+    # which is why this does not fall back whole the way load_style does.
+    settings.save_preset(settings.SPLIT, "Good", pipeline.DEFAULT_STYLE)
+    settings.save_preset(settings.SPLIT, "Bad", pipeline.DEFAULT_STYLE)
+    store = settings._store()
+    store.setValue(f"{settings.SPLIT}/presets/Bad/border_colour", "not a colour")
+    store.sync()
+
+    presets = settings.load_presets(settings.SPLIT)
+
+    assert list(presets) == ["Good"]
+
+
+def test_a_name_is_trimmed_and_bounded() -> None:
+    assert settings.clean_name("  Warm white  ") == "Warm white"
+    assert len(settings.clean_name("x" * 100)) == settings.MAX_NAME
+
+
+def test_an_empty_name_is_refused() -> None:
+    with pytest.raises(ValueError, match="name"):
+        settings.clean_name("   ")
+
+
+def test_seeding_puts_the_built_ins_in(isolated_settings: Path) -> None:
+    settings.seed_presets()
+
+    for scope in (settings.SPLIT, settings.COMPOSE):
+        assert set(settings.load_presets(scope)) == set(settings.BUILT_INS[scope])
+
+
+def test_a_deleted_built_in_stays_deleted(isolated_settings: Path) -> None:
+    # Seeding once and then leaving them alone is what makes a built-in an
+    # ordinary preset rather than furniture.
+    settings.seed_presets()
+    settings.delete_preset(settings.SPLIT, "Gallery")
+
+    settings.seed_presets()
+
+    assert "Gallery" not in settings.load_presets(settings.SPLIT)
+
+
+def test_an_edited_built_in_is_not_put_back(isolated_settings: Path) -> None:
+    settings.seed_presets()
+    mine = pipeline.FrameStyle(border_percent=33.0)
+    settings.save_preset(settings.SPLIT, "Gallery", mine)
+
+    settings.seed_presets()
+
+    assert settings.load_presets(settings.SPLIT)["Gallery"] == mine
+
+
+def test_the_split_built_ins_carry_no_gap_decision(isolated_settings: Path) -> None:
+    # Split has no gap to set, so a split preset must not smuggle one in.
+    for style in settings.BUILT_INS[settings.SPLIT].values():
+        assert style.gutter_percent == pipeline.DEFAULT_STYLE.gutter_percent
+        assert style.gutter_colour == pipeline.DEFAULT_STYLE.gutter_colour
