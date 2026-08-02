@@ -257,6 +257,38 @@ def default_positions(
     return tuple(index * travel / (count - 1) for index in range(count))
 
 
+# A position is a fraction of the panorama's width, and the smallest step the
+# interface can take is 1% of it. Two positions this close are the same
+# position by any measure the user has, so the tolerance only ever absorbs
+# float drift -- a frame nudged out and back lands on the same number rather
+# than a few bits away from it.
+EVEN_TOLERANCE = 1e-9
+
+
+def positions_are_even(
+    positions: Sequence[float],
+    pano_width: int,
+    pano_height: int,
+    ratio: AspectRatio,
+) -> bool:
+    """Whether these frames are already spread evenly across the panorama.
+
+    Judged at the count in hand, not at `section_count`'s opening guess:
+    spacing and count are separate decisions, and a plan with a frame added
+    is evenly spaced once those frames are evenly spread.
+
+    No frames at all counts as even. There is nothing to space out, and the
+    alternative would offer to fix a plan that does not exist.
+    """
+    if not positions:
+        return True
+    wanted = default_positions(pano_width, pano_height, ratio, count=len(positions))
+    return all(
+        abs(position - target) <= EVEN_TOLERANCE
+        for position, target in zip(positions, wanted, strict=True)
+    )
+
+
 def insert_position(
     positions: Sequence[float], pano_width: int, pano_height: int, ratio: AspectRatio
 ) -> tuple[float, ...]:

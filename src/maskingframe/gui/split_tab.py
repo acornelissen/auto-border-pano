@@ -144,6 +144,12 @@ class SplitTab(QWidget):
 
         self._build()
         self._apply_button_states()
+        # There is no plan yet, so none of the three count controls has
+        # anything to act on. Without this they start pressable, because a
+        # QPushButton does, and the guard inside each one was the only thing
+        # stopping a press doing something -- a button that looks live and
+        # does nothing is worse than one that looks dead.
+        self._apply_count_states()
         self._refresh_border_preview()
 
         self.source_row.field.textChanged.connect(self._on_selection_changed)
@@ -219,8 +225,26 @@ class SplitTab(QWidget):
         self.add_btn = QPushButton("+")
         self.add_btn.setObjectName("Secondary")
         self.add_btn.clicked.connect(self.add_frame)
+        # A word rather than a third glyph. The other two are arithmetic and
+        # read as such; there is no glyph for "space these out again" that
+        # would not have to be learned.
+        self.even_btn = QPushButton("Even")
+        self.even_btn.setObjectName("Secondary")
+        self.even_btn.clicked.connect(self.reset_frames)
+        # A button whose entire label is a glyph tells a screen reader
+        # nothing -- "plus" is not what it does. The tooltip and the
+        # accessible name are the same sentence, so the pointer and the
+        # screen reader cannot be told different things.
+        for button, said in (
+            (self.remove_btn, "Remove the last detail frame"),
+            (self.add_btn, "Add a detail frame"),
+            (self.even_btn, "Space the detail frames evenly"),
+        ):
+            button.setToolTip(said)
+            button.setAccessibleName(said)
         counter_row.addWidget(self.remove_btn)
         counter_row.addWidget(self.add_btn)
+        counter_row.addWidget(self.even_btn)
         counter_row.addStretch(1)
         rail.addWidget(counter)
 
@@ -425,6 +449,13 @@ class SplitTab(QWidget):
             self._set_selected(None)
         else:
             self._state_selection()
+        # Every change to the plan lands here -- a drag, a key, add, remove,
+        # a reset, a fresh source -- so this is where the count controls are
+        # brought up to date. `Even` reads the *spacing*, not the count, and
+        # a drag changes the spacing without changing the count; leaving the
+        # recompute to add and remove alone left the button dark for exactly
+        # the person who had just made it applicable.
+        self._apply_count_states()
 
     def _show_ribbon(self, visible: bool) -> None:
         """Show the ribbon, or the sentence explaining why there isn't one.
@@ -590,7 +621,26 @@ class SplitTab(QWidget):
                 self._positions, width, height, pipeline.RATIOS[self._ratio_name()]
             )
         )
-        self._apply_count_states()
+        self._rerender()
+
+    def reset_frames(self) -> None:
+        """Space the frames out evenly again, keeping the count.
+
+        Spacing and count are separate decisions, so this puts back the
+        spacing and leaves the count alone: going back to `section_count`'s
+        opening guess would silently throw away frames the user added, which
+        is not what a control beside the count should do.
+
+        Same path as add and remove, so all three re-render the same way.
+        """
+        if self._source_size is None or not self._positions:
+            return
+        width, height = self._source_size
+        self._set_positions(
+            pipeline.default_positions(
+                width, height, pipeline.RATIOS[self._ratio_name()], count=len(self._positions)
+            )
+        )
         self._rerender()
 
     def remove_frame(self) -> None:
@@ -598,7 +648,6 @@ class SplitTab(QWidget):
         if len(self._positions) <= 2:
             return
         self._set_positions(pipeline.drop_position(self._positions))
-        self._apply_count_states()
         self._rerender()
 
     def _apply_count_states(self) -> None:
@@ -619,6 +668,15 @@ class SplitTab(QWidget):
         placed = len(self._positions)
         self.add_btn.setEnabled(placed > 0)
         self.remove_btn.setEnabled(placed > 2)
+        # Off while the frames are already even: a control that offers to fix
+        # what is not broken teaches people to stop reading it.
+        self.even_btn.setEnabled(
+            self._source_size is not None
+            and placed > 0
+            and not pipeline.positions_are_even(
+                self._positions, *self._source_size, pipeline.RATIOS[self._ratio_name()]
+            )
+        )
         if placed:
             self.count_label.setText(f"{placed + 1} frames")
             self.action_btn.setText(f"Cut {placed + 1} frames")

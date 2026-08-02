@@ -562,3 +562,41 @@ def test_drop_takes_the_last_frame() -> None:
 def test_drop_refuses_to_go_below_the_minimum() -> None:
     with pytest.raises(ValueError, match="two"):
         geometry.drop_position((0.0, 0.6))
+
+
+def test_default_positions_are_recognised_as_even() -> None:
+    positions = geometry.default_positions(3000, 1000, geometry.PORTRAIT)
+    assert geometry.positions_are_even(positions, 3000, 1000, geometry.PORTRAIT)
+
+
+def test_a_moved_frame_makes_the_positions_uneven() -> None:
+    positions = geometry.default_positions(3000, 1000, geometry.PORTRAIT)
+    moved = geometry.move_position(positions, 1, positions[1] + 0.05, 3000, 1000, geometry.PORTRAIT)
+
+    assert moved != positions
+    assert not geometry.positions_are_even(moved, 3000, 1000, geometry.PORTRAIT)
+
+
+def test_evenness_is_judged_at_the_current_count() -> None:
+    """Reset spaces out the frames you have; it does not put back the count
+    the opening guess would have chosen. So a plan with a frame added is
+    even again once those frames are evenly spread."""
+    four = geometry.default_positions(3000, 1000, geometry.PORTRAIT, count=4)
+    seven = geometry.default_positions(3000, 1000, geometry.PORTRAIT, count=7)
+
+    assert geometry.positions_are_even(four, 3000, 1000, geometry.PORTRAIT)
+    assert geometry.positions_are_even(seven, 3000, 1000, geometry.PORTRAIT)
+    assert len(four) != len(seven)
+
+
+def test_a_source_with_no_travel_is_always_even() -> None:
+    """Every position clamps to zero when the source is narrower than one
+    output tile, so there is nothing to space out and nothing to offer."""
+    positions = geometry.default_positions(1000, 800, geometry.LANDSCAPE, count=3)
+
+    assert positions == (0.0, 0.0, 0.0)
+    assert geometry.positions_are_even(positions, 1000, 800, geometry.LANDSCAPE)
+
+
+def test_no_positions_count_as_even() -> None:
+    assert geometry.positions_are_even((), 3000, 1000, geometry.PORTRAIT)

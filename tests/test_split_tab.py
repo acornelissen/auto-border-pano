@@ -1469,3 +1469,66 @@ def test_a_header_read_never_blanks_a_strip_with_a_preview_on_it(
 
     assert tab.strip.exposed == exposed, "a header read took the preview down"
     assert tab.strip.frame_count == portrait.frame_count, "relabelled out from under the pictures"
+
+
+def test_even_is_off_until_a_frame_has_moved(qtbot: Any, tmp_path: Path) -> None:
+    """A control that offers to fix what is not broken teaches people to
+    ignore it. The plan opens evenly spaced, so it opens unavailable."""
+    tab = loaded_tab(qtbot, tmp_path)
+    assert not tab.even_btn.isEnabled()
+
+    tab._move_position(1, tab.positions()[1] + 0.05)
+
+    assert tab.even_btn.isEnabled()
+
+
+def test_even_spaces_the_frames_out_again(qtbot: Any, tmp_path: Path) -> None:
+    tab = loaded_tab(qtbot, tmp_path)
+    opening = tab.positions()
+    tab._move_position(1, opening[1] + 0.07)
+    assert tab.positions() != opening
+
+    tab.reset_frames()
+
+    assert tab.positions() == opening
+    assert not tab.even_btn.isEnabled()
+
+
+def test_even_keeps_the_count_it_was_given(qtbot: Any, tmp_path: Path) -> None:
+    """Spacing and count are separate decisions. Resetting the spacing must
+    not also throw away frames the user added, which is what going back to
+    `section_count`'s opening guess would do."""
+    tab = loaded_tab(qtbot, tmp_path)
+    opening_count = len(tab.positions())
+    tab.add_frame()
+    tab.add_frame()
+    assert len(tab.positions()) == opening_count + 2
+    tab._move_position(0, 0.3)
+
+    tab.reset_frames()
+
+    assert len(tab.positions()) == opening_count + 2
+    size = tab._source_size
+    assert size is not None
+    assert tab.positions() == pipeline.default_positions(
+        size[0], size[1], pipeline.DEFAULT_RATIO, count=opening_count + 2
+    )
+
+
+def test_even_does_nothing_without_a_source(qtbot: Any) -> None:
+    tab = SplitTab()
+    qtbot.addWidget(tab)
+
+    tab.reset_frames()
+
+    assert tab.positions() == ()
+    assert not tab.even_btn.isEnabled()
+
+
+def test_the_counter_buttons_say_what_they_do(qtbot: Any, tmp_path: Path) -> None:
+    """Three buttons whose whole label is a glyph or one word. A screen
+    reader announcing "plus" says nothing about what is being added."""
+    tab = loaded_tab(qtbot, tmp_path)
+    for button in (tab.add_btn, tab.remove_btn, tab.even_btn):
+        assert button.accessibleName()
+        assert button.toolTip() == button.accessibleName()
