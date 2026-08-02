@@ -683,7 +683,7 @@ git commit -m "feat(gui): add the border preset row"
 - Consumes: `PresetRow` (Task 2); `settings.load_presets`, `save_preset`, `delete_preset` (Task 1); the existing `BorderControls.frame_style()`, `set_style()`, `style_changed`, `style_settled`.
 - Produces: `BorderControls.presets: PresetRow`, and `BorderControls.apply_preset(style)` — adopts a style and settles once, as a user action rather than a restore.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `tests/test_split_tab.py`:
 
@@ -806,12 +806,12 @@ def test_choosing_a_compose_preset_applies_the_gap(
 
 Both files must import `settings` and use the `isolated_settings` fixture on every test that touches the store.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `mise exec -- uv run pytest tests/test_split_tab.py tests/test_compose_tab.py -k preset -v`
 Expected: FAIL with `AttributeError: 'BorderControls' object has no attribute 'presets'`.
 
-- [ ] **Step 3: Put the row into `BorderControls`**
+- [x] **Step 3: Put the row into `BorderControls`**
 
 `BorderControls` takes a `scope` so it can load and store its own list. It is the one place the two tabs already share, so putting the wiring here rather than in each tab keeps them from drifting apart — which is the reason `BorderControls` exists.
 
@@ -881,7 +881,7 @@ Add `self._presets: dict[str, pipeline.FrameStyle] = {}` to `__init__` before th
 
 **Watch the import direction:** `settings.py` imports `pipeline`, and `shell.py` will now import `settings`. Confirm this introduces no cycle — if `settings.py` imports anything from `shell.py`, stop and report rather than working around it.
 
-- [ ] **Step 4: Wire both tabs**
+- [x] **Step 4: Wire both tabs**
 
 In `split_tab.py`, pass the scope and load the list where the controls are built:
 
@@ -897,12 +897,12 @@ Do the same in `compose_tab.py` with `settings.COMPOSE` and its own `show_gutter
 
 `set_style` stays after `reload_presets` so the restored style does not mark a list that has not been filled yet.
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `mise exec -- uv run pytest tests/test_split_tab.py tests/test_compose_tab.py tests/test_gui_shell.py -v`
 Expected: PASS, including every test already in those files.
 
-- [ ] **Step 6: Look at it**
+- [x] **Step 6: Look at it**
 
 ```bash
 QT_QPA_PLATFORM=offscreen mise exec -- uv run python - <<'PY'
@@ -922,7 +922,7 @@ PY
 
 Open `/tmp/presets.png`. Confirm the row fits the 320px rail without the combo or either button being clipped, that the buttons read as chrome rather than competing with the primary action, and that the BORDER section still reads top to bottom as one thing. Report what you saw.
 
-- [ ] **Step 7: Run the full gate and commit**
+- [x] **Step 7: Run the full gate and commit**
 
 ```bash
 mise run check
