@@ -159,6 +159,7 @@ at `4:5` and `1:1`, 51px at `1.91:1`.
 | `--gutter-colour HEX` | `#ffffff` | Composites only: the colour of that gap |
 | `--border-detail-frames` | off | Splits only: border the zoomed detail frames too, not just the first frame |
 | `--frame1-border PERCENT` | same as `--border` | Splits only: give the first frame its own border, so it can fill more of the frame |
+| `--frame1-rows N` | `1` | Splits only: lay the first frame out as N rows, 1 to 4, read top to bottom |
 
 `--border-color` and `--gutter-color` work as well, if you prefer them. Every
 flag in the table is accepted by both `maskingframe` and `maskingframe
@@ -194,6 +195,21 @@ A panorama is a much wider shape than a portrait frame, so at `4:5` a 2.33:1
 panorama covers 23% of the first frame at the default border and 34% with no
 border at all — the rest is the shape difference, not the border. At `1.91:1`
 the same panorama already covers 67%.
+
+If that is not enough, the first frame can be laid out as rows — the panorama
+cut into equal pieces and stacked, read top to bottom the way a long plate is
+laid out on a page:
+
+```bash
+mise run split -- panorama.jpg my_prefix --frame1-rows 2
+```
+
+Nothing is cropped; every part of the panorama is still there, just on more
+than one line. It is the only thing that really moves the numbers above: a 6:1
+panorama at `4:5` covers 9% of the first frame whole and 52% in three rows. It
+works the other way at a wide ratio, where a single row already fits well, so
+the Split tab lists what each choice is worth for the panorama you have
+loaded. The gap between rows is the same `--gutter` setting a composite uses.
 
 ## Composites
 
