@@ -814,10 +814,10 @@ class SplitTab(QWidget):
         one people want is almost always the way back.
         """
         _ensure_key_constants()
-        if self._history.can_redo:
-            self.undo_line.setText(f"Redo {self._history.redo_label}   {REDO_KEYS}")
-        elif self._history.can_undo:
+        if self._history.can_undo:
             self.undo_line.setText(f"Undo {self._history.undo_label}   {UNDO_KEYS}")
+        elif self._history.can_redo:
+            self.undo_line.setText(f"Redo {self._history.redo_label}   {REDO_KEYS}")
         else:
             self.undo_line.setText("")
 
