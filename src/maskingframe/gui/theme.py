@@ -68,9 +68,26 @@ CHINAGRAPH_DOWN = "#9E221D"
 S = 6
 M = 12
 L = 24
+
+FIELD_LABEL_WIDTH = 68
+"""How wide the label column in a rail field is.
+
+Fixed rather than measured, so every field in every section lines its
+control up on the same edge -- a label column that shifted per section
+would read as four separate forms rather than one rail.
+
+Sized to the longest label the rail uses, which is short because the
+section heading above it already carries the topic: BORDER's slider is
+"Width", not "Border width". At 92 the labels said the heading twice and
+pushed the controls 35px past the rail's edge."""
 XL = 36
 
-RAIL_WIDTH = 320
+RAIL_WIDTH = 340
+"""How wide the control rail is.
+
+Was 320 when the rail did not scroll. The scrollbar costs 8px of usable
+width and the label column costs the rest: at 320 the controls ran 11px
+past the edge, which clipped the ratio combo and the Choose button."""
 BAND_HEIGHT = 52
 
 # --- Type -------------------------------------------------------------------
@@ -152,6 +169,7 @@ def stylesheet() -> str:
     /* Layout containers carry no colour of their own; without this they
        inherit the global QWidget white and punch holes in the rail. */
     #Rail QWidget {{ background: transparent; }}
+    #Rail QScrollArea {{ border: none; }}
     /* The rail scrolls when the window is shorter than the column. The bar
        is chrome, so it stays greyscale and hard-edged like every other
        hairline here -- chinagraph is for marking up, not for furniture. */
@@ -177,6 +195,9 @@ def stylesheet() -> str:
     #Table {{ background: {TABLE}; }}
 
     QLabel {{ background: transparent; }}
+    /* Names the control beside it. Quieter than body ink, because the
+       control is the thing being looked at, not its name. */
+    QLabel#FieldLabel {{ color: {INK_DIM}; }}
     QLabel#Section {{
         color: {INK_DIM};
         font-family: "{body}";
@@ -339,6 +360,26 @@ def stylesheet() -> str:
         border: 1px solid {CHINAGRAPH};
         background: {CHINAGRAPH};
     }}
+
+    /* The same argument as the radio above, and it had been missed: an
+       unstyled QCheckBox draws the stock macOS tick in system blue, which
+       is a second saturated hue in an interface that spends exactly one.
+       Square, because a checkbox is not a radio -- the shape is what says
+       which of the two you are looking at. */
+    QCheckBox {{ background: transparent; spacing: 8px; }}
+    QCheckBox::indicator {{
+        width: 13px;
+        height: 13px;
+        border: 1px solid #B9C1C8;
+        background: {WELL};
+    }}
+    QCheckBox::indicator:hover {{ border-color: {INK_DIM}; }}
+    QCheckBox::indicator:checked {{
+        border: 1px solid {CHINAGRAPH};
+        background: {CHINAGRAPH};
+    }}
+    QCheckBox::indicator:disabled {{ border-color: {EDGE}; background: {PANEL}; }}
+    QCheckBox:disabled {{ color: #9AA2A9; }}
 
     QProgressBar {{
         background: {EDGE};

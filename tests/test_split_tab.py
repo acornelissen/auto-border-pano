@@ -374,7 +374,8 @@ def test_preview_cannot_be_pressed_twice_and_reports_failure_inline(
 
 def test_preview_sits_below_the_primary_and_is_not_a_peer_of_it(tab: SplitTab) -> None:
     """Mirrors the Compose tab's own test, so the two rails cannot drift."""
-    rail = tab.columns.rail_layout
+    # The foot, not the scrolling body: both buttons are pinned there.
+    rail = tab.columns.rail_foot_layout
     order = []
     for index in range(rail.count()):
         item = rail.itemAt(index)

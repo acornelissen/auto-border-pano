@@ -15,7 +15,7 @@ opens the colour dialog for real -- a modal would hang the suite -- so
 import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QCheckBox, QColorDialog, QLabel, QLayout
+from PySide6.QtWidgets import QCheckBox, QColorDialog, QLabel, QLayout, QWidget
 from pytestqt.qtbot import QtBot
 
 from maskingframe import pipeline
@@ -658,9 +658,9 @@ def test_the_rail_keeps_its_width_when_it_scrolls(qtbot: QtBot) -> None:
 
 
 def test_each_tab_says_what_its_own_gap_separates(qtbot: QtBot) -> None:
-    """One control and one stored field, but not one sentence: a composite's
-    gap is between panels, and a split's is between frame 1's rows. Split
-    used to be handed the composite's wording, and Split has no panels."""
+    """One control and one stored field, but not one name: a composite's gap
+    is between panels, and a split's is between frame 1's rows. Split used to
+    be handed the composite's wording, and Split has no panels."""
     from maskingframe.gui.app import MainWindow
 
     window = MainWindow()
@@ -672,9 +672,10 @@ def test_each_tab_says_what_its_own_gap_separates(qtbot: QtBot) -> None:
     split = " ".join(help_texts(window.split.border_controls))
     compose = " ".join(help_texts(window.compose.border_controls))
 
-    assert "rows" in split
-    assert "panels" not in split
-    assert "panels" in compose
+    # Carried by the label on the control now, not by a sentence under it.
+    assert "Row gap" in split
+    assert "Panel gap" not in split
+    assert "Panel gap" in compose
 
 
 def test_the_preset_buttons_are_wide_enough_for_their_own_labels(qtbot: QtBot) -> None:
@@ -699,3 +700,70 @@ def test_the_save_button_keeps_one_width_across_both_wordings(qtbot: QtBot) -> N
 
     assert row.save_button.width() == saving
     assert saving >= row.save_button.sizeHint().width()
+
+
+def test_the_primary_action_never_goes_below_the_fold(qtbot: QtBot) -> None:
+    """A commit button you have to scroll to is the one convention this rail
+    cannot afford to break. It sat at y=906 in an 812px viewport once the
+    rail started scrolling, so it lives outside the scroll area now."""
+    from maskingframe.gui.app import MainWindow
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.resize(1280, 700)
+    window.show()
+    qtbot.waitExposed(window)
+
+    pairs = (
+        (0, window.split, window.split.action_btn),
+        (1, window.compose, window.compose.save_btn),
+    )
+    for index, tab, button in pairs:
+        # Each tab has to be the current one to have been laid out at all.
+        window.tabs.setCurrentIndex(index)
+        laid_out = tab.columns.rail_shell
+
+        def is_laid_out(widget: QWidget = laid_out) -> bool:
+            return widget.height() > 100
+
+        qtbot.waitUntil(is_laid_out, timeout=2000)
+        shell_widget = tab.columns.rail_shell
+        top = button.mapTo(shell_widget, button.rect().topLeft()).y()
+        bottom = top + button.height()
+        assert top >= 0, button.text()
+        assert bottom <= shell_widget.height(), button.text()
+        assert not tab.columns.rail.isAncestorOf(button), "the action scrolled away"
+
+
+def test_checkboxes_are_styled_like_the_radios(qtbot: QtBot) -> None:
+    """An unstyled QCheckBox draws the stock macOS tick in system blue. The
+    radios are styled for exactly that reason -- one saturated hue, and it
+    is chinagraph -- and the checkboxes had been missed."""
+    sheet = theme.stylesheet()
+
+    assert "QCheckBox::indicator" in sheet
+    assert (
+        f"QCheckBox::indicator:checked {{\n        border: 1px solid {theme.CHINAGRAPH};" in sheet
+    )
+    # Square, not round: the shape is what tells a checkbox from a radio.
+    checkbox = sheet.split("QCheckBox::indicator {")[1].split("}")[0]
+    assert "border-radius" not in checkbox
+
+
+def test_no_rail_control_is_clipped_horizontally(qtbot: QtBot) -> None:
+    """The rail scrolls vertically and must never need to scroll sideways.
+    Adding a label column and a scrollbar pushed the ratio combo and the
+    Choose button 35px past the edge, where they were simply cut off."""
+    from maskingframe.gui.app import MainWindow
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.resize(1280, 900)
+    window.show()
+    qtbot.waitExposed(window)
+
+    columns = window.split.columns
+    needed = columns.rail_content.minimumSizeHint().width()
+    assert needed <= columns.rail.viewport().width(), (
+        f"{needed - columns.rail.viewport().width()}px over"
+    )

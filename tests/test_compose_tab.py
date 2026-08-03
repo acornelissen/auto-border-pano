@@ -472,7 +472,8 @@ def test_the_rail_reads_subject_then_format_then_destination(tab: ComposeTab) ->
 
 
 def test_preview_sits_below_save_and_is_not_a_peer_of_it(tab: ComposeTab) -> None:
-    rail = tab.columns.rail_layout
+    # The foot, not the scrolling body: both buttons are pinned there.
+    rail = tab.columns.rail_foot_layout
     order = []
     for index in range(rail.count()):
         item = rail.itemAt(index)

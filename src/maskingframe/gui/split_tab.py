@@ -233,7 +233,7 @@ class SplitTab(QWidget):
         self.ratio_box = shell.Combo()
         self.ratio_box.addItems([r.display for r in pipeline.RATIOS.values()])
         self.ratio_box.setCurrentText(pipeline.DEFAULT_RATIO.display)
-        rail.addWidget(self.ratio_box)
+        rail.addWidget(shell.labelled("Ratio", self.ratio_box))
 
         rail.addSpacing(theme.S)
         self.count_label = shell.help_label(NO_COUNT)
@@ -282,14 +282,11 @@ class SplitTab(QWidget):
         self.rows_combo = shell.Combo()
         self.rows_combo.setAccessibleName("How frame 1 is laid out")
         self.rows_combo.currentIndexChanged.connect(self._on_rows_change)
-        rail.addWidget(self.rows_combo)
+        rail.addWidget(shell.labelled("Frame 1", self.rows_combo))
         rail.addSpacing(theme.S)
-        rail.addWidget(
-            shell.help_label(
-                "Frame 1 only, and it crops nothing. Rows fill much more of a tall "
-                "frame and much less of a wide one."
-            )
-        )
+        # What the label cannot carry: that this crops nothing, which is the
+        # question anyone asks first about cutting a picture into rows.
+        rail.addWidget(shell.help_label("Rows crop nothing; every part is still shown."))
 
         rail.addSpacing(theme.S)
         # The selection in words. The marking on the picture is chinagraph,
@@ -307,7 +304,7 @@ class SplitTab(QWidget):
             show_gutter=True,
             show_detail_toggle=True,
             show_frame1=True,
-            gutter_help="The gap between frame 1's rows, when it has more than one.",
+            gutter_label="Row gap",
         )
         self.border_controls.reload_presets()
         self.border_controls.restore_style(settings.load_style(settings.SPLIT))
@@ -322,7 +319,12 @@ class SplitTab(QWidget):
         self.dest_row.button.clicked.connect(self.browse_output)
         rail.addWidget(self.dest_row)
 
-        rail.addSpacing(theme.L)
+        # From here down the rail stops scrolling. The action that writes to
+        # disk, and everything reporting on it, is pinned to the foot: a
+        # primary action below the fold on a laptop window is the one
+        # convention this rail cannot afford to break, and pinning it also
+        # stops it moving as the rail above it grows.
+        rail = self.columns.rail_foot_layout
         self.action_btn = QPushButton(UNCOUNTED_ACTION)
         self.action_btn.setObjectName("Primary")
         self.action_btn.clicked.connect(self.process_images)

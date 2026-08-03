@@ -133,9 +133,12 @@ class TwoColumn(QWidget):
         # scroll area is what makes "too tall" mean scrolling rather than
         # collapsing, and it keeps the next section that gets added from
         # doing the same thing again.
-        self.rail = QScrollArea(self)
-        self.rail.setObjectName("Rail")
-        self.rail.setFixedWidth(theme.RAIL_WIDTH)
+        self.rail_shell = QWidget(self)
+        self.rail_shell.setObjectName("Rail")
+        self.rail_shell.setFixedWidth(theme.RAIL_WIDTH)
+
+        self.rail = QScrollArea()
+        self.rail.setObjectName("RailScroll")
         self.rail.setWidgetResizable(True)
         self.rail.setFrameShape(QFrame.Shape.NoFrame)
         self.rail.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -148,8 +151,25 @@ class TwoColumn(QWidget):
         self.rail_content.setObjectName("RailContent")
         self.rail.setWidget(self.rail_content)
         self.rail_layout = QVBoxLayout(self.rail_content)
-        self.rail_layout.setContentsMargins(theme.L, theme.L, theme.L, theme.L)
+        self.rail_layout.setContentsMargins(theme.L, theme.L, theme.L, theme.S)
         self.rail_layout.setSpacing(0)
+
+        # The settings scroll; the thing that commits them does not. A
+        # primary action that goes below the fold on a laptop window is the
+        # one convention this rail cannot afford to break, and pinning it
+        # also means it stops moving as the rail grows -- muscle memory
+        # improves rather than suffers.
+        self.rail_foot = QWidget()
+        self.rail_foot.setObjectName("RailFoot")
+        self.rail_foot_layout = QVBoxLayout(self.rail_foot)
+        self.rail_foot_layout.setContentsMargins(theme.L, theme.S, theme.L, theme.L)
+        self.rail_foot_layout.setSpacing(0)
+
+        rail_column = QVBoxLayout(self.rail_shell)
+        rail_column.setContentsMargins(0, 0, 0, 0)
+        rail_column.setSpacing(0)
+        rail_column.addWidget(self.rail, 1)
+        rail_column.addWidget(self.rail_foot)
 
         self.table = QWidget(self)
         self.table.setObjectName("Table")
@@ -157,8 +177,30 @@ class TwoColumn(QWidget):
         self.table_layout.setContentsMargins(theme.L, theme.L, theme.L, theme.L)
         self.table_layout.setSpacing(0)
 
-        row.addWidget(self.rail)
+        row.addWidget(self.rail_shell)
         row.addWidget(self.table, 1)
+
+
+def labelled(label: str, control: QWidget) -> QWidget:
+    """A control with its name beside it, on the rail's one label column.
+
+    The same argument as `PercentSlider`'s own label: a combo whose only
+    identification is a sentence printed underneath it makes you read past
+    the control to learn what it was. The width is fixed and shared, so
+    every field in every section lines its control up on one edge.
+    """
+    holder = QWidget()
+    row = QHBoxLayout(holder)
+    row.setContentsMargins(0, 0, 0, 0)
+    row.setSpacing(theme.S)
+    name = QLabel(label)
+    name.setObjectName("FieldLabel")
+    name.setFixedWidth(theme.FIELD_LABEL_WIDTH)
+    name.setBuddy(control)
+    control.setAccessibleName(label)
+    row.addWidget(name)
+    row.addWidget(control, 1)
+    return holder
 
 
 def section(text: str) -> QLabel:
@@ -390,9 +432,21 @@ class PercentSlider(QWidget):
         )
         # Fixed to the widest reading it can ever show, so the row does not
         # shuffle sideways while you drag it.
-        widest = f"{pipeline.MAX_PERCENT:.1f} %"
+        widest = f"{pipeline.MAX_PERCENT:.1f}%"
         self.readout.setFixedWidth(QFontMetrics(theme.data_font()).horizontalAdvance(widest) + 4)
 
+        # Visible, not only accessible. This name used to reach
+        # `setAccessibleName` and nowhere else, so a screen reader was told
+        # which slider this was and a sighted user was not -- two identical
+        # rows distinguished by a sentence printed *underneath* them, which
+        # you have to read past the control to learn what the control was.
+        # The label is what lets that sentence be deleted.
+        self.name_label = QLabel(label)
+        self.name_label.setObjectName("FieldLabel")
+        self.name_label.setFixedWidth(theme.FIELD_LABEL_WIDTH)
+        self.name_label.setBuddy(self.slider)
+
+        row.addWidget(self.name_label)
         row.addWidget(self.slider, 1)
         row.addWidget(self.readout)
 
@@ -520,9 +574,10 @@ class PresetRow(QWidget):
         self.save_button.setObjectName("Secondary")
         self.save_button.clicked.connect(self._on_save)
 
-        self.delete_button = QPushButton("x")
+        self.delete_button = QPushButton("\u00d7")
         self.delete_button.setObjectName("Secondary")
         self.delete_button.setAccessibleName("Delete this preset")
+        self.delete_button.setToolTip("Delete this preset")
         self.delete_button.clicked.connect(self._on_delete)
 
         # Qt gives every push button an 80px minimum width. On a 320px rail
@@ -531,7 +586,7 @@ class PresetRow(QWidget):
         # The save button is measured against its widest wording, not its
         # current one, so swapping "Save" for "Update" does not shove the
         # delete button sideways under the pointer.
-        wordings = ((self.save_button, ("Save", "Update")), (self.delete_button, ("x",)))
+        wordings = ((self.save_button, ("Save", "Update")), (self.delete_button, ("\u00d7",)))
         for button, labels in wordings:
             # Measured by asking Qt for each wording rather than by adding a
             # spacing constant to the text width: the real chrome is the
@@ -684,8 +739,9 @@ class BorderControls(QWidget):
         show_frame1: bool = False,
         # What the gap actually separates, which is not the same thing on
         # both tabs: panels on a composite, frame 1's rows on a split. One
-        # control, one stored field, two true sentences.
-        gutter_help: str = "The gap between the panels.",
+        # control and one stored field, but the label says which -- that is
+        # the distinction a sentence underneath used to carry.
+        gutter_label: str = "Panel gap",
     ) -> None:
         super().__init__(parent)
         self._quiet = False
@@ -722,28 +778,27 @@ class BorderControls(QWidget):
         column.addWidget(self.presets)
         column.addSpacing(theme.S)
         self.border_slider, self.border_swatch, border_row = self._field(
-            "Border width",
+            "Width",
             pipeline.DEFAULT_STYLE.border_percent,
             "Border colour",
             pipeline.DEFAULT_STYLE.border_colour,
         )
         column.addWidget(border_row)
         column.addSpacing(theme.S)
-        column.addWidget(
-            help_label("Percent of the frame's short side, so it reads the same at every ratio.")
-        )
+        # One line for the section, not one per control. Every width here is
+        # a percent of the short side, which is the one thing a label cannot
+        # say; what each slider *is* is now written on the slider.
+        column.addWidget(help_label("Widths are a percent of the frame's short side."))
 
         if show_gutter:
             column.addSpacing(theme.M)
             self.gutter_slider, self.gutter_swatch, gutter_row = self._field(
-                "Gap width",
+                gutter_label,
                 pipeline.DEFAULT_STYLE.gutter_percent,
                 "Gap colour",
                 pipeline.DEFAULT_STYLE.gutter_colour,
             )
             column.addWidget(gutter_row)
-            column.addSpacing(theme.S)
-            column.addWidget(help_label(gutter_help))
 
         if show_frame1:
             column.addSpacing(theme.M)
@@ -752,20 +807,17 @@ class BorderControls(QWidget):
             self.frame1_check.toggled.connect(self._on_frame1_toggled)
             column.addWidget(self.frame1_check)
             column.addSpacing(theme.S)
-            self.frame1_slider = PercentSlider(
-                "Frame 1 border", pipeline.DEFAULT_STYLE.border_percent
-            )
+            self.frame1_slider = PercentSlider("Frame 1", pipeline.DEFAULT_STYLE.border_percent)
             self.frame1_slider.setEnabled(False)
             self.frame1_slider.valueChanged.connect(self._emit)
             self.frame1_slider.settled.connect(self._settle)
             column.addWidget(self.frame1_slider)
             column.addSpacing(theme.S)
+            # Kept, and only this one: that a tall frame stays mostly border
+            # however far this is turned down is genuinely counterintuitive,
+            # and no label can carry it.
             column.addWidget(
-                help_label(
-                    "The whole-panorama frame only. Turn it down to fill more of "
-                    "the frame -- though at a tall ratio most of it stays border "
-                    "whatever this says, because the panorama is a different shape."
-                )
+                help_label("A tall frame stays mostly border however far this goes down.")
             )
 
         if show_detail_toggle:

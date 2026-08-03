@@ -435,7 +435,12 @@ class ComposeTab(QWidget):
         self.output_row.button.clicked.connect(self.browse_output)
         rail.addWidget(self.output_row)
 
-        rail.addSpacing(theme.L)
+        # From here down the rail stops scrolling. The action that writes to
+        # disk, and everything reporting on it, is pinned to the foot: a
+        # primary action below the fold on a laptop window is the one
+        # convention this rail cannot afford to break. The Split rail says
+        # this identically -- the two are one product.
+        rail = self.columns.rail_foot_layout
         self.save_btn = QPushButton(_save_label(0))
         self.save_btn.setObjectName("Primary")
         self.save_btn.clicked.connect(self.save)
