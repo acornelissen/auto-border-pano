@@ -432,3 +432,31 @@ def test_a_plan_with_an_impossible_row_count_is_refused(tmp_path: Path) -> None:
     store.sync()
 
     assert settings.load_plan(source) is None
+
+
+def test_a_preset_carries_the_look_but_not_the_composition() -> None:
+    """A preset is a look: border, gap, colours, frame 1's own border, and
+    which frames carry one. It is deliberately not the row count -- a preset
+    named "Gallery" that silently re-laid frame 1 out in three rows would be
+    changing the composition, which is a different kind of thing, and rows
+    belong to the panorama's shape rather than to a taste."""
+    saved = pipeline.FrameStyle(
+        border_percent=18.0,
+        border_colour="#000000",
+        gutter_percent=1.0,
+        gutter_colour="#c9302a",
+        border_detail_frames=True,
+        padded_border_percent=2.0,
+        padded_rows=3,
+    )
+    settings.save_preset(settings.SPLIT, "Gallery", saved)
+
+    restored = settings.load_presets(settings.SPLIT)["Gallery"]
+
+    assert restored.border_percent == 18.0
+    assert restored.border_colour == "#000000"
+    assert restored.gutter_percent == 1.0
+    assert restored.gutter_colour == "#c9302a"
+    assert restored.border_detail_frames is True
+    assert restored.padded_border_percent == 2.0
+    assert restored.padded_rows == 1, "a preset must not carry the row count"

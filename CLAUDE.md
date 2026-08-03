@@ -128,6 +128,19 @@ cost is that a preset added in a later release will not reach an existing
 install — accepted against a tombstone list and two kinds of preset the
 interface would then have to tell apart.
 
+A preset is a *look*: border width and colour, gap width and colour, frame 1's
+own border, and which frames carry one. It deliberately does not carry
+`padded_rows` — a preset named "Gallery" that silently re-laid frame 1 out in
+three rows would be changing the composition rather than the look, and the row
+count belongs to the panorama's shape. `test_a_preset_carries_the_look_but_not_the_composition`
+pins both halves of that.
+
+The preset row stays inside the BORDER section rather than moving onto its
+heading. On the heading the combo gets 72px of text room, which elides
+`Black surround` — one of the three built-ins — and every name carrying the
+`(edited)` marker, which exists precisely to be read. It would have bought 44px
+of height, and since the rail stopped scrolling that buys nothing.
+
 `shell.PresetRow` owns the naming rules and the button's wording and never
 touches `QSettings`; `BorderControls` holds the scope and does the storing. The
 button reads Save for a new name and Update for one that exists — that is what
