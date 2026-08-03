@@ -1910,11 +1910,41 @@ def test_add_and_remove_are_undoable(qtbot: Any, tab: SplitTab, tmp_path: Path) 
     assert tab.positions() == before
 
 
-def test_undo_and_redo_do_not_themselves_become_undoable_steps(
-    qtbot: Any, tab: SplitTab, tmp_path: Path
+def test_undo_and_redo_never_call_record(
+    qtbot: Any, tab: SplitTab, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The one invariant. Without it undo records itself and walking back
-    twice lands where it started."""
+    """The guard for the one invariant: undo and redo call `_remember` but
+    never `_record`.
+
+    Checked structurally, with a spy, rather than by walking back and
+    comparing positions. `History.record` silently no-ops when the
+    snapshot it is given equals the state already at the cursor -- and
+    that is exactly the state an undo or redo restores -- so a spurious
+    `_record` call reached from `_apply_snapshot` would be swallowed
+    before it could corrupt the stack. A behavioural test of the final
+    position cannot tell a fixed `_apply_snapshot` from a broken one that
+    happens to be dedup'd into looking fixed; only watching whether
+    `_record` is called at all can.
+    """
+    _loaded(qtbot, tab, tmp_path)
+    tab.reset_frames()
+    tab._move_position(0, 0.31)
+    tab._on_frame_settled(0)
+
+    calls: list[str] = []
+    monkeypatch.setattr(tab, "_record", lambda label: calls.append(label))
+
+    tab.undo()
+    tab.redo()
+
+    assert calls == []
+
+
+def test_undoing_twice_walks_back_to_the_start(qtbot: Any, tab: SplitTab, tmp_path: Path) -> None:
+    """Behavioural companion to the guard above -- worth having, but not a
+    guard of the invariant on its own: `History.record`'s dedup would
+    swallow a spurious `_record` call in this exact sequence too, since
+    each undo lands on a state already at the cursor."""
     _loaded(qtbot, tab, tmp_path)
     first = tab.positions()
     tab.reset_frames()
