@@ -742,6 +742,15 @@ class ContactStrip(QWidget):
         # position in it to choose.
         if index is None or index == 0:
             return
+        # Clicking a frame selects it. The press used to start a drag and
+        # nothing else, so the mark stayed wherever the keyboard had last
+        # put it and the strip looked like it was ignoring you. Only when it
+        # actually changes -- re-announcing the frame you are already on
+        # would speak over a screen reader every time a drag began.
+        if index != self._selected:
+            self._selected = index
+            self.update()
+            self.selection_changed.emit(index)
         self._drag_index = index
         self._drag_origin = point.x()
 

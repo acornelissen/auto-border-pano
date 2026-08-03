@@ -189,6 +189,18 @@ def stylesheet() -> str:
         background: transparent;
     }}
     #Rail QLineEdit, #Rail QComboBox {{ background: {WELL}; }}
+    /* The rule above this one makes every plain widget in the rail
+       transparent, and it carries an ID selector -- so it beat the popup's
+       own `QComboBox QAbstractItemView` background and the list drew with
+       no background at all, over whatever was behind it. Restated here with
+       the same ID so it wins, rather than weakening the transparency rule
+       that the rest of the rail depends on. */
+    #Rail QComboBox QAbstractItemView {{
+        background: {WELL};
+        border: 1px solid {EDGE};
+        selection-background-color: {CHINAGRAPH};
+        selection-color: #FFFFFF;
+    }}
     #Rail QPushButton {{ background: {WELL}; }}
     #Rail QPushButton#Primary {{ background: {CHINAGRAPH}; }}
     #Rail QPushButton#Secondary {{ background: transparent; }}

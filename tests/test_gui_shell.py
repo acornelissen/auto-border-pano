@@ -783,3 +783,15 @@ def test_a_swatch_does_not_read_as_an_empty_field(qtbot: QtBot) -> None:
     assert theme.INK_DIM in swatch
     assert theme.EDGE in field
     assert theme.INK_DIM not in field
+
+
+def test_a_rail_dropdown_has_a_background(qtbot: QtBot) -> None:
+    """`#Rail QWidget` makes every plain widget in the rail transparent and
+    carries an ID selector, so it beat the popup list's own background rule
+    and the open dropdown drew straight over whatever was behind it."""
+    sheet = theme.stylesheet()
+
+    assert "#Rail QComboBox QAbstractItemView" in sheet
+    popup = sheet.split("#Rail QComboBox QAbstractItemView {")[1].split("}")[0]
+    assert theme.WELL in popup
+    assert "transparent" not in popup

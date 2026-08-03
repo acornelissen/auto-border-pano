@@ -7,8 +7,8 @@ QT_QPA_PLATFORM before Qt is imported.
 from collections.abc import Sequence
 
 import pytest
-from PySide6.QtCore import QEvent, QPoint, QRect, Qt
-from PySide6.QtGui import QFocusEvent, QImage
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, Qt
+from PySide6.QtGui import QFocusEvent, QImage, QMouseEvent
 from pytestqt.qtbot import QtBot
 
 from maskingframe import geometry
@@ -45,6 +45,17 @@ def wire(ribbon: FrameRibbon) -> None:
         )
 
     ribbon.frame_moved.connect(moved)
+
+
+def _press(point: QPoint) -> QMouseEvent:
+    """A left-button press at a point, as Qt would deliver it."""
+    return QMouseEvent(
+        QEvent.Type.MouseButtonPress,
+        QPointF(point),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
 
 
 def test_the_picture_is_letterboxed_not_cropped(qtbot: QtBot) -> None:
@@ -387,3 +398,34 @@ def test_focus_and_selection_are_different_marks(qtbot: QtBot) -> None:
     assert focused.pixelColor(corner) == theme.rgb(theme.INK)
     # The selected window's own edge is chinagraph at the same moment.
     assert focused.pixelColor(ribbon.window_rects()[1].topLeft()) == theme.rgb(theme.CHINAGRAPH)
+
+
+def test_clicking_a_window_selects_it(qtbot: QtBot) -> None:
+    """The press only ever started a drag, so the mark stayed wherever the
+    keyboard had put it and the ribbon looked like it ignored the click."""
+    built = FrameRibbon()
+    qtbot.addWidget(built)
+    built.set_source(conftest.synthetic_panorama(3000, 1000))
+    built.set_plan((0.0, 0.3, 0.6), 0.25)
+    built.resize(900, RIBBON_HEIGHT)
+    built.set_selected(0)
+    rects = built.window_rects()
+    assert len(rects) == 3
+
+    with qtbot.waitSignal(built.selection_changed) as blocker:
+        built.mousePressEvent(_press(rects[2].center()))
+
+    assert blocker.args == [2]
+    assert built.selected() == 2
+
+
+def test_clicking_the_selected_window_does_not_re_announce_it(qtbot: QtBot) -> None:
+    built = FrameRibbon()
+    qtbot.addWidget(built)
+    built.set_source(conftest.synthetic_panorama(3000, 1000))
+    built.set_plan((0.0, 0.3, 0.6), 0.25)
+    built.resize(900, RIBBON_HEIGHT)
+    built.set_selected(1)
+
+    with qtbot.assertNotEmitted(built.selection_changed):
+        built.mousePressEvent(_press(built.window_rects()[1].center()))

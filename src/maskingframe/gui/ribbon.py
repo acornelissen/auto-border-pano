@@ -249,6 +249,13 @@ class FrameRibbon(QWidget):
         index = self._window_at(point)
         if index is None:
             return
+        # Clicking a window selects it, for the same reason the strip does:
+        # the press used to start a drag and leave the mark where the
+        # keyboard had put it.
+        if index != self._selected:
+            self._selected = index
+            self.update()
+            self.selection_changed.emit(index)
         picture = self.picture_rect()
         grabbed = (point.x() - picture.left()) / max(1, picture.width())
         self._dragging = index

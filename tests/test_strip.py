@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 from PIL import Image
-from PySide6.QtCore import QEvent, QPoint, QRect, Qt
-from PySide6.QtGui import QFocusEvent, QFontMetrics, QImage
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, Qt
+from PySide6.QtGui import QFocusEvent, QFontMetrics, QImage, QMouseEvent
 from pytestqt.qtbot import QtBot
 
 from maskingframe import pipeline
@@ -35,6 +35,17 @@ def _built(qtbot: QtBot, frames: int = strip.DEFAULT_FRAME_COUNT) -> strip.Conta
     widget = strip.ContactStrip(frames=frames)
     qtbot.addWidget(widget)
     return widget
+
+
+def _press(point: QPoint) -> QMouseEvent:
+    """A left-button press at a point, as Qt would deliver it."""
+    return QMouseEvent(
+        QEvent.Type.MouseButtonPress,
+        QPointF(point),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
 
 
 def test_the_empty_state_exists_at_construction_with_no_call(qtbot: QtBot) -> None:
@@ -942,3 +953,49 @@ def test_frame_one_falls_back_to_the_shared_border(qtbot: QtBot) -> None:
     rect = built.frame_rect_at(0)
     thinnest = min(min(b.width(), b.height()) for b in built.border_rects(0))
     assert thinnest == pytest.approx(min(rect.width(), rect.height()) * 0.09, abs=1.5)
+
+
+def test_clicking_a_frame_selects_it(qtbot: QtBot) -> None:
+    """Clicking the thing you want to work on is how a selection is made.
+    The press only ever started a drag, so the mark stayed on whatever the
+    keyboard had last picked and the strip looked like it was ignoring you."""
+    built = ContactStrip()
+    qtbot.addWidget(built)
+    built.set_frames(["FRAME 1", "FRAME 2", "FRAME 3"])
+    built.set_draggable(True)
+    built.resize(900, 400)
+    built.set_selected(1)
+
+    with qtbot.waitSignal(built.selection_changed) as blocker:
+        built.mousePressEvent(_press(built.frame_rect_at(2).center()))
+
+    assert blocker.args == [2]
+    assert built.selected() == 2
+
+
+def test_clicking_the_selected_frame_does_not_re_announce_it(qtbot: QtBot) -> None:
+    """It is already selected; saying so again would speak over a screen
+    reader user every time they started a drag."""
+    built = ContactStrip()
+    qtbot.addWidget(built)
+    built.set_frames(["FRAME 1", "FRAME 2"])
+    built.set_draggable(True)
+    built.resize(900, 400)
+    built.set_selected(1)
+
+    with qtbot.assertNotEmitted(built.selection_changed):
+        built.mousePressEvent(_press(built.frame_rect_at(1).center()))
+
+
+def test_clicking_the_whole_panorama_frame_selects_nothing(qtbot: QtBot) -> None:
+    """Frame 1 shows everything, so there is no position in it to place."""
+    built = ContactStrip()
+    qtbot.addWidget(built)
+    built.set_frames(["FRAME 1", "FRAME 2"])
+    built.set_draggable(True)
+    built.resize(900, 400)
+    built.set_selected(1)
+
+    with qtbot.assertNotEmitted(built.selection_changed):
+        built.mousePressEvent(_press(built.frame_rect_at(0).center()))
+    assert built.selected() == 1
