@@ -267,13 +267,19 @@ def stylesheet() -> str:
        chinagraph when you click into it would read as an error. The ring
        thickens rather than changing hue, so it survives a swatch set to a
        colour close to INK itself. */
+    /* A field in this rail is WELL with an EDGE keyline -- which is exactly
+       what a white swatch was, so the one control whose whole job is to
+       show a colour read as an empty text box. The darker keyline is what
+       separates them: a chip you can see the edges of, not a well you could
+       type into. It also has to survive the swatch being any colour, so the
+       distinction is the border rather than the fill. */
     #Swatch {{
-        border: 1px solid {EDGE};
+        border: 1px solid {INK_DIM};
         min-width: 34px;
         min-height: 24px;
         padding: 0;
     }}
-    #Swatch:hover {{ border-color: {INK_DIM}; }}
+    #Swatch:hover {{ border-color: {INK}; }}
     #Swatch:focus {{ border: 2px solid {INK}; }}
 
     QPushButton {{

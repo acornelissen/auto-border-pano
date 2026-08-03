@@ -767,3 +767,19 @@ def test_no_rail_control_is_clipped_horizontally(qtbot: QtBot) -> None:
     assert needed <= columns.rail.viewport().width(), (
         f"{needed - columns.rail.viewport().width()}px over"
     )
+
+
+def test_a_swatch_does_not_read_as_an_empty_field(qtbot: QtBot) -> None:
+    """A field here is WELL with an EDGE keyline, and a white swatch was
+    exactly that -- so the one control whose job is to show a colour looked
+    like a text box you had forgotten to fill in. The keyline is what tells
+    them apart, and it has to be the keyline rather than the fill, because
+    the fill is whatever colour you chose."""
+    sheet = theme.stylesheet()
+
+    swatch = sheet.split("#Swatch {")[1].split("}")[0]
+    field = sheet.split("QLineEdit {")[1].split("}")[0]
+
+    assert theme.INK_DIM in swatch
+    assert theme.EDGE in field
+    assert theme.INK_DIM not in field
