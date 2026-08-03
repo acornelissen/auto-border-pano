@@ -39,7 +39,7 @@ from PySide6.QtWidgets import (
 )
 
 from maskingframe import pipeline
-from maskingframe.gui import settings, shell, theme
+from maskingframe.gui import history, settings, shell, theme
 from maskingframe.gui.ribbon import FrameRibbon
 from maskingframe.gui.strip import BorderPreview, ContactStrip
 from maskingframe.gui.work import submit
@@ -164,6 +164,14 @@ class SplitTab(QWidget):
         # currentIndexChanged -- cannot be mistaken for a choice.
         self._rows = 1
         self._filling_rows = False
+        # The way back from `Even`, a mis-drag and a stray `−`. Cleared  # noqa: RUF003
+        # whenever the source changes: undoing into a plan made for a
+        # different photograph would restore crops that mean nothing.
+        self._history = history.History()
+        # Which source the history belongs to, "" for none and for folder
+        # mode. Compared rather than reacted to, because the header is also
+        # re-read on a ratio change and the plan survives that.
+        self._history_source = ""
         # Parented to this widget, so it cannot outlive it and fire into a
         # destroyed tab.
         self._nudge_timer = QTimer(self)
@@ -490,6 +498,7 @@ class SplitTab(QWidget):
         self._rows = int(self.rows_combo.itemData(index) or 1)
         self._state_frame1()
         self._remember()
+        self._record("rows")
         self._refresh_border_preview()
         self._rerender()
 
@@ -730,6 +739,7 @@ class SplitTab(QWidget):
     def _on_nudge_settled(self) -> None:
         """The keys have stopped, which is a settle like a drag release."""
         self._remember()
+        self._record("move")
         self._rerender()
 
     def _remember(self) -> None:
@@ -745,6 +755,55 @@ class SplitTab(QWidget):
             return
         settings.save_plan(source, self._positions, self._rows)
 
+    def _snapshot(self) -> history.Snapshot:
+        """The plan as it now stands: where the frames are, and the rows."""
+        return history.Snapshot(self._positions, self._rows)
+
+    def _record(self, label: str) -> None:
+        """Note a change worth walking back from.
+
+        Separate from `_remember`, which writes to the store, because the
+        two answer different questions -- and because undo and redo call
+        `_remember` and must never call this. That is what stops them
+        recording themselves.
+        """
+        self._history.record(label, self._snapshot())
+        self._state_undo()
+
+    def _state_undo(self) -> None:
+        """Say what would come back. Given its body in the next task."""
+
+    def _apply_snapshot(self, snapshot: history.Snapshot) -> None:
+        """Put a plan back on screen, and into the store.
+
+        Rows first, because `_fill_rows_combo` reads `self._rows` and moves
+        the combobox to match -- under `_filling_rows`, so the move is not
+        mistaken for a choice and cannot record a step of its own.
+        """
+        if snapshot.rows != self._rows:
+            self._rows = snapshot.rows
+            self._fill_rows_combo()
+            self._state_frame1()
+            self._refresh_border_preview()
+        self._set_positions(snapshot.positions)
+        # Written to the store like any other change: quitting after an
+        # undo and reopening must give back what was on screen.
+        self._remember()
+        self._state_undo()
+        self._rerender()
+
+    def undo(self) -> None:
+        """Step back one plan. Does nothing when there is nowhere to go."""
+        snapshot = self._history.undo()
+        if snapshot is not None:
+            self._apply_snapshot(snapshot)
+
+    def redo(self) -> None:
+        """Step forward one plan. Does nothing when there is nowhere to go."""
+        snapshot = self._history.redo()
+        if snapshot is not None:
+            self._apply_snapshot(snapshot)
+
     def _forget_restored(self) -> None:
         """The frames have moved, so they are no longer as they arrived."""
         if not self._restored:
@@ -756,6 +815,7 @@ class SplitTab(QWidget):
     def _on_frame_settled(self, _index: int) -> None:
         """The hand has stopped. Now the frames themselves can be redone."""
         self._remember()
+        self._record("move")
         self._rerender()
 
     def _on_frame_dragged(self, index: int, delta: float) -> None:
@@ -776,6 +836,7 @@ class SplitTab(QWidget):
     def _on_frame_drag_settled(self, _index: int) -> None:
         self._drag_anchor = ()
         self._remember()
+        self._record("move")
         self._rerender()
 
     def add_frame(self) -> None:
@@ -794,6 +855,7 @@ class SplitTab(QWidget):
             )
         )
         self._remember()
+        self._record("add frame")
         self._rerender()
 
     def reset_frames(self) -> None:
@@ -815,6 +877,7 @@ class SplitTab(QWidget):
             )
         )
         self._remember()
+        self._record("Even")
         self._rerender()
 
     def remove_frame(self) -> None:
@@ -823,6 +886,7 @@ class SplitTab(QWidget):
             return
         self._set_positions(pipeline.drop_position(self._positions))
         self._remember()
+        self._record("remove frame")
         self._rerender()
 
     def _apply_count_states(self) -> None:
@@ -912,6 +976,16 @@ class SplitTab(QWidget):
         self._inspect_token += 1
         token = self._inspect_token
         source = self.source_row.text()
+        # A change of source, including to none and to folder mode. Compared
+        # rather than reacted to: this method also runs on a ratio change,
+        # and a position is a fraction of the panorama's width, which means
+        # the same thing at every ratio -- so the plan survives it, and the
+        # way back to the plan should too.
+        belongs_to = "" if self.folder_radio.isChecked() else source
+        if belongs_to != self._history_source:
+            self._history_source = belongs_to
+            self._history.clear()
+            self._state_undo()
         # Everything this method reacts to -- the source, the mode, the ratio
         # -- also decides whether Preview is pressable.
         self._apply_button_states()
@@ -993,6 +1067,11 @@ class SplitTab(QWidget):
         # After, never before: `_set_positions` clears the flag for every
         # other caller, and setting it first would have it clear its own.
         self._restored = remembered is not None
+        # The plan as it arrived is what undo walks back to. `start` does
+        # nothing when there is already a history, so a ratio change -- which
+        # comes back through here -- does not wipe the way back.
+        self._history.start(self._snapshot())
+        self._state_undo()
         # The strip learns the count here, not when the first render lands.
         # Everything above this line already states it -- the rail, the band
         # and the button -- and the strip used to keep its construction-time

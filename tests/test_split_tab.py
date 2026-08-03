@@ -1834,3 +1834,173 @@ def test_opening_the_section_replaces_the_summary_with_the_controls(
 
     assert section.body.isVisibleTo(section)
     assert "whole panorama" not in section.header.text().lower()
+
+
+def _loaded(qtbot: Any, tab: SplitTab, tmp_path: Path, name: str = "pano.jpg") -> Path:
+    """Load one panorama and wait for its plan to arrive."""
+    source = _panorama(tmp_path, name)
+    tab.source_row.setText(str(source))
+    qtbot.waitUntil(lambda: bool(tab.positions()))
+    return source
+
+
+def test_even_is_undoable_and_puts_the_hand_placed_frames_back(
+    qtbot: Any, tab: SplitTab, tmp_path: Path
+) -> None:
+    """The press this whole feature exists for."""
+    _loaded(qtbot, tab, tmp_path)
+    tab._move_position(0, 0.42)
+    tab._on_frame_settled(0)
+    placed = tab.positions()
+
+    tab.reset_frames()
+    assert tab.positions() != placed
+
+    tab.undo()
+    assert tab.positions() == placed
+
+
+def test_each_action_names_itself(qtbot: Any, tab: SplitTab, tmp_path: Path) -> None:
+    """A line that says `Undo Even` and then restores something else is
+    worse than no line, so the label is asserted beside the state."""
+    _loaded(qtbot, tab, tmp_path)
+
+    tab._move_position(0, 0.42)
+    tab._on_frame_settled(0)
+    assert tab._history.undo_label == "move"
+
+    tab.add_frame()
+    assert tab._history.undo_label == "add frame"
+
+    tab.remove_frame()
+    assert tab._history.undo_label == "remove frame"
+
+    tab.reset_frames()
+    assert tab._history.undo_label == "Even"
+
+    tab.rows_combo.setCurrentIndex(2)
+    assert tab._history.undo_label == "rows"
+
+
+def test_undoing_a_row_change_moves_the_combo_back(
+    qtbot: Any, tab: SplitTab, tmp_path: Path
+) -> None:
+    """The rows are part of the plan, so undo has to move the control that
+    states them or the rail would describe a layout nobody has."""
+    _loaded(qtbot, tab, tmp_path)
+    tab.rows_combo.setCurrentIndex(2)
+    assert tab.rows() == 3
+
+    tab.undo()
+
+    assert tab.rows() == 1
+    assert tab.rows_combo.currentIndex() == 0
+
+
+def test_add_and_remove_are_undoable(qtbot: Any, tab: SplitTab, tmp_path: Path) -> None:
+    _loaded(qtbot, tab, tmp_path)
+    before = tab.positions()
+
+    tab.add_frame()
+    tab.undo()
+    assert tab.positions() == before
+
+    tab.remove_frame()
+    tab.undo()
+    assert tab.positions() == before
+
+
+def test_undo_and_redo_do_not_themselves_become_undoable_steps(
+    qtbot: Any, tab: SplitTab, tmp_path: Path
+) -> None:
+    """The one invariant. Without it undo records itself and walking back
+    twice lands where it started."""
+    _loaded(qtbot, tab, tmp_path)
+    first = tab.positions()
+    tab.reset_frames()
+    tab._move_position(0, 0.31)
+    tab._on_frame_settled(0)
+
+    tab.undo()
+    tab.undo()
+
+    assert tab.positions() == first
+    assert not tab._history.can_undo
+
+
+def test_redo_puts_back_what_undo_took_away(qtbot: Any, tab: SplitTab, tmp_path: Path) -> None:
+    _loaded(qtbot, tab, tmp_path)
+    tab._move_position(0, 0.42)
+    tab._on_frame_settled(0)
+    placed = tab.positions()
+
+    tab.undo()
+    tab.redo()
+
+    assert tab.positions() == placed
+
+
+def test_a_new_source_clears_the_history(qtbot: Any, tab: SplitTab, tmp_path: Path) -> None:
+    """Undoing into a plan made for a different photograph would restore
+    crops that mean nothing."""
+    _loaded(qtbot, tab, tmp_path, "first.jpg")
+    tab._move_position(0, 0.42)
+    tab._on_frame_settled(0)
+    assert tab._history.can_undo
+
+    _loaded(qtbot, tab, tmp_path, "second.jpg")
+
+    assert not tab._history.can_undo
+
+
+def test_folder_mode_clears_the_history(qtbot: Any, tab: SplitTab, tmp_path: Path) -> None:
+    _loaded(qtbot, tab, tmp_path)
+    tab._move_position(0, 0.42)
+    tab._on_frame_settled(0)
+    assert tab._history.can_undo
+
+    tab.folder_radio.setChecked(True)
+
+    assert not tab._history.can_undo
+
+
+def test_a_ratio_change_keeps_the_history(qtbot: Any, tab: SplitTab, tmp_path: Path) -> None:
+    """A position is a fraction of the panorama's width, which means the
+    same thing at every ratio -- so the plan survives, and so does the way
+    back to it."""
+    _loaded(qtbot, tab, tmp_path)
+    tab._move_position(0, 0.42)
+    tab._on_frame_settled(0)
+
+    tab.ratio_box.setCurrentText(pipeline.RATIOS["1:1"].display)
+
+    # Asserted straight away, not after a wait: the clearing decision is
+    # made synchronously in `_on_selection_changed`, so if a ratio change
+    # were going to wipe the history it would already have done it.
+    assert tab._history.can_undo
+
+
+def test_undo_writes_the_restored_plan_to_the_store(
+    qtbot: Any, tab: SplitTab, tmp_path: Path
+) -> None:
+    """Otherwise the application would quietly keep the version you undid,
+    and disagree with its own display on the next launch."""
+    source = _loaded(qtbot, tab, tmp_path)
+    tab._move_position(0, 0.42)
+    tab._on_frame_settled(0)
+    placed = tab.positions()
+    tab.reset_frames()
+
+    tab.undo()
+
+    stored = settings.load_plan(source)
+    assert stored is not None
+    assert stored.positions == placed
+
+
+def test_undoing_with_nothing_to_undo_does_nothing(tab: SplitTab) -> None:
+    """No source, no plan, no crash."""
+    tab.undo()
+    tab.redo()
+
+    assert tab.positions() == ()
