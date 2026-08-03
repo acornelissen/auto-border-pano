@@ -181,6 +181,74 @@ class TwoColumn(QWidget):
         row.addWidget(self.table, 1)
 
 
+class Disclosure(QWidget):
+    """A section that folds away, carrying its state in the heading.
+
+    The pattern every pro tool's inspector uses: a parameter sitting at its
+    default and rarely touched should cost a word, not a row. Frame 1's
+    settings are off for most panoramas and cost about 140px permanently.
+
+    Collapsed it still *says* what it is set to, on the right of its own
+    heading, so nothing is hidden in the bad sense -- you can read the state
+    without opening it, which is the difference between folding a section
+    away and burying it.
+
+    Instant, never animated: the theme spends no motion, and a section that
+    slid open would be the only thing in the application that moved.
+    """
+
+    toggled = Signal(bool)
+
+    def __init__(self, title: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        column = QVBoxLayout(self)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(0)
+
+        self.header = QPushButton()
+        self.header.setObjectName("Disclosure")
+        self.header.setCheckable(True)
+        self.header.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._title = title.upper()
+        self.header.toggled.connect(self._on_toggled)
+        column.addWidget(self.header)
+
+        self.body = QWidget()
+        self.body.setVisible(False)
+        self.body_layout = QVBoxLayout(self.body)
+        self.body_layout.setContentsMargins(0, theme.S, 0, 0)
+        self.body_layout.setSpacing(0)
+        column.addWidget(self.body)
+
+        self._summary = ""
+        self._paint_header()
+
+    def set_summary(self, summary: str) -> None:
+        """Say what the section is set to, without opening it."""
+        self._summary = summary
+        self._paint_header()
+
+    def _paint_header(self) -> None:
+        # The glyph is the affordance and the summary is the state. Both on
+        # one line, because a heading that wrapped would defeat the point.
+        glyph = "\u2212" if self.header.isChecked() else "+"
+        summary = f"   {self._summary}" if self._summary and not self.header.isChecked() else ""
+        self.header.setText(f"{glyph}  {self._title}{summary}")
+        spoken = f"{self._title}, {self._summary}" if self._summary else self._title
+        self.header.setAccessibleName(spoken)
+
+    def _on_toggled(self, open_: bool) -> None:
+        self.body.setVisible(open_)
+        self._paint_header()
+        self.toggled.emit(open_)
+
+    def set_open(self, open_: bool) -> None:
+        self.header.setChecked(open_)
+
+    def is_open(self) -> bool:
+        return bool(self.header.isChecked())
+
+
 def labelled(label: str, control: QWidget) -> QWidget:
     """A control with its name beside it, on the rail's one label column.
 
@@ -751,6 +819,7 @@ class BorderControls(QWidget):
         self.gutter_swatch: Swatch | None = None
         self.detail_check: QCheckBox | None = None
         self.frame1_check: QCheckBox | None = None
+        self.frame1_section: Disclosure | None = None
         self.frame1_slider: PercentSlider | None = None
 
         # A word-wrapped label's height is a function of its width, and
@@ -790,35 +859,50 @@ class BorderControls(QWidget):
         # say; what each slider *is* is now written on the slider.
         column.addWidget(help_label("Widths are a percent of the frame's short side."))
 
+        gutter_row: QWidget | None = None
         if show_gutter:
-            column.addSpacing(theme.M)
             self.gutter_slider, self.gutter_swatch, gutter_row = self._field(
                 gutter_label,
                 pipeline.DEFAULT_STYLE.gutter_percent,
                 "Gap colour",
                 pipeline.DEFAULT_STYLE.gutter_colour,
             )
-            column.addWidget(gutter_row)
 
         if show_frame1:
-            column.addSpacing(theme.M)
-            self.frame1_check = QCheckBox("Frame 1 has its own border")
+            # Everything frame 1 alone decides, in one place that folds away.
+            # It was scattered across two sections, each carrying a sentence
+            # to re-explain the scope its heading now states once.
+            #
+            # The gap comes in here on this tab and stays in BORDER on the
+            # other, because on a split the gap separates nothing but frame
+            # 1's rows -- it is not a border setting at all.
+            column.addSpacing(theme.L)
+            self.frame1_section = Disclosure("Frame 1")
+            body = self.frame1_section.body_layout
+            if gutter_row is not None:
+                body.addWidget(gutter_row)
+                body.addSpacing(theme.S)
+            self.frame1_check = QCheckBox("Its own border")
             self.frame1_check.setAccessibleName("Frame 1 has its own border")
             self.frame1_check.toggled.connect(self._on_frame1_toggled)
-            column.addWidget(self.frame1_check)
-            column.addSpacing(theme.S)
-            self.frame1_slider = PercentSlider("Frame 1", pipeline.DEFAULT_STYLE.border_percent)
+            body.addWidget(self.frame1_check)
+            body.addSpacing(theme.S)
+            self.frame1_slider = PercentSlider("Width", pipeline.DEFAULT_STYLE.border_percent)
             self.frame1_slider.setEnabled(False)
             self.frame1_slider.valueChanged.connect(self._emit)
             self.frame1_slider.settled.connect(self._settle)
-            column.addWidget(self.frame1_slider)
-            column.addSpacing(theme.S)
+            body.addWidget(self.frame1_slider)
+            body.addSpacing(theme.S)
             # Kept, and only this one: that a tall frame stays mostly border
             # however far this is turned down is genuinely counterintuitive,
             # and no label can carry it.
-            column.addWidget(
+            body.addWidget(
                 help_label("A tall frame stays mostly border however far this goes down.")
             )
+            column.addWidget(self.frame1_section)
+        elif gutter_row is not None:
+            column.addSpacing(theme.M)
+            column.addWidget(gutter_row)
 
         if show_detail_toggle:
             column.addSpacing(theme.M)

@@ -180,6 +180,7 @@ class SplitTab(QWidget):
         # does nothing is worse than one that looks dead.
         self._apply_count_states()
         self._fill_rows_combo()
+        self._state_frame1()
         self._refresh_border_preview()
 
         self.source_row.field.textChanged.connect(self._on_selection_changed)
@@ -278,15 +279,12 @@ class SplitTab(QWidget):
         counter_row.addStretch(1)
         rail.addWidget(counter)
 
-        rail.addSpacing(theme.M)
+        # The rows list is built here but lives in the FRAME 1 section, which
+        # `BorderControls` owns -- see below. Frame 1's layout and frame 1's
+        # border are one decision and were filed under two headings.
         self.rows_combo = shell.Combo()
         self.rows_combo.setAccessibleName("How frame 1 is laid out")
         self.rows_combo.currentIndexChanged.connect(self._on_rows_change)
-        rail.addWidget(shell.labelled("Frame 1", self.rows_combo))
-        rail.addSpacing(theme.S)
-        # What the label cannot carry: that this crops nothing, which is the
-        # question anyone asks first about cutting a picture into rows.
-        rail.addWidget(shell.help_label("Rows crop nothing; every part is still shown."))
 
         rail.addSpacing(theme.S)
         # The selection in words. The marking on the picture is chinagraph,
@@ -306,6 +304,14 @@ class SplitTab(QWidget):
             show_frame1=True,
             gutter_label="Row gap",
         )
+        section = self.border_controls.frame1_section
+        assert section is not None, "the Split rail always shows the frame 1 section"
+        section.body_layout.insertWidget(0, shell.labelled("Layout", self.rows_combo))
+        section.body_layout.insertSpacing(1, theme.S)
+        section.body_layout.insertWidget(
+            2, shell.help_label("Rows crop nothing; every part is still shown.")
+        )
+        section.body_layout.insertSpacing(3, theme.M)
         self.border_controls.reload_presets()
         self.border_controls.restore_style(settings.load_style(settings.SPLIT))
         self.border_controls.style_changed.connect(self._on_style_changed)
@@ -460,10 +466,29 @@ class SplitTab(QWidget):
         finally:
             self._filling_rows = False
 
+    def _frame1_summary(self) -> str:
+        """What the folded FRAME 1 heading says it is set to.
+
+        The whole justification for folding the section away: you can read
+        its state without opening it, which is the difference between
+        putting a rarely-touched setting out of the way and burying it.
+        """
+        parts = [ROWS_OFF.split("—")[-1].strip() if self._rows == 1 else ROW_WORDS[self._rows]]
+        own = self.border_controls.frame_style().padded_border_percent
+        if own is not None:
+            parts.append(f"{own:g}% border")
+        return " · ".join(parts)
+
+    def _state_frame1(self) -> None:
+        section = self.border_controls.frame1_section
+        if section is not None:
+            section.set_summary(self._frame1_summary())
+
     def _on_rows_change(self, index: int) -> None:
         if self._filling_rows:
             return
         self._rows = int(self.rows_combo.itemData(index) or 1)
+        self._state_frame1()
         self._remember()
         self._refresh_border_preview()
         self._rerender()
@@ -479,6 +504,7 @@ class SplitTab(QWidget):
         """
         settings.save_style(settings.SPLIT, style)
         self._fill_rows_combo()
+        self._state_frame1()
         self._refresh_border_preview()
 
     def _on_style_settled(self, style: pipeline.FrameStyle) -> None:
@@ -987,6 +1013,7 @@ class SplitTab(QWidget):
         # The shape has just arrived, so the rows list can finally say what
         # each count is worth.
         self._fill_rows_combo()
+        self._state_frame1()
         self._state_selection()
         self._rerender()
 

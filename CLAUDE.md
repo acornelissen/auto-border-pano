@@ -71,6 +71,36 @@ Never crops, never permutes input order. `solve()` and `evaluate()` take a `Fram
 
 Both tabs expose `subject`, `detail` and a `band_changed` signal to the shell, and nothing else. The band belongs to the shell rather than to either tab, so the tabs never know about the band or about each other.
 
+### How the rail is laid out
+
+The rail is a `QScrollArea` with a pinned foot. The settings scroll; the action
+that writes to disk does not — a primary action below the fold is the one
+convention this rail cannot break, and pinning it also stops it moving as the
+rail grows. `TwoColumn` exposes `rail_layout` for the scrolling body and
+`rail_foot_layout` for the pinned part; both tabs put everything from the
+primary button down into the foot.
+
+**Controls are named, not explained.** Every slider and combo carries a visible
+label on one shared column (`theme.FIELD_LABEL_WIDTH`, and `shell.labelled()`
+for anything that is not a `PercentSlider`). The names used to reach
+`setAccessibleName` and nowhere else, which meant a screen reader was told which
+slider it was and a sighted user was not — two identical rows distinguished only
+by a sentence printed underneath, so you read past a control to learn what it
+was. Help text is now only for what a label cannot say. Labels are short because
+the section heading carries the topic: BORDER's slider is `Width`.
+
+**`shell.Disclosure` folds a section away and states its value in the heading**
+(`+ FRAME 1   the whole panorama`). Folding is only acceptable because the
+summary is there — otherwise the setting is buried rather than out of the way.
+Instant, never animated, like everything else here.
+
+Everything frame 1 alone decides lives in one folded section: the row layout,
+the gap between rows, and its own border. Those were scattered across FORMAT and
+BORDER, each carrying a sentence to re-explain the scope the heading now states
+once. **On Split the gap is inside FRAME 1** because a split's gap separates
+nothing but frame 1's rows; on Compose it stays in BORDER, where it separates
+panels. One control and one stored field, two labels.
+
 ### Remembering the border
 
 `gui/settings.py` is the only module that constructs a `QSettings`, so a reader and a writer can never end up on different files. It states its format and scope explicitly: the two-argument `QSettings(organisation, application)` constructor pins itself to the platform's native format and then ignores `setDefaultFormat` and `setPath`, which on macOS means a plist a test cannot redirect.

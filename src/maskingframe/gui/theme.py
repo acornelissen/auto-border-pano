@@ -198,6 +198,20 @@ def stylesheet() -> str:
     /* Names the control beside it. Quieter than body ink, because the
        control is the thing being looked at, not its name. */
     QLabel#FieldLabel {{ color: {INK_DIM}; }}
+    /* A section heading you can press. Reads as a heading, not a button:
+       no fill, no keyline, the same weight and tracking as a plain one. */
+    QPushButton#Disclosure {{
+        background: transparent;
+        border: none;
+        padding: 0;
+        text-align: left;
+        color: {INK_DIM};
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 1px;
+    }}
+    QPushButton#Disclosure:hover {{ color: {INK}; }}
+    QPushButton#Disclosure:focus {{ color: {INK}; text-decoration: underline; }}
     QLabel#Section {{
         color: {INK_DIM};
         font-family: "{body}";

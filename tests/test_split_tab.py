@@ -1794,3 +1794,43 @@ def test_a_source_with_no_plan_opens_on_one_row(qtbot: Any, tmp_path: Path) -> N
     qtbot.waitUntil(lambda: tab._source_size == (2400, 1000), timeout=3000)
 
     assert tab.rows() == 1
+
+
+def test_the_folded_frame_one_section_says_what_it_is_set_to(qtbot: Any, tmp_path: Path) -> None:
+    """Folding a section away is only acceptable if you can still read its
+    state. Otherwise it is not out of the way, it is buried."""
+    tab = loaded_tab(qtbot, tmp_path)
+    section = tab.border_controls.frame1_section
+    assert section is not None
+    assert not section.is_open()
+    assert "whole panorama" in section.header.text().lower()
+
+    tab.rows_combo.setCurrentIndex(2)
+
+    assert "Three rows" in section.header.text()
+
+
+def test_the_summary_names_frame_ones_own_border(qtbot: Any, tmp_path: Path) -> None:
+    tab = loaded_tab(qtbot, tmp_path)
+    section = tab.border_controls.frame1_section
+    assert section is not None
+
+    tab.border_controls.set_style(pipeline.FrameStyle(padded_border_percent=2.0))
+    tab._state_frame1()
+
+    assert "2% border" in section.header.text()
+
+
+def test_opening_the_section_replaces_the_summary_with_the_controls(
+    qtbot: Any, tmp_path: Path
+) -> None:
+    """The summary is a stand-in for the controls, so showing both would be
+    saying the same thing twice."""
+    tab = loaded_tab(qtbot, tmp_path)
+    section = tab.border_controls.frame1_section
+    assert section is not None
+
+    section.set_open(True)
+
+    assert section.body.isVisibleTo(section)
+    assert "whole panorama" not in section.header.text().lower()
