@@ -1357,6 +1357,49 @@ def test_saving_an_unusable_name_is_ignored(qtbot: QtBot, isolated_settings: Pat
     assert settings.load_presets(settings.SPLIT) == {}
 
 
+def test_the_undo_line_is_empty_until_something_has_happened(tab: SplitTab) -> None:
+    assert tab.undo_line.text() == ""
+
+
+def test_the_undo_line_names_the_last_action(qtbot: Any, tab: SplitTab, tmp_path: Path) -> None:
+    """The shortcut is printed because the application has no menu bar, so
+    there is nowhere else it could be advertised."""
+    _loaded(qtbot, tab, tmp_path)
+    tab._move_position(0, 0.42)
+    tab._on_frame_settled(0)
+    tab.reset_frames()
+
+    assert tab.undo_line.text().startswith("Undo Even")
+    assert split_tab.UNDO_KEYS in tab.undo_line.text()
+
+
+def test_the_undo_line_offers_the_redo_once_there_is_nothing_left_to_undo(
+    qtbot: Any, tab: SplitTab, tmp_path: Path
+) -> None:
+    _loaded(qtbot, tab, tmp_path)
+    tab._move_position(0, 0.42)
+    tab._on_frame_settled(0)
+    tab.reset_frames()
+    tab.undo()
+
+    assert tab.undo_line.text().startswith("Redo Even")
+    assert split_tab.REDO_KEYS in tab.undo_line.text()
+
+
+def test_the_undo_line_empties_when_the_history_does(
+    qtbot: Any, tab: SplitTab, tmp_path: Path
+) -> None:
+    _loaded(qtbot, tab, tmp_path, "first.jpg")
+    tab._move_position(0, 0.42)
+    tab._on_frame_settled(0)
+    tab.reset_frames()
+    assert tab.undo_line.text() != ""
+
+    _loaded(qtbot, tab, tmp_path, "second.jpg")
+
+    assert tab.undo_line.text() == ""
+
+
 def test_a_restored_style_that_is_a_preset_is_named(qtbot: QtBot, isolated_settings: Path) -> None:
     style = pipeline.FrameStyle(border_percent=20.0)
     settings.save_preset(settings.SPLIT, "Wide", style)

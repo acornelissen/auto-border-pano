@@ -25,7 +25,7 @@ from pathlib import Path
 
 from PIL import Image
 from PySide6.QtCore import QTimer, Signal
-from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent
+from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent, QKeySequence
 from PySide6.QtWidgets import (
     QButtonGroup,
     QFileDialog,
@@ -110,6 +110,34 @@ ROW_WORDS = {2: "Two rows", 3: "Three rows", 4: "Four rows"}
 UNCOUNTED_ACTION = "Cut frames"
 """The button's label while the count is unknown. Once it is known the
 button counts what it will produce."""
+
+
+def _key_name(key: QKeySequence.StandardKey) -> str:
+    """What this platform calls a standard shortcut.
+
+    Asked of Qt rather than written down, so macOS reads `⌘Z` and every
+    other platform reads its own convention without this file knowing which
+    platform it is on.
+    """
+    return QKeySequence(key).toString(QKeySequence.SequenceFormat.NativeText)
+
+
+# These are populated on first use to defer Qt initialization
+UNDO_KEYS = ""
+REDO_KEYS = ""
+
+
+def _ensure_key_constants() -> None:
+    """Compute platform-specific key sequences on first use.
+
+    This defers Qt initialization until the keys are actually needed,
+    allowing the module to be imported before a QApplication exists.
+    """
+    global UNDO_KEYS, REDO_KEYS
+    if not UNDO_KEYS:
+        UNDO_KEYS = _key_name(QKeySequence.StandardKey.Undo)
+    if not REDO_KEYS:
+        REDO_KEYS = _key_name(QKeySequence.StandardKey.Redo)
 
 
 def preview_titles(count: int) -> list[str]:
@@ -286,6 +314,14 @@ class SplitTab(QWidget):
         counter_row.addWidget(self.even_btn)
         counter_row.addStretch(1)
         rail.addWidget(counter)
+
+        rail.addSpacing(theme.S)
+        # Under the controls whose presses it takes back, and carrying the
+        # shortcut: the application has no menu bar, so this is the only
+        # place an undo could be advertised, and one nobody knows about is
+        # close to no undo at all.
+        self.undo_line = shell.help_label()
+        rail.addWidget(self.undo_line)
 
         # The rows list is built here but lives in the FRAME 1 section, which
         # `BorderControls` owns -- see below. Frame 1's layout and frame 1's
@@ -771,7 +807,19 @@ class SplitTab(QWidget):
         self._state_undo()
 
     def _state_undo(self) -> None:
-        """Say what would come back. Given its body in the next task."""
+        """Say what would come back, and which keys would bring it.
+
+        Redo is offered only once undo has nothing left, rather than beside
+        it: two directions on one line reads as a choice to make, and the
+        one people want is almost always the way back.
+        """
+        _ensure_key_constants()
+        if self._history.can_redo:
+            self.undo_line.setText(f"Redo {self._history.redo_label}   {REDO_KEYS}")
+        elif self._history.can_undo:
+            self.undo_line.setText(f"Undo {self._history.undo_label}   {UNDO_KEYS}")
+        else:
+            self.undo_line.setText("")
 
     def _apply_snapshot(self, snapshot: history.Snapshot) -> None:
         """Put a plan back on screen, and into the store.
