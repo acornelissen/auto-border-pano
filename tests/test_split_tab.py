@@ -1371,8 +1371,8 @@ def test_the_undo_line_names_the_last_action(qtbot: Any, tab: SplitTab, tmp_path
     tab.reset_frames()
 
     assert tab.undo_line.text().startswith("Undo Even")
-    assert split_tab.UNDO_KEYS != ""
-    assert split_tab.UNDO_KEYS in tab.undo_line.text()
+    assert split_tab.undo_keys() != ""
+    assert split_tab.undo_keys() in tab.undo_line.text()
 
 
 def test_the_undo_line_offers_the_redo_once_there_is_nothing_left_to_undo(
@@ -1386,8 +1386,8 @@ def test_the_undo_line_offers_the_redo_once_there_is_nothing_left_to_undo(
     tab.undo()
 
     assert tab.undo_line.text().startswith("Redo move")
-    assert split_tab.REDO_KEYS in tab.undo_line.text()
-    assert split_tab.REDO_KEYS != ""
+    assert split_tab.redo_keys() in tab.undo_line.text()
+    assert split_tab.redo_keys() != ""
 
 
 def test_the_undo_line_prioritises_undo_when_both_undo_and_redo_are_available(
@@ -1405,8 +1405,8 @@ def test_the_undo_line_prioritises_undo_when_both_undo_and_redo_are_available(
     # After undo, we're at "Even" and can undo further or redo "add frame".
     # Both are available, so we show undo (the way back).
     assert tab.undo_line.text().startswith("Undo Even")
-    assert split_tab.UNDO_KEYS != ""
-    assert split_tab.UNDO_KEYS in tab.undo_line.text()
+    assert split_tab.undo_keys() != ""
+    assert split_tab.undo_keys() in tab.undo_line.text()
 
 
 def test_the_undo_line_empties_when_the_history_does(

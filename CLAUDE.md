@@ -428,12 +428,22 @@ floats, so the bound is against a list growing without limit over a long
 session rather than against the memory.
 
 `QShortcut` is built from `QKeySequence.StandardKey.Undo` and `.Redo`
-rather than hardcoded keys, and `UNDO_KEYS`/`REDO_KEYS` ask Qt what this
+rather than hardcoded keys, and `undo_keys()`/`redo_keys()` ask Qt what this
 platform calls them, so macOS reads ⌘Z and every other platform reads its
 own convention without this file knowing which one it is on. These are the
 first shortcuts in the application, so the scope is a decision:
 `WidgetWithChildrenShortcut` on the Split tab, so ⌘Z on Compose does
 nothing rather than quietly changing a tab you cannot see.
+
+`undo_keys()` and `redo_keys()` are `functools.cache`d rather than module
+constants computed at import time, because constructing a `QKeySequence`
+before a `QApplication` exists is a hard segfault (exit 139): evaluating
+either at import time would crash any import of `split_tab`, including a
+test that never touches a widget. A cache gives the same once-only cost
+without a `global` statement or a "constant" that reads `""` until
+something happens to have called it -- which is what the two functions
+replaced, and which needed `assert split_tab.UNDO_KEYS != ""` in tests to
+stop `"" in text` passing vacuously.
 
 `split_tab.undo_line` sits under the count controls and reads
 `Undo Even   ⌘Z`, falling back to `Redo <label>` once undo has nothing

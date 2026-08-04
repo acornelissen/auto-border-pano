@@ -19,6 +19,7 @@ re-read from a combobox that may have moved on.
 """
 
 import dataclasses
+import functools
 import math
 from collections.abc import Sequence
 from pathlib import Path
@@ -122,22 +123,25 @@ def _key_name(key: QKeySequence.StandardKey) -> str:
     return QKeySequence(key).toString(QKeySequence.SequenceFormat.NativeText)
 
 
-# These are populated on first use to defer Qt initialization
-UNDO_KEYS = ""
-REDO_KEYS = ""
+@functools.cache
+def undo_keys() -> str:
+    """What this platform calls Undo, computed once on first call.
 
-
-def _ensure_key_constants() -> None:
-    """Compute platform-specific key sequences on first use.
-
-    This defers Qt initialization until the keys are actually needed,
-    allowing the module to be imported before a QApplication exists.
+    Not a module-level constant: constructing a `QKeySequence` before a
+    `QApplication` exists is a hard segfault (exit 139), so evaluating this
+    at import time would crash any import of `split_tab`, including from a
+    test that never touches a widget. `functools.cache` gets the same
+    once-only cost as the hand-rolled global it replaces, without a
+    `global` statement or a "constant" that reads `""` until something
+    happens to have called it.
     """
-    global UNDO_KEYS, REDO_KEYS
-    if not UNDO_KEYS:
-        UNDO_KEYS = _key_name(QKeySequence.StandardKey.Undo)
-    if not REDO_KEYS:
-        REDO_KEYS = _key_name(QKeySequence.StandardKey.Redo)
+    return _key_name(QKeySequence.StandardKey.Undo)
+
+
+@functools.cache
+def redo_keys() -> str:
+    """What this platform calls Redo. See `undo_keys` for why this waits."""
+    return _key_name(QKeySequence.StandardKey.Redo)
 
 
 def preview_titles(count: int) -> list[str]:
@@ -830,11 +834,10 @@ class SplitTab(QWidget):
         it: two directions on one line reads as a choice to make, and the
         one people want is almost always the way back.
         """
-        _ensure_key_constants()
         if self._history.can_undo:
-            self.undo_line.setText(f"Undo {self._history.undo_label}   {UNDO_KEYS}")
+            self.undo_line.setText(f"Undo {self._history.undo_label}   {undo_keys()}")
         elif self._history.can_redo:
-            self.undo_line.setText(f"Redo {self._history.redo_label}   {REDO_KEYS}")
+            self.undo_line.setText(f"Redo {self._history.redo_label}   {redo_keys()}")
         else:
             self.undo_line.setText("")
 
