@@ -387,6 +387,70 @@ A source narrower than one output tile (a 1.5:1 image at `1.91:1`) has no
 travel at all: every position clamps to zero and the crop is the whole width.
 Degenerate, but it must not raise.
 
+### Walking a placement back
+
+Placing the detail frames is the craft work here, and `Even` discards every
+hand-placed position in one press. `gui/history.py` is the way back: a list
+of plans with a cursor, no Qt and no I/O, so it is tested in memory the way
+`geometry` is.
+
+A snapshot is the plan and nothing else — the positions and the row count.
+Not the selection, which is which frame you are looking at rather than work
+you have done, and which `_set_positions` already drops when a plan cannot
+hold it. Not the border, the gap or the colours: those have presets and are
+remembered between launches, and a key that sometimes moves frames and
+sometimes changes a colour is harder to predict than one that always does
+the same kind of thing.
+
+`SplitTab._remember()` writes the plan to the store and `_record(label)`
+notes it as a step, and the seven settles call both. **Undo and redo call
+`_remember()` but never `_record()`** — that is what stops them recording
+themselves, and it is the one invariant a test holds. Applying a snapshot
+moves the rows combo under `_filling_rows`, so the move cannot be mistaken
+for a choice and cannot record a step of its own either.
+
+`record` ignores a snapshot equal to the one on screen. A settle fires
+whether or not anything moved — an arrow key held against the clamp, a drag
+that went nowhere — and recording those would give undo presses that
+visibly do nothing.
+
+The history clears on every change of source, including to none and to
+folder mode: undoing into a plan made for a different photograph would
+restore crops that mean nothing. It survives a ratio change, because a
+position is a fraction of the panorama's width and means the same thing at
+every ratio — which is also why the stored plan is not keyed on the ratio.
+
+Undo writes to the store like any other change, so quitting after one and
+reopening gives back what was on screen rather than the version you undid.
+
+`MAX_STEPS` is 50, dropping from the front. A snapshot is a handful of
+floats, so the bound is against a list growing without limit over a long
+session rather than against the memory.
+
+`QShortcut` is built from `QKeySequence.StandardKey.Undo` and `.Redo`
+rather than hardcoded keys, and `UNDO_KEYS`/`REDO_KEYS` ask Qt what this
+platform calls them, so macOS reads ⌘Z and every other platform reads its
+own convention without this file knowing which one it is on. These are the
+first shortcuts in the application, so the scope is a decision:
+`WidgetWithChildrenShortcut` on the Split tab, so ⌘Z on Compose does
+nothing rather than quietly changing a tab you cannot see.
+
+`split_tab.undo_line` sits under the count controls and reads
+`Undo Even   ⌘Z`, falling back to `Redo <label>` once undo has nothing
+left and empty when there is neither. It carries the key because the
+application has no menu bar, so there is nowhere else a shortcut could be
+advertised — and an undo nobody knows about is close to no undo. The label
+is the risk rather than the depth: a line that says `Undo Even` and then
+restores something else is worse than no line, so each of the seven sites
+names its own action and the tests assert the label beside the state.
+
+It is `undo_line`, not `undo_label`, because `History.undo_label` is a
+string and having the two spellings mean different things one attribute
+apart is a trap.
+
+Compose gets none of this: its arrangement is already reversible by
+choosing another, and its source list has explicit add and remove.
+
 ### The two colours on a composite
 
 A composite has a border colour and a gutter colour, and they cover different things. The gutter colour fills **only** the strips between adjacent panels — the rectangles `layout` reports in `Layout.gutters`. Everything else is the border colour: the outer margin, and the slack left over from centring the assembled block inside it. Set both to the same value and the composite looks exactly as it did before the two were separable, which is why the default for both is white.
@@ -410,6 +474,7 @@ A composite has a border colour and a gutter colour, and they cover different th
 - Frame 1 can be laid out as two, three or four stacked rows (`--frame1-rows`, or the list in FORMAT). Off by default, so nothing anyone has made changes.
 - The Split tab remembers where a source's detail frames were placed and puts them back when it is reopened. The CLI has no position flags and gains none: a position is chosen by looking at a photograph.
 - The default border at `1.91:1` changed from 100px to 51px. That is the point of measuring in percent: the old fixed 100px took a third of a 566px-tall frame, while the same constant was a thin edge at `4:5`. Output at `4:5` and `1:1` moved too, from 100px to 97px.
+- The Split tab's frame placement can be undone and redone (⌘Z and ⇧⌘Z, or the platform equivalent). Fifty steps, cleared when the source changes, and the undone plan is written to the store like any other change. Nothing on the CLI changes: a position is chosen by looking at a photograph, so there was never a flag to undo.
 
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:6cd5cc61 -->

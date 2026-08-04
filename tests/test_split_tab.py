@@ -11,7 +11,8 @@ from typing import Any
 
 import pytest
 from PIL import Image
-from PySide6.QtGui import QAccessible
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QAccessible, QKeySequence
 from PySide6.QtWidgets import QDialog, QLabel, QMessageBox, QRadioButton, QWidget
 from pytestqt.qtbot import QtBot
 
@@ -2099,3 +2100,36 @@ def test_undoing_with_nothing_to_undo_does_nothing(tab: SplitTab) -> None:
     tab.redo()
 
     assert tab.positions() == ()
+
+
+def test_the_undo_shortcut_is_the_platform_standard(tab: SplitTab) -> None:
+    assert tab._undo_shortcut.key() == QKeySequence(QKeySequence.StandardKey.Undo)
+    assert tab._redo_shortcut.key() == QKeySequence(QKeySequence.StandardKey.Redo)
+
+
+def test_the_shortcuts_belong_to_the_split_tab_alone(tab: SplitTab) -> None:
+    """These are the first shortcuts in the application, so the scope is a
+    decision: the same keys on the Compose tab must do nothing rather than
+    quietly change a tab you cannot see."""
+    for shortcut in (tab._undo_shortcut, tab._redo_shortcut):
+        assert shortcut.context() == Qt.ShortcutContext.WidgetWithChildrenShortcut
+        # QShortcut has no parentWidget() in this PySide6 version; parent()
+        # is the same fact (the widget it was constructed against).
+        assert shortcut.parent() is tab
+
+
+def test_the_undo_key_reaches_the_frames(qtbot: Any, tab: SplitTab, tmp_path: Path) -> None:
+    """The shortcut, not the method: a scope that silently never fires would
+    pass every other test in this file."""
+    tab.show()
+    qtbot.waitExposed(tab)
+    _loaded(qtbot, tab, tmp_path)
+    tab._move_position(0, 0.42)
+    tab._on_frame_settled(0)
+    placed = tab.positions()
+    tab.reset_frames()
+
+    tab.setFocus()
+    qtbot.keyClick(tab, Qt.Key.Key_Z, Qt.KeyboardModifier.ControlModifier)
+
+    qtbot.waitUntil(lambda: tab.positions() == placed)

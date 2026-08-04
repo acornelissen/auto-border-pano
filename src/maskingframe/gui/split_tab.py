@@ -24,8 +24,8 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from PIL import Image
-from PySide6.QtCore import QTimer, Signal
-from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent, QKeySequence
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QButtonGroup,
     QFileDialog,
@@ -441,6 +441,17 @@ class SplitTab(QWidget):
         self.strip.selection_changed.connect(self._on_strip_selection)
         # Source, then results, matching how they sit on the table.
         self.setTabOrder(self.ribbon, self.strip)
+
+        # The first shortcuts in the application, so the scope is a decision
+        # rather than a default: bound to this tab and its children, so the
+        # same keys on Compose do nothing at all rather than quietly undoing
+        # something on a tab you cannot see.
+        self._undo_shortcut = QShortcut(QKeySequence.StandardKey.Undo, self)
+        self._undo_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self._undo_shortcut.activated.connect(self.undo)
+        self._redo_shortcut = QShortcut(QKeySequence.StandardKey.Redo, self)
+        self._redo_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self._redo_shortcut.activated.connect(self.redo)
 
     # --- What the band should say ------------------------------------------
 
