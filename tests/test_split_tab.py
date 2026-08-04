@@ -2135,6 +2135,62 @@ def test_the_undo_key_reaches_the_frames(qtbot: Any, tab: SplitTab, tmp_path: Pa
     qtbot.waitUntil(lambda: tab.positions() == placed)
 
 
+def test_undo_announces_the_action_for_a_screen_reader(
+    qtbot: Any, tab: SplitTab, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Setting a property raises no event on its own -- that is the whole
+    argument `_announce` already makes for the selection sentence, and it
+    applies just as much here. An undone `Even` moves every frame, so with
+    no frame selected the rail's line was the only place the change showed,
+    and a screen reader never visits a label unless something tells it to."""
+    _loaded(qtbot, tab, tmp_path)
+    tab._move_position(0, 0.42)
+    tab._on_frame_settled(0)
+    tab.reset_frames()
+    tab._set_selected(None)
+
+    spoken: list[str] = []
+    monkeypatch.setattr(
+        QAccessible,
+        "updateAccessibility",
+        lambda event: (
+            spoken.append(event.message())
+            if event.type() == QAccessible.Event.Announcement
+            else None
+        ),
+    )
+
+    tab.undo()
+
+    assert spoken == ["Undo Even"]
+
+
+def test_redo_announces_the_action_for_a_screen_reader(
+    qtbot: Any, tab: SplitTab, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _loaded(qtbot, tab, tmp_path)
+    tab._move_position(0, 0.42)
+    tab._on_frame_settled(0)
+    tab.reset_frames()
+    tab.undo()
+    tab._set_selected(None)
+
+    spoken: list[str] = []
+    monkeypatch.setattr(
+        QAccessible,
+        "updateAccessibility",
+        lambda event: (
+            spoken.append(event.message())
+            if event.type() == QAccessible.Event.Announcement
+            else None
+        ),
+    )
+
+    tab.redo()
+
+    assert spoken == ["Redo Even"]
+
+
 def test_undo_stops_a_pending_nudge_settle(qtbot: Any, tab: SplitTab, tmp_path: Path) -> None:
     """`process_images` and `_render(updating=False)` both stop this timer
     for the same reason: a settle landing after the plan underneath it has

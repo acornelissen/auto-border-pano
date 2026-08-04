@@ -832,7 +832,7 @@ class SplitTab(QWidget):
         else:
             self.undo_line.setText("")
 
-    def _apply_snapshot(self, snapshot: history.Snapshot) -> None:
+    def _apply_snapshot(self, snapshot: history.Snapshot, announcement: str) -> None:
         """Put a plan back on screen, and into the store.
 
         Rows first, because `_fill_rows_combo` reads `self._rows` and moves
@@ -856,18 +856,32 @@ class SplitTab(QWidget):
         self._remember()
         self._state_undo()
         self._rerender()
+        # `_set_positions`, above, already announced the selection -- and an
+        # undone `Even` moves every frame while an undone `rows` moves none
+        # but changes frame 1's layout, so no one frame's position describes
+        # either. The action's name is the only sentence that fits both, and
+        # it overrides whatever `_set_positions` just said. `_announce` is
+        # the same machinery the selection uses, not a second one: setting
+        # `undo_line`'s text raises no event on its own, exactly as setting
+        # the selection's accessible description does not, and that gap is
+        # what left this silent to a screen reader.
+        self._announce(announcement)
 
     def undo(self) -> None:
         """Step back one plan. Does nothing when there is nowhere to go."""
         snapshot = self._history.undo()
         if snapshot is not None:
-            self._apply_snapshot(snapshot)
+            # `redo_label` now names what was just undone: the cursor has
+            # already stepped back, so the state ahead of it -- the one a
+            # redo would restore -- is the one that just left the screen.
+            self._apply_snapshot(snapshot, f"Undo {self._history.redo_label}")
 
     def redo(self) -> None:
         """Step forward one plan. Does nothing when there is nowhere to go."""
         snapshot = self._history.redo()
         if snapshot is not None:
-            self._apply_snapshot(snapshot)
+            # Symmetrically, `undo_label` now names what was just redone.
+            self._apply_snapshot(snapshot, f"Redo {self._history.undo_label}")
 
     def _forget_restored(self) -> None:
         """The frames have moved, so they are no longer as they arrived."""
