@@ -1948,6 +1948,41 @@ def test_each_action_names_itself(qtbot: Any, tab: SplitTab, tmp_path: Path) -> 
     assert tab._history.undo_label == "rows"
 
 
+def test_the_keyboard_settle_is_undoable(qtbot: Any, tab: SplitTab, tmp_path: Path) -> None:
+    """`_on_nudge_settled` is one of the seven record sites and had no
+    tab-level coverage of its own: `test_each_action_names_itself` only
+    calls `_on_frame_settled` directly, so a missing `_record` here would
+    pass the whole suite. `NUDGE_SETTLE_MS` is a real timer, so this waits
+    for it rather than asserting immediately."""
+    _loaded(qtbot, tab, tmp_path)
+    before = tab.positions()
+
+    tab._nudge(0, 1)
+    qtbot.waitUntil(lambda: not tab._nudge_timer.isActive())
+
+    assert tab.positions() != before
+    assert tab._history.undo_label == "move"
+
+    tab.undo()
+    assert tab.positions() == before
+
+
+def test_the_strip_drag_settle_is_undoable(qtbot: Any, tab: SplitTab, tmp_path: Path) -> None:
+    """`_on_frame_drag_settled` is the other record site with no tab-level
+    coverage of its own."""
+    _loaded(qtbot, tab, tmp_path)
+    before = tab.positions()
+
+    tab._on_frame_dragged(1, 0.3)
+    tab._on_frame_drag_settled(1)
+
+    assert tab.positions() != before
+    assert tab._history.undo_label == "move"
+
+    tab.undo()
+    assert tab.positions() == before
+
+
 def test_undoing_a_row_change_moves_the_combo_back(
     qtbot: Any, tab: SplitTab, tmp_path: Path
 ) -> None:
