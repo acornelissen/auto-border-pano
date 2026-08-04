@@ -2111,6 +2111,40 @@ def test_a_ratio_change_keeps_the_history(qtbot: Any, tab: SplitTab, tmp_path: P
     assert tab._history.can_undo
 
 
+def test_undoing_after_a_ratio_change_renormalises_at_the_new_ratio(
+    qtbot: Any, tab: SplitTab, tmp_path: Path
+) -> None:
+    """The untested half of the guarantee above: the history is not just
+    kept, it is *replayed* through `_set_positions`, which renormalises
+    against whichever ratio is on screen when undo lands -- not the one the
+    snapshot was recorded under.
+
+    The expected values come from `pipeline.normalise_positions` itself,
+    not a float copied from a failing run: a ratio change re-reads the
+    header off the GUI thread, so the wait below is for that renormalised
+    plan to actually land before undo is pressed.
+    """
+    _loaded(qtbot, tab, tmp_path)
+    baseline = tab.positions()
+    size = tab._source_size
+    assert size is not None
+    width, height = size
+
+    tab._move_position(0, 0.42)
+    tab._on_frame_settled(0)
+    moved = tab.positions()
+
+    new_ratio = pipeline.RATIOS["1:1"]
+    tab.ratio_box.setCurrentText(new_ratio.display)
+    settled = pipeline.normalise_positions(moved, width, height, new_ratio)
+    qtbot.waitUntil(lambda: tab.positions() == settled)
+
+    tab.undo()
+
+    expected = pipeline.normalise_positions(baseline, width, height, new_ratio)
+    assert tab.positions() == expected
+
+
 def test_undo_writes_the_restored_plan_to_the_store(
     qtbot: Any, tab: SplitTab, tmp_path: Path
 ) -> None:
