@@ -2133,3 +2133,20 @@ def test_the_undo_key_reaches_the_frames(qtbot: Any, tab: SplitTab, tmp_path: Pa
     qtbot.keyClick(tab, Qt.Key.Key_Z, Qt.KeyboardModifier.ControlModifier)
 
     qtbot.waitUntil(lambda: tab.positions() == placed)
+
+
+def test_undo_stops_a_pending_nudge_settle(qtbot: Any, tab: SplitTab, tmp_path: Path) -> None:
+    """`process_images` and `_render(updating=False)` both stop this timer
+    for the same reason: a settle landing after the plan underneath it has
+    changed would re-render a plan nobody asked for any more."""
+    _loaded(qtbot, tab, tmp_path)
+    tab._move_position(0, 0.42)
+    tab._on_frame_settled(0)
+    tab.reset_frames()
+
+    tab._nudge(0, 1)
+    assert tab._nudge_timer.isActive()
+
+    tab.undo()
+
+    assert not tab._nudge_timer.isActive()

@@ -838,7 +838,13 @@ class SplitTab(QWidget):
         Rows first, because `_fill_rows_combo` reads `self._rows` and moves
         the combobox to match -- under `_filling_rows`, so the move is not
         mistaken for a choice and cannot record a step of its own.
+
+        A pending nudge settle is stopped for the same reason
+        `process_images` and `_render(updating=False)` both stop it: without
+        this, releasing a held key just before an undo lets the settle fire
+        after the restore and re-render the plan undo just replaced.
         """
+        self._nudge_timer.stop()
         if snapshot.rows != self._rows:
             self._rows = snapshot.rows
             self._fill_rows_combo()
