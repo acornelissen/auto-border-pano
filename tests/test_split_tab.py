@@ -2191,6 +2191,17 @@ def test_redo_announces_the_action_for_a_screen_reader(
     assert spoken == ["Redo Even"]
 
 
+def test_a_rows_change_with_no_source_records_nothing(qtbot: Any, tab: SplitTab) -> None:
+    """`_remember` already guards on an empty plan -- with no source, or in
+    folder mode, `_positions` is empty. `_record` had no matching guard, so
+    two rows changes with nothing loaded left the rail offering an undo for
+    a photograph that was never open."""
+    tab.rows_combo.setCurrentIndex(1)
+    tab.rows_combo.setCurrentIndex(2)
+
+    assert not tab._history.can_undo
+
+
 def test_undo_stops_a_pending_nudge_settle(qtbot: Any, tab: SplitTab, tmp_path: Path) -> None:
     """`process_images` and `_render(updating=False)` both stop this timer
     for the same reason: a settle landing after the plan underneath it has

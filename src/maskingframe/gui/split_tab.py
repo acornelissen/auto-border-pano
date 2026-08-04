@@ -809,11 +809,17 @@ class SplitTab(QWidget):
     def _record(self, label: str) -> None:
         """Note a change worth walking back from.
 
+        Guarded on an empty plan exactly like `_remember`: with no source,
+        or in folder mode, `_positions` is empty, and recording that would
+        offer an undo for a photograph that was never open.
+
         Separate from `_remember`, which writes to the store, because the
         two answer different questions -- and because undo and redo call
         `_remember` and must never call this. That is what stops them
         recording themselves.
         """
+        if not self._positions:
+            return
         self._history.record(label, self._snapshot())
         self._state_undo()
 
