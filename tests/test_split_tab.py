@@ -1790,7 +1790,8 @@ def test_no_wording_of_the_undo_line_fits_badly_in_the_rail(
     The keys come from `redo_keys()`, so this measures whatever the platform
     the suite runs on calls them -- and the headless platform does not agree
     with the desktop one. `QT_QPA_PLATFORM=offscreen` reports Redo as `⌘Y`
-    where cocoa reports `⇧⌘Z`, about 12px wider. The margin here is over
+    where cocoa reports `⇧⌘Z`, 11px wider at the widest wording (201px
+    against 212). The margin here is over
     70px either way, so the difference cannot flip the result; a tighter
     budget would have to be measured under the real platform.
     """

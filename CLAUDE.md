@@ -569,7 +569,7 @@ argument redo was half-advertised. Naming both actions does not fit:
 `Undo remove frame   ⌘Z    Redo remove frame   ⇧⌘Z` measures 315px against
 the rail's 284px. The label is the expensive part to read and the key is
 not, so redo contributes only its key, and the widest reachable wording
-comes to 201px. `undo_wording()` and `redo_wording()` own the strings so a
+comes to 212px on macOS. `undo_wording()` and `redo_wording()` own the strings so a
 test can measure every one of them; the labels it measures are read out of
 the `_record` call sites rather than listed, so a seventh settle with a
 longer label cannot slip past.
