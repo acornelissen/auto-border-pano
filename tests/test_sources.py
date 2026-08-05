@@ -16,7 +16,7 @@ from collections.abc import Iterator
 
 import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QFontMetrics, QPixmap
 from pytestqt.qtbot import QtBot
 
 from maskingframe.gui import sources, theme
@@ -107,6 +107,24 @@ def test_the_height_follows_the_rows_rather_than_a_fixed_four(
 
     assert built.height() > two
     assert built.height() == 3 * sources.ROW_HEIGHT + 2 * sources.BORDER
+
+
+def test_the_empty_caption_fits_on_one_line_in_the_rail(qtbot: QtBot) -> None:
+    """`EMPTY_HEIGHT` used to reserve two lines on the assumption the caption
+    would wrap onto a second. `rail_layout` insets its content by `theme.L`
+    on each side (`shell.py`), so the caption actually renders in a column
+    `theme.RAIL_WIDTH - 2 * theme.L` pixels wide; measured there with real
+    font metrics it fits on one line, so the reserved second line was 55px
+    of nothing under it (maskingframe-2rg.7)."""
+    rail_content_width = theme.RAIL_WIDTH - 2 * theme.L
+    text_width = rail_content_width - 2 * sources.PAD_X
+    metrics = QFontMetrics(theme.data_font(11))
+    flags = int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop | Qt.TextFlag.TextWordWrap)
+    wrapped = metrics.boundingRect(0, 0, text_width, 10_000, flags, sources.EMPTY_CAPTION)
+
+    lines = round(wrapped.height() / metrics.height())
+    assert lines == 1
+    assert lines * metrics.height() + 2 * sources.PAD_Y == sources.EMPTY_HEIGHT
 
 
 def test_there_is_never_a_scrollbar(built: sources.SourcesList) -> None:

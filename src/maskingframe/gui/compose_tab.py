@@ -48,10 +48,21 @@ AUTOMATIC = "Automatic"
 a list whose first row is empty reads as a missing value rather than as a
 decision the application has already made for you."""
 
-EMPTY_STATE = "Add two to six sources."
 ONE_MORE = "Add one more source."
+"""The status line at one source. At zero, the status line says nothing --
+`sources.EMPTY_CAPTION` already says `Add two to six sources.` inside the
+empty list, and repeating it here put the same sentence on screen twice
+with nothing loaded (maskingframe-2rg.7)."""
+
 NO_PREFIX = "Choose where the composite should go."
-ORDER_HINT = "Left to right, in this order."
+
+ORDER_HINT = "Panels are placed in this order."
+"""Used to say `Left to right, in this order.`, which is only true for a row
+-- the solver can just as easily choose a column, and the status line three
+lines below can say `One above the other` for the same set of sources. This
+version holds for every arrangement the solver can return, because it names
+no axis (maskingframe-2rg.7)."""
+
 WORKING = "Composing"
 
 IMAGE_FILTER = "Image files (*.jpg *.jpeg *.JPG *.JPEG);;All files (*)"
@@ -390,7 +401,8 @@ class ComposeTab(QWidget):
         rail.addWidget(buttons)
 
         rail.addSpacing(theme.S)
-        rail.addWidget(shell.help_label(ORDER_HINT))
+        self.order_hint_label = shell.help_label(ORDER_HINT)
+        rail.addWidget(self.order_hint_label)
 
         rail.addSpacing(theme.L)
         rail.addWidget(shell.section("Format"))
@@ -464,9 +476,10 @@ class ComposeTab(QWidget):
         rail.addWidget(self.hint_label)
 
         # The resting sentence: what this makes, how it is arranged, at what
-        # ratio -- the same slot the Split tab gives its status line.
+        # ratio -- the same slot the Split tab gives its status line. Blank
+        # at construction: the empty sources list already says what to do.
         rail.addSpacing(theme.S)
-        self.status_label = shell.help_label(EMPTY_STATE)
+        self.status_label = shell.help_label("")
         rail.addWidget(self.status_label)
         rail.addStretch(1)
 
@@ -716,8 +729,10 @@ class ComposeTab(QWidget):
         noun = _composite_noun(count)
         if not noun:
             # One voice: the status line says what is missing, so the hint
-            # under it stays free for things the user has to act on.
-            self._set_status(ONE_MORE if count == 1 else EMPTY_STATE)
+            # under it stays free for things the user has to act on. At zero
+            # sources that voice is the empty list's own caption, so the
+            # status line says nothing rather than repeating it.
+            self._set_status(ONE_MORE if count == 1 else "")
             self._set_band(self._subject, "")
             return
         arrangement = present_layout(self._solved, count).lower()

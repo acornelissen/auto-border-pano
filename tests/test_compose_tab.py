@@ -24,7 +24,7 @@ from PySide6.QtWidgets import QLabel
 from pytestqt.qtbot import QtBot
 
 from maskingframe import layout, pipeline
-from maskingframe.gui import compose_tab, settings, shell
+from maskingframe.gui import compose_tab, settings, shell, sources
 from maskingframe.gui.compose_tab import ComposeTab
 
 # Every test here builds a real ComposeTab, and the tab reads and writes the
@@ -80,8 +80,14 @@ def test_save_and_preview_need_at_least_two_sources(tab: ComposeTab) -> None:
     assert tab.preview_btn.isEnabled()
 
 
-def test_the_reason_save_is_off_is_stated_in_the_status_line(tab: ComposeTab) -> None:
-    assert tab.status == compose_tab.EMPTY_STATE
+def test_the_status_line_does_not_repeat_the_empty_list_caption(tab: ComposeTab) -> None:
+    """The sources list already says `Add two to six sources.` when it is
+    empty (`sources.EMPTY_CAPTION`); the status line used to say the exact
+    same sentence a second time, both visible at once with nothing loaded
+    (maskingframe-2rg.7)."""
+    assert tab.listbox.accessibleDescription() == sources.EMPTY_CAPTION
+    assert tab.status == ""
+
     tab._accept([WIDE])
     assert tab.status == compose_tab.ONE_MORE
 
@@ -214,6 +220,23 @@ def test_the_arrangement_reaches_the_status_line(qtbot: QtBot) -> None:
 
     assert built.status.startswith("Diptych, ")
     assert built.status.endswith(pipeline.DEFAULT_RATIO.name)
+
+
+def test_the_order_hint_does_not_name_an_axis(qtbot: QtBot, tab: ComposeTab) -> None:
+    """`ORDER_HINT` used to say `Left to right, in this order.`, three lines
+    above a status line that can say `One above the other` for the same
+    pair of sources -- true only for a row, and the arrangement is chosen
+    automatically, so it was wrong roughly half the time. Two wide sources
+    solve to a column, which is the concrete case that made it false
+    (maskingframe-2rg.7)."""
+    tab._accept([WIDE, WIDE])
+    _settled(qtbot, tab)
+
+    assert "one above the other" in tab.status.lower()
+    assert tab.order_hint_label.text() == compose_tab.ORDER_HINT
+    assert "left" not in compose_tab.ORDER_HINT.lower()
+    assert "right" not in compose_tab.ORDER_HINT.lower()
+    assert compose_tab.ORDER_HINT == "Panels are placed in this order."
 
 
 def test_the_name_clears_below_two_sources(qtbot: QtBot) -> None:

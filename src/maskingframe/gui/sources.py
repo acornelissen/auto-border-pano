@@ -64,8 +64,17 @@ The widget's height is derived from this, not fixed at four rows -- the
 Listbox's dead fourth row is the specific thing being fixed.
 """
 
-EMPTY_HEIGHT = 2 * ROW_HEIGHT
-"""Enough for the empty caption to wrap onto two lines in the rail."""
+EMPTY_HEIGHT = NAME_ROW + 2 * PAD_Y
+"""One line of caption plus its padding, top and bottom.
+
+This used to reserve `2 * ROW_HEIGHT` on the assumption the caption would
+wrap onto a second line. Measured with real font metrics against the width
+the caption actually renders at inside the rail (`theme.RAIL_WIDTH` less
+`rail_layout`'s margins, less this widget's own `PAD_X`), `EMPTY_CAPTION`
+fits on one -- so the second line was 55px of empty box under it
+(maskingframe-2rg.7). `NAME_ROW` is reused rather than a new constant
+because it already is one line's height at this font and size.
+"""
 
 EMPTY_CAPTION = "Add two to six sources."
 
