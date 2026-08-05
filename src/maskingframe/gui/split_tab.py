@@ -189,9 +189,13 @@ NB = "\N{NO-BREAK SPACE}"
 The offer shares its row with the selection sentence, so a long one wraps
 rather than being cut off -- and left to break wherever it liked, Qt orphaned
 the redo key onto a line of its own. Binding a key to the words it belongs
-to, and the separator to the half that follows it, leaves exactly one place
-the line can break: before the separator, which puts undo on one line and
-redo on the next with nothing dangling off the end of either.
+to, and the separator to the half that *precedes* it, leaves exactly one
+place the line can break: between the separator and "Redo", which puts undo
+and the middot on one line and redo clean on the next.
+
+Binding the separator forward instead -- to the half that follows it -- was
+tried first and put the middot itself at the start of the wrapped line,
+which reads as a typo rather than a continuation.
 """
 
 
@@ -205,7 +209,7 @@ def undo_wording(label: str, *, redo: bool) -> str:
     the key is the part that was undiscoverable.
     """
     line = f"Undo {label}{NB * 3}{undo_keys()}"
-    return f"{line} ·{NB}Redo{NB * 2}{redo_keys()}" if redo else line
+    return f"{line}{NB}· Redo{NB * 2}{redo_keys()}" if redo else line
 
 
 def redo_wording(label: str) -> str:

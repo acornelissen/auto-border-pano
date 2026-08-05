@@ -1825,24 +1825,36 @@ def test_the_offer_can_only_break_between_its_two_halves(qtbot: QtBot) -> None:
     """It shares a row, so a long offer wraps -- and left to break wherever
     it liked, Qt put the redo key alone on the second line. Every space
     inside a half is a no-break space, so the one place it can wrap is
-    before the separator: undo on one line, redo on the next.
+    after the separator: undo and the middot on one line, redo on the next.
+
+    The separator binds to the text *before* it, not after: a line starting
+    with a middot reads as a typo, so the space that can break is the one
+    between the separator and "Redo", not the one before the separator.
 
     `qtbot` for the `QApplication` alone: the wordings ask Qt what this
     platform calls the keys, and a `QKeySequence` built before an
     application exists is a hard segfault.
     """
     for label in _recorded_labels():
-        head, separator, tail = split_tab.undo_wording(label, redo=True).partition(" ·")
-        assert separator, "nothing to break before"
-        # The redo half is one piece: the separator, the word and the key
-        # arrive together or not at all.
-        assert " " not in tail
-        # Each key stays with the words it belongs to. The action's own name
-        # may still break, which is a sentence wrapping rather than a key
-        # left stranded, and keeping it breakable is what keeps the row's
-        # minimum width small enough to share with the selection sentence.
+        combined = split_tab.undo_wording(label, redo=True)
+
+        # The separator is glued to the undo key with a no-break space, so
+        # it can never be the first thing on a wrapped line.
+        assert f"{split_tab.undo_keys()}{split_tab.NB}·" in combined, repr(combined)
+        assert " ·" not in combined, "the separator must not start a line"
+
+        _head, separator, tail = combined.partition("· ")
+        assert separator, "nothing to break after"
+        # The redo half is one piece: the word and the key arrive together
+        # or not at all.
+        assert tail == f"Redo{split_tab.NB * 2}{split_tab.redo_keys()}", repr(tail)
+
+        # Each key stays with the words it belongs to elsewhere too. The
+        # action's own name may still break, which is a sentence wrapping
+        # rather than a key left stranded, and keeping it breakable is what
+        # keeps the row's minimum width small enough to share with the
+        # selection sentence.
         for wording, key in (
-            (head, split_tab.undo_keys()),
             (split_tab.undo_wording(label, redo=False), split_tab.undo_keys()),
             (split_tab.redo_wording(label), split_tab.redo_keys()),
         ):

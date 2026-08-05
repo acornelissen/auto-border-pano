@@ -600,13 +600,18 @@ test can measure every one of them; the labels it measures are read out of
 the `_record` call sites rather than listed, so a seventh settle with a
 longer label cannot slip past.
 
-The spaces around each key, and between the separator and `Redo`, are
-`split_tab.NB` — no-break spaces. Sharing a row means a long offer wraps,
-and left to break wherever it liked Qt put the redo key alone on the second
-line. Bound, the line breaks before the separator: undo on one line, redo on
-the next, with nothing dangling off the end of either. The action's own name
-stays breakable, which is a sentence wrapping rather than a key stranded,
-and it is what keeps the row's minimum width small enough to share.
+The spaces around each key, and before the separator, are `split_tab.NB` —
+no-break spaces. Sharing a row means a long offer wraps, and left to break
+wherever it liked Qt put the redo key alone on the second line. Bound, the
+line breaks after the separator, not before it: undo and the middot stay on
+one line and redo starts clean on the next. The separator was bound forward
+at first — a no-break space after it, a plain one before — which fixed the
+stranded key but left the middot itself starting the wrapped line, reading
+as a typo. Binding it to the text it follows instead of the text it
+introduces is what a separator normally does anyway; this just makes the
+line-break rule agree with that. The action's own name stays breakable,
+which is a sentence wrapping rather than a key stranded, and it is what
+keeps the row's minimum width small enough to share.
 
 It shares one row with the selection
 sentence — see "How the rail is laid out" — taking the row's slack rather
