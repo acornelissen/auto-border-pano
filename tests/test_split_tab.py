@@ -1993,6 +1993,10 @@ def test_the_folded_frame_one_section_says_what_it_is_set_to(qtbot: Any, tmp_pat
 
 
 def test_the_summary_names_frame_ones_own_border(qtbot: Any, tmp_path: Path) -> None:
+    """Says *whether* frame 1 departs from the shared border, not by how
+    much: printing the number (maskingframe-2rg.11) made the widest
+    reachable heading wider than the rail, since a stored percent has no
+    fixed width and "own border" does."""
     tab = loaded_tab(qtbot, tmp_path)
     section = tab.border_controls.frame1_section
     assert section is not None
@@ -2000,7 +2004,8 @@ def test_the_summary_names_frame_ones_own_border(qtbot: Any, tmp_path: Path) -> 
     tab.border_controls.set_style(pipeline.FrameStyle(padded_border_percent=2.0))
     tab._state_frame1()
 
-    assert "2% border" in section.header.text()
+    assert "own border" in section.header.text()
+    assert "2%" not in section.header.text()
 
 
 def test_opening_the_section_replaces_the_summary_with_the_controls(

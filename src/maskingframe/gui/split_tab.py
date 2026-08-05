@@ -120,6 +120,17 @@ ROW_WORDS = {2: "Two rows", 3: "Three rows", 4: "Four rows"}
 """What each count is called. Only counts above one appear here; one row is
 `ROWS_OFF`, since one row is not really rows."""
 
+FRAME1_OFF_SUMMARY = "whole panorama"
+"""What the folded FRAME 1 heading calls the off state.
+
+Shorter than `ROWS_OFF`'s own sentence on purpose: a dropdown row can afford
+"the whole panorama", but the heading has a 284px budget to share with
+everything else in it, and "whole panorama · own border" is the widest
+heading this section can ever show
+(`test_no_frame1_summary_overflows_its_disclosure_header` pins that).
+Dropping "the" is the whole fix -- the words still say what frame 1 holds,
+just without the article a dropdown had room for."""
+
 UNCOUNTED_ACTION = "Cut frames"
 """The button's label while the count is unknown. Once it is known the
 button counts what it will produce."""
@@ -556,11 +567,17 @@ class SplitTab(QWidget):
         The whole justification for folding the section away: you can read
         its state without opening it, which is the difference between
         putting a rarely-touched setting out of the way and burying it.
+
+        The border clause says only *whether* frame 1 departs from the
+        shared border, not by how much -- the exact number is one click
+        away, and printing it (`f"{own:g}% border"`) made the widest
+        reachable heading wider than the rail: "own border" is fixed width,
+        where a stored percent is not.
         """
-        parts = [ROWS_OFF.split("—")[-1].strip() if self._rows == 1 else ROW_WORDS[self._rows]]
+        parts = [FRAME1_OFF_SUMMARY if self._rows == 1 else ROW_WORDS[self._rows]]
         own = self.border_controls.frame_style().padded_border_percent
         if own is not None:
-            parts.append(f"{own:g}% border")
+            parts.append("own border")
         return " · ".join(parts)
 
     def _state_frame1(self) -> None:

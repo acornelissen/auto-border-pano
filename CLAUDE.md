@@ -90,9 +90,24 @@ was. Help text is now only for what a label cannot say. Labels are short because
 the section heading carries the topic: BORDER's slider is `Width`.
 
 **`shell.Disclosure` folds a section away and states its value in the heading**
-(`+ FRAME 1   the whole panorama`). Folding is only acceptable because the
+(`+ FRAME 1   whole panorama`). Folding is only acceptable because the
 summary is there — otherwise the setting is buried rather than out of the way.
 Instant, never animated, like everything else here.
+
+A summary that elides defeats the fold as completely as one that was never
+written, so it has to fit the header's own width for every value it can take,
+not just the one open on screen. FRAME 1's summary (`split_tab._frame1_summary`)
+learned this twice over (maskingframe-2rg.11): the row clause says "whole
+panorama" rather than the rows list's own "the whole panorama", because a
+dropdown row can afford the article and a 284px heading cannot; and the border
+clause says "own border" rather than the stored percent, because `f"{own:g}%"`
+has no fixed width and a slider parked on 3.3% or 12.5% is longer than one
+parked on 9%. Both clauses now say *whether* something is set, never *what
+to*, which is also the more honest claim for a summary a click will expand
+into the real controls. `test_no_frame1_summary_overflows_its_disclosure_header`
+drives every reachable row count and border state through real font metrics
+rather than trusting that the state someone thought to render is the widest
+one.
 
 Everything frame 1 alone decides lives in one folded section: the row layout,
 the gap between rows, and its own border. Those were scattered across FORMAT and
