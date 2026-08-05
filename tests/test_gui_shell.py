@@ -474,6 +474,72 @@ def test_a_rail_reserves_the_height_the_border_section_needs(qtbot: QtBot) -> No
     assert rail.rail_layout.minimumSize().height() >= needed
 
 
+def test_the_preset_combo_carries_a_placeholder(qtbot: QtBot) -> None:
+    """maskingframe-2rg.10: with no preset chosen the box shows blank, and an
+    editable combo with no placeholder is visually indistinguishable from a
+    `QLineEdit` nobody has filled in -- it is the only editable combo in the
+    app, so nothing else teaches a user it is a picker."""
+    row = shell.PresetRow()
+    qtbot.addWidget(row)
+    line_edit = row.box.lineEdit()
+    assert line_edit is not None
+    assert line_edit.placeholderText() == "No preset"
+
+
+def test_the_preset_row_sits_on_the_shared_label_column(qtbot: QtBot) -> None:
+    """The row obeys the same rule as every other control: a name on
+    `theme.FIELD_LABEL_WIDTH`, put there by `shell.labelled` -- not a
+    control that is the only one in BORDER left unlabelled."""
+    controls = shell.BorderControls(show_gutter=True, show_detail_toggle=False)
+    qtbot.addWidget(controls)
+
+    holder = controls.presets.parentWidget()
+    assert holder is not None
+    layout = holder.layout()
+    assert isinstance(layout, QLayout)
+    assert layout.count() == 2
+    first, second = layout.itemAt(0), layout.itemAt(1)
+    assert first is not None and second is not None
+    label = first.widget()
+    assert isinstance(label, QLabel)
+    assert label.objectName() == "FieldLabel"
+    assert label.text() == "Preset"
+    assert label.minimumWidth() == theme.FIELD_LABEL_WIDTH
+    assert second.widget() is controls.presets
+
+
+def test_the_preset_row_does_not_grow_with_a_saved_name(qtbot: QtBot) -> None:
+    """A preset name is user-authored and unbounded, so the row's own width
+    must not depend on how long the longest saved one happens to be --
+    otherwise saving one long enough would eventually overflow the rail on
+    its own, label or no label. `Save` and `Delete` are already sized to
+    their own wordings rather than a neighbour's; the box gets a fixed floor
+    of its own for the same reason.
+
+    Checked on `row.minimumSizeHint()`, the number a layout actually acts
+    on, rather than on `row.box.minimumSizeHint()` directly: an explicit
+    `setMinimumWidth` changes what the layout treats as the box's floor
+    without changing what `QComboBox.minimumSizeHint()` itself reports, so
+    asking the box would still show growth after the fix and pass for the
+    wrong reason.
+
+    Compares two fresh rows rather than re-measuring one after `set_names`:
+    `QComboBox`'s default `sizeAdjustPolicy` computes its hint once and
+    caches it, so a box already measured empty would report the same width
+    again regardless of what was added -- which would pass this test
+    whether or not the row actually still tracked its content.
+    """
+    short = shell.PresetRow()
+    qtbot.addWidget(short)
+    short.set_names(["Plain white"])
+
+    long = shell.PresetRow()
+    qtbot.addWidget(long)
+    long.set_names(["This is a considerably longer saved preset name than any built-in"])
+
+    assert long.minimumSizeHint().width() == short.minimumSizeHint().width()
+
+
 def test_the_row_lists_the_names_it_is_given(qtbot: QtBot) -> None:
     row = shell.PresetRow()
     qtbot.addWidget(row)

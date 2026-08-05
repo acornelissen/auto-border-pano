@@ -625,14 +625,35 @@ class PresetRow(QWidget):
         self.box.setEditable(True)
         self.box.setInsertPolicy(Combo.InsertPolicy.NoInsert)
         self.box.setAccessibleName("Border preset")
+        # A preset name is user-authored and unbounded, so the row's width
+        # must not follow whatever the longest saved one happens to be --
+        # left at Qt's default it does, since an editable combo's own
+        # minimum grows with its widest item, and a name long enough would
+        # eventually overflow the rail on its own, label or no label. The
+        # floor is pinned to just enough to show the arrow `Combo` paints,
+        # with the margin it is inset by; `Save` and `Delete` are already
+        # sized to their own wordings rather than a neighbour's, and this is
+        # the same rule for the box against a fixed floor of its own instead
+        # of "Save"/"Update". What actually renders is unaffected -- the row
+        # gives it the rest of the space either way (`row.addWidget(self.box,
+        # 1)` below) -- only how far it can ever be squeezed changes.
+        self.box.setMinimumWidth(Combo.ARROW + theme.S)
         line_edit = self.box.lineEdit()
         if line_edit is not None:
             # `Combo` draws its own chevron over its right-hand end, because
             # flattening the field takes Qt's themed arrow with it. An
             # editable combo fills that same space with a line edit, so a
             # long name would run underneath the mark. Reserve the room the
-            # chevron actually occupies.
-            line_edit.setTextMargins(0, 0, Combo.ARROW + theme.M, 0)
+            # chevron actually occupies -- exactly that room, with no extra
+            # breathing space either side of it: a labelled row leaves this
+            # box little enough that "No preset" only clears its own arrow
+            # by a handful of pixels (maskingframe-2rg.10).
+            line_edit.setTextMargins(0, 0, Combo.ARROW, 0)
+            # With no preset chosen the box shows blank -- and an editable
+            # combo with no placeholder is a `QLineEdit` nobody has filled
+            # in, the only one in the app, so nothing else teaches a user it
+            # is a picker (maskingframe-2rg.10).
+            line_edit.setPlaceholderText("No preset")
         # `currentIndexChanged` rather than `activated`: the latter is only
         # sent for a genuine user gesture on the popup, which a test cannot
         # simulate via `setCurrentIndex`. `currentIndexChanged` is not "the
@@ -663,6 +684,18 @@ class PresetRow(QWidget):
         self.delete_button.setAccessibleName("Delete this preset")
         self.delete_button.setToolTip("Delete this preset")
         self.delete_button.clicked.connect(self._on_delete)
+
+        # Secondary's own padding (8px 14px) is generous for a button read
+        # on its own -- Even, elsewhere in the rail, keeps it. This row now
+        # carries a label too (maskingframe-2rg.10), and label plus box plus
+        # both buttons at that padding no longer fit the rail at all. A
+        # widget's own style sheet wins over the shared one for whatever it
+        # sets and leaves the rest -- background, border and colour still
+        # come from Secondary -- so only the padding tightens, and only
+        # here. Delete loses more of it than Save: it carries one glyph, not
+        # a word, and a glyph does not need a word's breathing room.
+        self.save_button.setStyleSheet("padding: 6px 6px;")
+        self.delete_button.setStyleSheet("padding: 6px 4px;")
 
         # Qt gives every push button an 80px minimum width. On a 320px rail
         # that leaves the two buttons wider than the name they act on, and
@@ -860,7 +893,11 @@ class BorderControls(QWidget):
         self.presets.chosen.connect(self._on_preset_chosen)
         self.presets.saved.connect(self._on_preset_saved)
         self.presets.deleted.connect(self._on_preset_deleted)
-        column.addWidget(self.presets)
+        # On the shared column like every other control -- the row used to
+        # be the one thing in BORDER with no name beside it, which read as
+        # part of the reason it looked unfilled rather than unpicked
+        # (maskingframe-2rg.10).
+        column.addWidget(labelled("Preset", self.presets))
         column.addSpacing(theme.S)
         self.border_slider, self.border_swatch, border_row = self._field(
             "Width",

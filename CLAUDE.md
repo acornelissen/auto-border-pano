@@ -231,6 +231,19 @@ heading. On the heading the combo gets 72px of text room, which elides
 `(edited)` marker, which exists precisely to be read. It would have bought 44px
 of height, and since the rail stopped scrolling that buys nothing.
 
+The row carries a `Preset` label on the shared column, like every other
+control, and the combo carries a placeholder, `No preset`, instead of showing
+blank. It is the only editable combo in the app, and with no placeholder an
+empty one is visually a `QLineEdit` nobody has filled in rather than a picker
+(maskingframe-2rg.10). Labelling the row leaves it little width to spare —
+`Save` and `Delete` are already sized to their own wordings, not a
+neighbour's, and now get less padding of their own for the same reason: a
+glyph does not need a word's breathing room, and the combo does not have 14px
+a side left to give it. The combo's own floor no longer follows whatever the
+longest saved preset happens to be either, since a name is user-authored and
+unbounded and would otherwise be able to overflow the row on its own,
+regardless of anything else in it.
+
 `shell.PresetRow` owns the naming rules and the button's wording and never
 touches `QSettings`; `BorderControls` holds the scope and does the storing. The
 button reads Save for a new name and Update for one that exists — that is what
