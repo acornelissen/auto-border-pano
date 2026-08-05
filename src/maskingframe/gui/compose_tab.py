@@ -413,16 +413,22 @@ class ComposeTab(QWidget):
         self.ratio_combo.currentIndexChanged.connect(self._on_ratio_change)
         rail.addWidget(shell.labelled("Ratio", self.ratio_combo))
 
-        # The consequence of the ratio, stated before the user commits to it.
-        rail.addSpacing(theme.S)
-        self.layout_label = shell.help_label("")
-        rail.addWidget(self.layout_label)
-
-        rail.addSpacing(theme.L)
-        rail.addWidget(shell.section("Arrangement"))
+        # Folded into FORMAT rather than a heading of its own: a heading over
+        # one control spends a whole heading and 24px of gap on one row, and
+        # the ratio and the arrangement are genuinely one decision about the
+        # output frame (maskingframe-2rg.3).
         rail.addSpacing(theme.S)
         self.arrangement_combo = shell.Combo()
         self.arrangement_combo.currentIndexChanged.connect(self._on_arrangement_change)
+        # Seeded through the same method a solve refills it with, so an
+        # unsolved combo and a solved-but-automatic one are the same code
+        # path: one honest entry, named rather than blank. A disabled combo
+        # with nothing to choose yet reads as nothing to choose yet; an
+        # enabled empty one reads as broken. _filling guards the seed the
+        # same way it guards a refill, so this fires no solve of its own.
+        # Disabled by _apply_button_states below, the single place that
+        # decides which controls a composable set unlocks.
+        self._fill_arrangements(_Solve(token=0, name="", count=0, sizes={}))
         rail.addWidget(shell.labelled("Arrangement", self.arrangement_combo))
 
         # Between FORMAT and DESTINATION, the same slot the Split tab gives
@@ -666,7 +672,14 @@ class ComposeTab(QWidget):
 
     @property
     def layout_name(self) -> str:
-        return self.layout_label.text()
+        """The solver's resolved name for the current set, live.
+
+        Reads `_solved` directly rather than a label's text -- the Arrangement
+        combo's own closed-box text already states this, in the rail, so a
+        second line repeating it would be the same fact said twice
+        (maskingframe-2rg.3).
+        """
+        return present_layout(self._solved, len(self.images))
 
     def chosen_arrangement(self) -> str:
         """The arrangement to compose with, or empty for the solver's own."""
@@ -694,10 +707,11 @@ class ComposeTab(QWidget):
         """The single place that decides which buttons are pressable.
 
         Every rule the interface used to report in a modal is enforced here
-        instead: Add stops at MAX_IMAGES, Save and Preview need a composable
-        set, and the reorder buttons need something selected to act on.
-        Called from construction and from everything that changes the list
-        or the selection, so it can never be out of date.
+        instead: Add stops at MAX_IMAGES, Save, Preview and the Arrangement
+        choice all need a composable set, and the reorder buttons need
+        something selected to act on. Called from construction and from
+        everything that changes the list or the selection, so it can never
+        be out of date.
         """
         count = len(self.images)
         self.add_btn.setEnabled(count < MAX_IMAGES)
@@ -719,6 +733,9 @@ class ComposeTab(QWidget):
     def _set_buttons_enabled(self, enabled: bool) -> None:
         self.preview_btn.setEnabled(enabled)
         self.save_btn.setEnabled(enabled)
+        # A combo with nothing composable to arrange is disabled rather than
+        # left offering choices over a set that cannot be composed.
+        self.arrangement_combo.setEnabled(enabled)
 
     def _update_status(self) -> None:
         """State the consequence: what this makes, how it is arranged, at
@@ -753,7 +770,6 @@ class ComposeTab(QWidget):
         """
         self._solve_token += 1
         self._solved = ""
-        self.layout_label.setText("")
         self._update_status()
 
         sources = list(self.images)
@@ -782,7 +798,6 @@ class ComposeTab(QWidget):
         if solved.token != self._solve_token:
             return
         self._solved = solved.name
-        self.layout_label.setText(present_layout(solved.name, solved.count))
         self._update_status()
         self._fill_arrangements(solved)
         if solved.sizes and not solved.sizes.items() <= self._sizes.items():

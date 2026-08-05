@@ -491,7 +491,7 @@ def _rail_texts(built: ComposeTab) -> list[str]:
 def test_the_rail_reads_subject_then_format_then_destination(tab: ComposeTab) -> None:
     """Split's rail is subject, FORMAT, DESTINATION, primary. These two rails
     drifting apart is a bug that has been fixed twice."""
-    assert _rail_texts(tab) == ["SOURCES", "FORMAT", "ARRANGEMENT", "BORDER", "DESTINATION"]
+    assert _rail_texts(tab) == ["SOURCES", "FORMAT", "BORDER", "DESTINATION"]
 
 
 def test_preview_sits_below_save_and_is_not_a_peer_of_it(tab: ComposeTab) -> None:
@@ -995,6 +995,59 @@ def _ratio(built: ComposeTab) -> pipeline.AspectRatio:
 def _with_sources(qtbot: QtBot, built: ComposeTab, paths: list[str]) -> None:
     built._accept(paths)
     _settled(qtbot, built)
+
+
+def test_the_combo_is_never_both_empty_and_enabled(tab: ComposeTab) -> None:
+    """At rest, before any source is loaded, an empty enabled combo reads as
+    broken rather than as nothing to choose yet (maskingframe-2rg.3)."""
+    assert not (tab.arrangement_combo.count() == 0 and tab.arrangement_combo.isEnabled())
+
+
+def test_with_no_sources_the_combo_shows_automatic_and_is_disabled(
+    tab: ComposeTab,
+) -> None:
+    assert tab.arrangement_combo.count() == 1
+    assert tab.arrangement_combo.itemText(0) == compose_tab.AUTOMATIC
+    assert not tab.arrangement_combo.isEnabled()
+
+
+def test_seeding_the_combo_at_construction_fires_no_extra_solve(qtbot: QtBot) -> None:
+    """Adding the first item to an empty combo is itself an index change
+    (`currentIndexChanged(0)`), which `_on_arrangement_change` must not read
+    as a user choice. If it did, construction would request a solve twice:
+    once spuriously from the seed, once genuinely from `_refresh_list`."""
+    built = ComposeTab()
+    qtbot.addWidget(built)
+    assert built._solve_token == 1
+    assert built.chosen_arrangement() == ""
+
+
+def test_arrangement_is_no_longer_its_own_section(tab: ComposeTab) -> None:
+    headings = [
+        label.text() for label in tab.findChildren(QLabel) if label.objectName() == "Section"
+    ]
+    assert "ARRANGEMENT" not in headings
+    assert "FORMAT" in headings
+
+
+def test_the_combo_enables_once_the_set_is_composable(qtbot: QtBot, tab: ComposeTab) -> None:
+    tab._accept([WIDE])
+    assert not tab.arrangement_combo.isEnabled()
+
+    tab._accept([TALL])
+    _settled(qtbot, tab)
+    assert tab.arrangement_combo.isEnabled()
+
+
+def test_the_combo_disables_again_when_the_set_drops_below_two(
+    qtbot: QtBot, tab: ComposeTab
+) -> None:
+    _with_sources(qtbot, tab, [WIDE, TALL])
+    assert tab.arrangement_combo.isEnabled()
+
+    tab.listbox.select(0)
+    tab.remove()
+    assert not tab.arrangement_combo.isEnabled()
 
 
 def test_the_arrangement_list_opens_on_automatic(qtbot: QtBot, tab: ComposeTab) -> None:
