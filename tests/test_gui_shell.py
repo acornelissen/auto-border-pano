@@ -13,7 +13,6 @@ opens the colour dialog for real -- a modal would hang the suite -- so
 """
 
 from collections.abc import Iterator
-from pathlib import Path
 
 import pytest
 from PySide6.QtCore import QPoint, Qt
@@ -32,8 +31,27 @@ from pytestqt.qtbot import QtBot
 from maskingframe import pipeline
 from maskingframe.gui import settings, shell, theme
 
+# Most tests here build `BorderControls` or `MainWindow`, both of which read
+# the stored border, without ever naming `isolated_settings` -- so whether
+# they saw the developer's real preferences used to depend on whether some
+# other, isolated test had already run first in the same process and left
+# `QSettings` pointed at a throwaway store. The module mark makes every test
+# here isolated regardless of what it asks for by name (maskingframe-2rg.13).
+pytestmark = pytest.mark.usefixtures("isolated_settings")
+
 RAIL_CONTENT_WIDTH = theme.RAIL_WIDTH - 2 * theme.L
 """How wide a rail child actually is: the rail, less its own margins."""
+
+
+def test_a_test_that_never_asks_for_isolation_is_still_isolated(qtbot: QtBot) -> None:
+    """Guards the module mark above: proves isolation is a fact about every
+    test in this file, not a courtesy the four tests that used to name
+    `isolated_settings` extended to themselves alone."""
+    controls = shell.BorderControls(show_gutter=True, show_detail_toggle=False)
+    qtbot.addWidget(controls)
+    controls.reload_presets()
+
+    assert settings.ORGANISATION != "maskingframe"
 
 
 def _stacked_height(layout: QLayout, width: int) -> int:
@@ -846,9 +864,7 @@ def _describe(widget: QWidget) -> str:
     return described
 
 
-def test_no_rail_control_is_clipped_horizontally(
-    qtbot: QtBot, themed_app: QApplication, isolated_settings: Path
-) -> None:
+def test_no_rail_control_is_clipped_horizontally(qtbot: QtBot, themed_app: QApplication) -> None:
     """The rail scrolls vertically and must never need to scroll sideways.
     Adding a label column and a scrollbar pushed the ratio combo and the
     Choose button 35px past the edge, where they were simply cut off.
@@ -863,9 +879,9 @@ def test_no_rail_control_is_clipped_horizontally(
     reason -- a viewport's width depends on whether that 8px is reserved at
     all, and this test owns that fact rather than inheriting it.
 
-    Needs `isolated_settings` too: `MainWindow()` restores whatever border
-    was last stored, so without it this reads the developer's real,
-    unpredictable preferences instead of the state a test can reason about.
+    `MainWindow()` restores whatever border was last stored, so this also
+    relies on the module's `isolated_settings` mark to read a throwaway
+    store rather than the developer's real, unpredictable preferences.
 
     Both tabs are checked: FRAME 1 lives only on Split, but a future
     overflow on Compose would be just as real and this used to only look.
@@ -894,7 +910,7 @@ def test_no_rail_control_is_clipped_horizontally(
 
 
 def test_no_frame1_summary_overflows_its_disclosure_header(
-    qtbot: QtBot, themed_app: QApplication, isolated_settings: Path
+    qtbot: QtBot, themed_app: QApplication
 ) -> None:
     """Pins maskingframe-2rg.11 at the level the bug actually lived at: not
     one rendered state, but every state the FRAME 1 heading can show.
@@ -908,10 +924,9 @@ def test_no_frame1_summary_overflows_its_disclosure_header(
     time, rather than trusting that the one combination someone thought to
     render is the widest one.
 
-    Needs `isolated_settings`: driving the checkbox settles the border,
-    which writes it -- without this the loop would leave its last
-    combination sitting in the developer's real preferences file rather
-    than a throwaway one.
+    Driving the checkbox settles the border, which writes it -- relying on
+    the module's `isolated_settings` mark to send that write to a throwaway
+    store rather than the developer's real preferences file.
 
     The shared slider is pushed to one tenth below `MAX_PERCENT` before the
     loop starts. Left at its own default (9%) this would not have failed

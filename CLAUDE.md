@@ -186,6 +186,8 @@ A stored value is untrusted input — the file is plain text the user can edit, 
 
 Split and Compose store their styles under separate scopes (`settings.SPLIT`, `settings.COMPOSE`). A split border and a composite border are different decisions, and sharing one value would surprise whichever tab the user touched second.
 
+A test that builds any widget touching `QSettings` isolates it for the whole module, with `pytestmark = pytest.mark.usefixtures("isolated_settings")` once at the top of the file, not per test that happens to need it. `QSettings.setPath` is process-global, so an unmarked test's result depends on whether some other, isolated test already ran first in the same process and left it pointed at a throwaway store — which test ran first is not a fact a reviewer can see in the diff, so it must not be the thing deciding whether a test reads the developer's real preferences.
+
 `BorderControls.frame_style()` is deliberately not called `style()`: `QWidget` already owns that name for its `QStyle`, and shadowing it would return a different type from an inherited method. `set_style()` restores stored state without emitting, so a tab that saves on `style_changed` does not write back what it has just read. `scope` is keyword-only, so a caller cannot silently hand a Compose rail the Split list.
 
 A border can also be saved under a name. Presets follow the scopes: Split and
