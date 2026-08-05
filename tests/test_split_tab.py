@@ -18,7 +18,14 @@ from pytestqt.qtbot import QtBot
 
 from maskingframe import pipeline
 from maskingframe.gui import settings, shell, split_tab
-from maskingframe.gui.split_tab import NO_COUNT, UNCOUNTED_ACTION, SplitTab, preview_titles
+from maskingframe.gui.split_tab import (
+    NO_COUNT,
+    NO_SOURCE,
+    PER_FILE_COUNT,
+    UNCOUNTED_ACTION,
+    SplitTab,
+    preview_titles,
+)
 from tests import conftest
 from tests.conftest import synthetic_panorama
 
@@ -76,7 +83,7 @@ def test_the_readouts_reset_with_no_file_and_in_folder_mode(
     assert tab.facts_label.text() == "600 × 200 · 3.00:1"  # noqa: RUF001
 
     tab.folder_radio.setChecked(True)
-    assert tab.count_label.text() == NO_COUNT
+    assert tab.count_label.text() == PER_FILE_COUNT
     assert tab.facts_label.text() == ""
     assert tab.action_btn.text() == UNCOUNTED_ACTION
 
@@ -118,6 +125,7 @@ def test_an_unreadable_source_shows_no_count(qtbot: Any, tab: SplitTab, tmp_path
     qtbot.waitUntil(lambda: tab.subject == "broken.jpg")
     assert tab.count_label.text() == NO_COUNT
     assert tab.action_btn.text() == UNCOUNTED_ACTION
+    assert tab.ribbon_note.text() == NO_SOURCE
 
 
 def test_a_stale_inspection_never_overwrites_a_newer_one(tab: SplitTab) -> None:
@@ -315,6 +323,60 @@ def test_cut_frames_is_unpressable_with_no_source(tab: SplitTab) -> None:
 
     tab.folder_radio.setChecked(True)
     assert tab.action_btn.isEnabled() is False
+
+
+def test_cut_frames_is_unpressable_when_folder_mode_names_a_file(
+    tab: SplitTab, tmp_path: Path
+) -> None:
+    """The Whole folder radio can be checked while the field still names the
+    file chosen under One frame -- `process_folder` used to be the thing that
+    discovered that, mid-run, and failed. This refuses it up front, the way
+    `test_cut_frames_is_unpressable_with_no_source` already refuses an empty
+    source (maskingframe-2rg.6)."""
+    source = _panorama(tmp_path)
+    tab.source_row.setText(str(source))
+    assert tab.action_btn.isEnabled() is True
+
+    tab.folder_radio.setChecked(True)
+    assert tab.action_btn.isEnabled() is False
+
+    tab.single_radio.setChecked(True)
+    assert tab.action_btn.isEnabled() is True
+
+
+def test_each_of_the_four_source_states_says_something_true(
+    qtbot: Any, tab: SplitTab, tmp_path: Path
+) -> None:
+    """`NO_COUNT`/`NO_SOURCE` used to also stand for folder mode, where a
+    source *is* loaded -- there just isn't one count, or one panorama to
+    place frames on. Each of the four states -- nothing loaded, a single
+    readable file, a folder, and an unreadable file -- now gets a line that
+    is true about itself (maskingframe-2rg.6)."""
+    readable = _panorama(tmp_path)
+    broken = tmp_path / "broken.jpg"
+    broken.write_bytes(b"not a jpeg")
+
+    # Nothing loaded.
+    assert tab.count_label.text() == NO_COUNT
+    assert tab.ribbon_note.text() == NO_SOURCE
+
+    # A single readable file: a real count, and the ribbon takes over from
+    # the note.
+    tab.source_row.setText(str(readable))
+    qtbot.waitUntil(lambda: tab.count_label.text() == "5 frames")
+    assert tab.ribbon.isVisibleTo(tab)
+
+    # Whole folder: a source is loaded, it just does not have one count.
+    tab.folder_radio.setChecked(True)
+    assert tab.count_label.text() == PER_FILE_COUNT
+    assert tab.ribbon_note.text() == NO_POSITIONS
+
+    # An unreadable file: back to single mode, no count is knowable.
+    tab.single_radio.setChecked(True)
+    tab.source_row.setText(str(broken))
+    qtbot.waitUntil(lambda: tab.subject == "broken.jpg")
+    assert tab.count_label.text() == NO_COUNT
+    assert tab.ribbon_note.text() == NO_SOURCE
 
 
 def test_preview_titles_name_the_whole_panorama_first() -> None:
@@ -790,6 +852,7 @@ def test_the_ribbon_is_hidden_until_a_panorama_is_loaded(qtbot: Any) -> None:
     tab = SplitTab()
     qtbot.addWidget(tab)
     assert not tab.ribbon.isVisibleTo(tab)
+    assert tab.ribbon_note.text() == NO_SOURCE
 
 
 def test_loading_a_panorama_shows_the_ribbon(qtbot: Any, tmp_path: Path) -> None:

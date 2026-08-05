@@ -50,13 +50,25 @@ from maskingframe.gui.work import submit
 _RATIO_BY_DISPLAY: dict[str, str] = {r.display: r.name for r in pipeline.RATIOS.values()}
 
 NO_COUNT = "Load a source to see the frame count"
-"""Shown whenever the frame count is not known: no file, folder mode, or an
-unreadable file. Never a stale or guessed number."""
+"""Shown when there is no readable panorama loaded: no source chosen, or a
+file that could not be read. Folder mode gets `PER_FILE_COUNT` instead --
+a folder is a loaded source, it just does not have one count to report."""
+
+PER_FILE_COUNT = "Each panorama gets its own count."
+"""The count line in folder mode. `NO_COUNT` would be false here: a source
+is loaded, a whole folder of them -- there just is not one number, because
+each panorama's own shape decides its own frame count (maskingframe-2rg.6)."""
 
 NO_POSITIONS = "Frames are spread evenly. Load one panorama to place them by hand."
-"""What stands where the ribbon would be when there is nothing to place --
-folder mode, or no source. Silence would read as a missing feature rather
-than a decision."""
+"""What stands where the ribbon would be in folder mode. There is no one
+panorama to place frames on, so positions default to the even spread and
+stay there. `NO_SOURCE` covers everywhere else the ribbon is hidden."""
+
+NO_SOURCE = "Choose a panorama to see the frames."
+"""What stands where the ribbon would be with no readable panorama loaded --
+nothing chosen yet, or a file that could not be read. Folder mode gets
+`NO_POSITIONS` instead: a folder is loaded, it is just not a single
+panorama to place frames on (maskingframe-2rg.6)."""
 
 KEY_HELP = (
     "Left and Right move the selected frame, Shift by ten steps, "
@@ -434,7 +446,7 @@ class SplitTab(QWidget):
         self.ribbon.setVisible(False)
         self.columns.table_layout.addWidget(self.ribbon)
 
-        self.ribbon_note = shell.help_label(NO_POSITIONS)
+        self.ribbon_note = shell.help_label(NO_SOURCE)
         self.columns.table_layout.addWidget(self.ribbon_note)
 
         self.columns.table_layout.addSpacing(theme.M)
@@ -665,10 +677,13 @@ class SplitTab(QWidget):
 
         The note stays put either way: with the ribbon up it states the keys,
         because a user placing frames is exactly who needs to know they exist.
+        Hidden, it names which of two reasons applies -- folder mode still has
+        `NO_POSITIONS`'s even spread, but everywhere else the ribbon is
+        hidden there is no readable panorama at all, which is `NO_SOURCE`.
         """
         self.ribbon.setVisible(visible)
         if not visible:
-            self.ribbon_note.setText(NO_POSITIONS)
+            self.ribbon_note.setText(NO_POSITIONS if self.folder_radio.isChecked() else NO_SOURCE)
         else:
             self.ribbon_note.setText(f"{RESTORED} {KEY_HELP}" if self._restored else KEY_HELP)
         self.strip.set_draggable(visible)
@@ -1221,7 +1236,10 @@ class SplitTab(QWidget):
     def _clear_facts(self, subject: str = "") -> None:
         self._nudge_timer.stop()
         self.facts_label.setText("")
-        self.count_label.setText(NO_COUNT)
+        # Folder mode has a source -- a whole folder of them -- it just does
+        # not have one count; everywhere else this is reached, there is no
+        # readable panorama at all.
+        self.count_label.setText(PER_FILE_COUNT if self.folder_radio.isChecked() else NO_COUNT)
         self.action_btn.setText(UNCOUNTED_ACTION)
         self._set_band(subject, "")
         self._positions = ()
@@ -1249,22 +1267,44 @@ class SplitTab(QWidget):
         source = self.source_row.text()
         return bool(source) and not self.folder_radio.isChecked() and Path(source).is_file()
 
+    def _mode_contradicts_source(self) -> bool:
+        """True when Whole folder is checked but the field names a file.
+
+        The radio and the field can disagree -- checking Whole folder does
+        not clear a file already typed or browsed to -- and until now
+        nothing said so: `process_folder` was the thing that discovered it,
+        after the run had already started, and failed. A directory that does
+        not exist yet is not a contradiction the same way; it is left to the
+        run to report, exactly as an empty folder already is
+        (maskingframe-2rg.6).
+        """
+        source = self.source_row.text()
+        return self.folder_radio.isChecked() and bool(source) and Path(source).is_file()
+
     def _apply_button_states(self) -> None:
         """The single place that decides which buttons are pressable.
 
         Derived from facts only -- is something in flight, is there a source
-        chosen, and is there a panorama to preview -- so neither button can
-        go out of date. Called from construction, from every change to the
-        selection, and from both ends of a run.
+        chosen, does the mode agree with it, and is there a panorama to
+        preview -- so neither button can go out of date. Called from
+        construction, from every change to the selection, and from both ends
+        of a run.
 
         The action needs less than preview: a folder is fine (that is what
         batch mode cuts), so it only demands the source field be non-empty
-        rather than `can_preview()`'s single readable file. Without the
-        check it stayed pressable with nothing chosen at all, and blamed a
-        file the user never picked -- the one place in the tab a rule was
+        and the mode not contradicting it, rather than `can_preview()`'s
+        single readable file. Without the non-empty check it stayed
+        pressable with nothing chosen at all, and blamed a file the user
+        never picked; without the contradiction check it stayed pressable
+        with Whole folder checked and a file in the field, and blamed
+        whatever `process_folder` made of that file -- both were rules
         enforced by an error message instead of an unpressable control.
         """
-        self.action_btn.setEnabled(not self._running and bool(self.source_row.text()))
+        self.action_btn.setEnabled(
+            not self._running
+            and bool(self.source_row.text())
+            and not self._mode_contradicts_source()
+        )
         self.preview_btn.setEnabled(not self._running and self.can_preview())
 
     # --- Choosing -----------------------------------------------------------
