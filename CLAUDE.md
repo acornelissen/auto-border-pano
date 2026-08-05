@@ -122,6 +122,26 @@ count buttons cluster at the right edge with the stretch between them and the
 value, so a dash becoming a numeral becoming "one each" never slides add and
 remove out from under the pointer.
 
+**Nothing reserves a line for a sentence that has not arrived.** Under FRAMES,
+the selection sentence and the undo offer share one row — selection left, offer
+right-aligned in the same `QHBoxLayout` — and the row goes when both are empty.
+They were two rows, both empty until something happened, which with the old
+count sentence left 96px of nothing between the count buttons and BORDER, and in
+folder mode left it there permanently, where neither half can ever fill in. It
+read as a rendering fault rather than as spacing.
+
+One row rather than two hidden labels because the row takes its space once and
+keeps it: selecting a frame and then recording a step move nothing, since the
+row that holds both is already standing. Nothing here animates, so a shove per
+event would be abrupt. The offer takes the row's slack rather than sitting
+against a stretch, so a long offer beside a long selection wraps onto a second
+line instead of being cut off — the rail is 284px wide and the two sentences can
+both be long at once.
+
+The two labels at the bottom of each pinned foot — Split's error, Compose's hint
+— are hidden while empty instead. Both sit above a stretch with nothing under
+them, so the space they give back is space nothing was using.
+
 **`shell.Disclosure` folds a section away and states its value in the heading**
 (`+ FRAME 1   whole panorama`). Folding is only acceptable because the
 summary is there — otherwise the setting is buried rather than out of the way.
@@ -517,7 +537,10 @@ stop `"" in text` passing vacuously.
 
 `split_tab.undo_line` sits under the count controls and reads
 `Undo Even   ⌘Z`, falling back to `Redo <label>` once undo has nothing
-left and empty when there is neither. It carries the key because the
+left and empty when there is neither. It shares one row with the selection
+sentence — see "How the rail is laid out" — taking the row's slack rather
+than sitting against a stretch, so a long offer beside a long selection
+wraps onto a second line instead of being cut off. It carries the key because the
 application has no menu bar, so there is nowhere else a shortcut could be
 advertised — and an undo nobody knows about is close to no undo. The label
 is the risk rather than the depth: a line that says `Undo Even` and then

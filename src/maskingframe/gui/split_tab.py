@@ -379,12 +379,48 @@ class SplitTab(QWidget):
         rail.addWidget(self.count_row)
 
         rail.addSpacing(theme.S)
+        # Two sentences about the current plan, on one row. They were two
+        # rows, both empty until something happened, and together with the
+        # count sentence above them they left 96px of nothing between the
+        # count buttons and BORDER with no source loaded -- and in folder
+        # mode, where neither can ever fill in, permanently
+        # (maskingframe-hp7).
+        #
+        # Merged rather than hidden one by one: a label that appears the
+        # moment a frame is selected shoves everything below it down, and
+        # nothing here animates, so the shove is abrupt. Merged, the row
+        # takes its space once and keeps it -- selecting a frame and then
+        # recording a step move nothing, because the row that holds both is
+        # already there.
+        #
+        # It is the row, not either label, that goes when both are empty:
+        # with no source, and in folder mode, neither half can ever fill in,
+        # so reserving a line for them would be a smaller version of the hole
+        # this fixes.
+        self.plan_line = QWidget()
+        plan_row = QHBoxLayout(self.plan_line)
+        plan_row.setContentsMargins(0, 0, 0, 0)
+        plan_row.setSpacing(theme.S)
+        # The selection in words. The marking on the picture is chinagraph,
+        # and a state carried by colour alone fails the floor this project
+        # holds itself to -- so it is also said here, and handed to the
+        # widgets as their accessible name.
+        self.selection_label = shell.data_label()
+        plan_row.addWidget(self.selection_label)
         # Under the controls whose presses it takes back, and carrying the
         # shortcut: the application has no menu bar, so this is the only
         # place an undo could be advertised, and one nobody knows about is
         # close to no undo at all.
+        #
+        # It takes the row's slack rather than sitting against a stretch, so
+        # a long offer beside a long selection wraps onto a second line
+        # instead of being cut off. Right-aligned, so the two sentences read
+        # as two columns rather than as one run-on line.
         self.undo_line = shell.help_label()
-        rail.addWidget(self.undo_line)
+        self.undo_line.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        plan_row.addWidget(self.undo_line, 1)
+        self.plan_line.setVisible(False)
+        rail.addWidget(self.plan_line)
 
         # The rows list is built here but lives in the FRAME 1 section, which
         # `BorderControls` owns -- see below. Frame 1's layout and frame 1's
@@ -392,14 +428,6 @@ class SplitTab(QWidget):
         self.rows_combo = shell.Combo()
         self.rows_combo.setAccessibleName("How frame 1 is laid out")
         self.rows_combo.currentIndexChanged.connect(self._on_rows_change)
-
-        rail.addSpacing(theme.S)
-        # The selection in words. The marking on the picture is chinagraph,
-        # and a state carried by colour alone fails the floor this project
-        # holds itself to -- so it is also said here, and handed to the
-        # widgets as their accessible name.
-        self.selection_label = shell.data_label()
-        rail.addWidget(self.selection_label)
 
         rail.addSpacing(theme.L)
         # No gap control: a split writes one frame at a time, so there is
@@ -475,6 +503,7 @@ class SplitTab(QWidget):
         self.error_label = QLabel("")
         self.error_label.setObjectName("Error")
         self.error_label.setWordWrap(True)
+        self.error_label.setVisible(False)
         rail.addWidget(self.error_label)
 
         rail.addStretch(1)
@@ -818,6 +847,7 @@ class SplitTab(QWidget):
         """
         said = sentence != self.selection_label.text()
         self.selection_label.setText(sentence)
+        self._state_plan_line()
         for view in (self.ribbon, self.strip):
             view.setAccessibleDescription(sentence)
         # Only when it has actually changed. One keystroke reaches here
@@ -932,6 +962,20 @@ class SplitTab(QWidget):
             self.undo_line.setText(f"Redo {self._history.redo_label}   {redo_keys()}")
         else:
             self.undo_line.setText("")
+        self._state_plan_line()
+
+    def _state_plan_line(self) -> None:
+        """Show the row once either sentence has something to say.
+
+        Both halves are empty with no source and stay empty in folder mode,
+        where there is no one panorama to select a frame on and nothing to
+        walk back. A line reserved for two sentences that can never arrive is
+        the hole this row was merged to close, only smaller.
+
+        Taken once, for both: whichever fills in first brings the row, and
+        the other one then costs nothing.
+        """
+        self.plan_line.setVisible(bool(self.selection_label.text() or self.undo_line.text()))
 
     def _apply_snapshot(self, snapshot: history.Snapshot, announcement: str) -> None:
         """Put a plan back on screen, and into the store.
@@ -1303,6 +1347,11 @@ class SplitTab(QWidget):
 
     def _set_error(self, message: str) -> None:
         self.error_label.setText(message)
+        # Collapsed while there is nothing to report. This one can be hidden
+        # without shoving anything about, unlike the two sentences up in
+        # FRAMES: it is the last thing in the foot, with only a stretch under
+        # it, so the space it gives back is space nothing was using.
+        self.error_label.setVisible(bool(message))
 
     def can_preview(self) -> bool:
         """Preview needs a readable single panorama, and nothing else.

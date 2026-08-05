@@ -667,6 +667,20 @@ def test_the_solve_carries_the_style_it_was_asked_for(
     assert seen[-1].border_percent == 13.0
 
 
+def test_the_hint_takes_no_room_until_there_is_something_to_act_on(tab: ComposeTab) -> None:
+    """`_apply_button_states` clears the hint unconditionally, so it is empty
+    nearly always and reserved a line for it anyway. It sits at the bottom of
+    the pinned foot above a stretch, so hiding it moves nothing
+    (maskingframe-hp7)."""
+    assert not tab.hint_label.isVisibleTo(tab)
+
+    tab._set_hint("Choose where the composite should go.", error=True)
+    assert tab.hint_label.isVisibleTo(tab)
+
+    tab._set_hint("")
+    assert not tab.hint_label.isVisibleTo(tab)
+
+
 def test_a_stale_solve_still_loses_after_a_style_change(tab: ComposeTab) -> None:
     """A style change and a source change racing: the newer token wins,
     exactly as before."""

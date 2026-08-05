@@ -51,6 +51,30 @@ def tab(qtbot: Any) -> SplitTab:
     return widget
 
 
+@pytest.fixture
+def themed_app() -> Any:
+    """`theme.stylesheet()` applied to the real `QApplication`, as `run()`
+    applies it, and restored after.
+
+    Every width in the rail comes out of the cascade the stylesheet builds --
+    a constructor default measures a different font at a different size, and
+    two rail labels have shipped clipped because they were checked without
+    it.
+    """
+    from PySide6.QtWidgets import QApplication
+
+    from maskingframe.gui import theme
+
+    app = QApplication.instance()
+    assert isinstance(app, QApplication)
+    previous = app.styleSheet()
+    app.setStyleSheet(theme.stylesheet())
+    try:
+        yield app
+    finally:
+        app.setStyleSheet(previous)
+
+
 def _panorama(tmp_path: Path, name: str = "pano.jpg") -> Path:
     source = tmp_path / name
     synthetic_panorama(600, 200).save(source, "JPEG", quality=95)
@@ -602,6 +626,79 @@ def test_with_no_source_the_count_is_a_dash_and_nothing_is_pressable(tab: SplitT
     assert not tab.add_btn.isEnabled()
     assert not tab.remove_btn.isEnabled()
     assert not tab.even_btn.isEnabled()
+
+
+def test_the_selection_and_the_undo_offer_share_one_row(tab: SplitTab) -> None:
+    """Two labels that were empty until something happened, on two rows,
+    left 96px of nothing between the count buttons and BORDER -- and in
+    folder mode, where neither can ever fill in, permanently. One row is
+    reserved instead of two, and it always exists, so nothing below it moves
+    when either fills in (maskingframe-hp7)."""
+    assert tab.selection_label.parentWidget() is tab.undo_line.parentWidget()
+    row = tab.selection_label.parentWidget()
+    assert row is not None
+    layout = row.layout()
+    assert isinstance(layout, QLayout)
+    assert _widgets(layout) == [tab.selection_label, tab.undo_line]
+    # Right-aligned, so the two sentences read as two columns rather than as
+    # one run-on line.
+    assert tab.undo_line.alignment() & Qt.AlignmentFlag.AlignRight
+
+
+def test_the_plan_row_is_absent_until_one_of_its_sentences_arrives(tab: SplitTab) -> None:
+    """With no source, and in folder mode, neither half can ever fill in, so
+    a reserved line for them would be the same hole made smaller. Once either
+    arrives the row is there for both, which is why selecting a frame and
+    then recording a step move nothing (maskingframe-hp7)."""
+    assert not tab.plan_line.isVisibleTo(tab)
+
+    tab.undo_line.setText("Undo Even   ⌘Z")
+    tab._state_plan_line()
+    assert tab.plan_line.isVisibleTo(tab)
+
+    # The second sentence arriving costs no space at all: the row is already
+    # standing.
+    tab.selection_label.setText("Frame 3 · 42% along")
+    tab._state_plan_line()
+    assert tab.plan_line.isVisibleTo(tab)
+
+    tab.selection_label.setText("")
+    tab.undo_line.setText("")
+    tab._state_plan_line()
+    assert not tab.plan_line.isVisibleTo(tab)
+
+
+def test_the_plan_row_never_clips_however_long_both_sentences_are(
+    qtbot: QtBot, themed_app: Any, tab: SplitTab
+) -> None:
+    """The two halves can both be long at once -- ten frames placed and a
+    step to walk back -- and the rail is 284px wide. The offer wraps rather
+    than being cut off, which is why it takes the row's slack instead of
+    sitting against a stretch."""
+    tab.resize(1280, 900)
+    tab.show()
+    qtbot.waitExposed(tab)
+
+    tab.selection_label.setText("Frame 10 · 100% along")
+    for offer in ("", "Undo Even   ⌘Z", "Undo remove frame   ⌘Z", "Redo remove frame   ⇧⌘Z"):
+        tab.undo_line.setText(offer)
+        for _ in range(3):
+            qtbot.wait(1)
+        assert tab.selection_label.width() >= tab.selection_label.minimumSizeHint().width()
+        assert tab.undo_line.height() >= tab.undo_line.heightForWidth(tab.undo_line.width())
+
+
+def test_the_error_line_takes_no_room_until_there_is_an_error(tab: SplitTab) -> None:
+    """The last thing in the pinned foot, above a stretch, so hiding it moves
+    nothing. Unlike the two sentences in FRAMES, which is why they were
+    merged instead."""
+    assert not tab.error_label.isVisibleTo(tab)
+
+    tab._set_error("That file is not there any more. Choose another source.")
+    assert tab.error_label.isVisibleTo(tab)
+
+    tab._set_error("")
+    assert not tab.error_label.isVisibleTo(tab)
 
 
 def test_border_controls_sit_between_the_format_and_the_destination(tab: SplitTab) -> None:

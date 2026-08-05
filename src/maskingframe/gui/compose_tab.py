@@ -487,6 +487,7 @@ class ComposeTab(QWidget):
         # missing prefix, sources left out.
         rail.addSpacing(theme.M)
         self.hint_label = shell.help_label("")
+        self.hint_label.setVisible(False)
         rail.addWidget(self.hint_label)
 
         # The resting sentence: what this makes, how it is arranged, at what
@@ -699,6 +700,11 @@ class ComposeTab(QWidget):
 
     def _set_hint(self, text: str, *, error: bool = False) -> None:
         self.hint_label.setText(text)
+        # Collapsed while there is nothing to act on, which is nearly always:
+        # `_apply_button_states` clears it unconditionally. It sits at the
+        # bottom of the pinned foot above a stretch, so the space it gives
+        # back is space nothing was using (maskingframe-hp7).
+        self.hint_label.setVisible(bool(text))
         self._restyle(self.hint_label, "Error" if error else "Help")
 
     @staticmethod
