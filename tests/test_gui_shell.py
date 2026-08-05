@@ -15,7 +15,7 @@ opens the colour dialog for real -- a modal would hang the suite -- so
 from collections.abc import Iterator
 
 import pytest
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QApplication,
@@ -884,3 +884,44 @@ def test_no_field_label_clips_in_its_own_column(qtbot: QtBot, themed_app: QAppli
         if label.fontMetrics().horizontalAdvance(label.text()) > theme.FIELD_LABEL_WIDTH
     ]
     assert overflowing == []
+
+
+def test_a_disabled_primary_button_does_not_look_pressable(
+    qtbot: QtBot, themed_app: QApplication
+) -> None:
+    """`isEnabled()` was already correct on both tabs' primary button at
+    launch -- Cut frames and Save composite are both unpressable with
+    nothing loaded. What was wrong is what that state rendered as:
+    `#Rail QPushButton#Primary` (two IDs) outranks a bare
+    `QPushButton#Primary:disabled` (one ID, one pseudo-class) on CSS
+    specificity, so the enabled rule's solid chinagraph fill won regardless
+    of enabled state, and a dead control looked identical to a live one
+    (maskingframe-2rg.12). Only a render catches that -- `isEnabled()`
+    alone would pass on the broken stylesheet exactly as it does on the
+    fixed one.
+    """
+    from maskingframe.gui.app import MainWindow
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.resize(1180, 820)
+    window.show()
+    qtbot.waitExposed(window)
+
+    for tab, button_name in ((window.split, "action_btn"), (window.compose, "save_btn")):
+        button = getattr(tab, button_name)
+        assert not button.isEnabled(), "the launch state the bug depended on"
+        window.tabs.setCurrentWidget(tab)
+        themed_app.processEvents()
+        image = window.grab().toImage()
+        # 8px in from the top-left corner: inside the fill, clear of both
+        # the 1px border and the centred label -- "Cut frames" happens to
+        # have a gap at its exact rect centre and "Save composite" does
+        # not, which made the centre pixel a coin flip between plain fill
+        # and a glyph's anti-aliased edge.
+        corner = button.mapTo(window, button.rect().topLeft() + QPoint(8, 8))
+        colour = image.pixelColor(corner)
+        assert colour.name().upper() != theme.CHINAGRAPH, (
+            f"{button_name} still renders solid chinagraph while disabled"
+        )
+        assert colour.name().upper() == theme.PANEL

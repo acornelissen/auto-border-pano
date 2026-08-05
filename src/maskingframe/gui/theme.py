@@ -203,6 +203,20 @@ def stylesheet() -> str:
     }}
     #Rail QPushButton {{ background: {WELL}; }}
     #Rail QPushButton#Primary {{ background: {CHINAGRAPH}; }}
+    /* Restated at the same #Rail-scoped selector as the rule two lines up,
+       and only that repetition makes it win: `#Rail QPushButton#Primary`
+       (two IDs) already outranks a bare `QPushButton#Primary:disabled`
+       (one ID, one pseudo-class) on specificity alone, so the plain
+       :disabled rule below never fired for a button that actually lives in
+       the rail -- which is every Primary button this app has. That is why
+       Cut frames and Save composite rendered as solid, pressable-looking
+       chinagraph at launch with nothing loaded (maskingframe-2rg.12). See
+       that rule for the colours and the measured contrast. */
+    #Rail QPushButton#Primary:disabled {{
+        background: {PANEL};
+        border-color: {CHINAGRAPH};
+        color: {INK_DIM};
+    }}
     #Rail QPushButton#Secondary {{ background: transparent; }}
     #Table {{ background: {TABLE}; }}
 
@@ -333,10 +347,22 @@ def stylesheet() -> str:
         background: {CHINAGRAPH_DOWN};
         border-color: {CHINAGRAPH_DOWN};
     }}
+    /* A disabled primary must stop being a filled block of chinagraph --
+       that fill is what gives the enabled button its primacy, and keeping
+       it here would give a dead control the loudest colour on screen. It
+       must not simply grey out to Secondary's own disabled look either, or
+       the one large button on the rail becomes indistinguishable from the
+       small reversible one beside it. So the fill goes (to PANEL, the same
+       recessed grey every other disabled control here already uses) and
+       only the border keeps a whisper of chinagraph -- a hairline, which
+       the palette's own rule for this colour already allows, not a filled
+       area. No new palette value: PANEL, CHINAGRAPH and INK_DIM all exist
+       already. INK_DIM on PANEL measures 5.3:1, clearing AA's 4.5:1 floor
+       for the button's own 14px label with room to spare. */
     QPushButton#Primary:disabled {{
-        background: {EDGE};
-        border-color: {EDGE};
-        color: #FFFFFF;
+        background: {PANEL};
+        border-color: {CHINAGRAPH};
+        color: {INK_DIM};
     }}
 
     /* Free and reversible, so it must not read as a peer of the action
