@@ -252,6 +252,83 @@ def test_gutter_controls_are_hidden_when_not_wanted(qtbot: QtBot) -> None:
     assert controls.detail_check is None
 
 
+def _column_index(controls: shell.BorderControls, widget: QWidget) -> int:
+    """Where a direct child sits in the section's top-to-bottom column.
+
+    `detail_check` and `frame1_section` are both added straight to
+    `controls.layout()`, so their order there is the order a person actually
+    sees -- the same fact `_stacked_height` reads for height, read here for
+    position instead.
+    """
+    column = controls.layout()
+    assert column is not None
+    for index in range(column.count()):
+        item = column.itemAt(index)
+        if item is not None and item.widget() is widget:
+            return index
+    raise AssertionError(f"{widget} is not a direct child of the section's column")
+
+
+def test_the_detail_toggle_sits_above_the_frame_one_fold(qtbot: QtBot) -> None:
+    """maskingframe-2rg.8: a checkbox about every frame except frame 1 used
+    to sit just under the folded FRAME 1 heading, closer to it than the L
+    gap that separates every other break in the rail -- so it read as one of
+    frame 1's own controls. It belongs with the rest of the shared border,
+    above the fold that is frame 1's departure from it."""
+    controls = shell.BorderControls(
+        show_gutter=True, show_detail_toggle=True, scope=settings.SPLIT, show_frame1=True
+    )
+    qtbot.addWidget(controls)
+    assert controls.detail_check is not None
+    assert controls.frame1_section is not None
+
+    assert _column_index(controls, controls.detail_check) < _column_index(
+        controls, controls.frame1_section
+    )
+
+
+def _percent_sentence(controls: shell.BorderControls) -> str:
+    matches = [
+        label.text()
+        for label in controls.findChildren(QLabel)
+        if "percent of the frame's short side" in label.text()
+    ]
+    assert len(matches) == 1, matches
+    return matches[0]
+
+
+def test_the_percent_sentence_is_singular_when_only_width_is_showing(qtbot: QtBot) -> None:
+    """On Split the row gap lives inside FRAME 1 -- it is frame 1's own
+    setting, not a shared border one -- so above the fold there is exactly
+    one width slider, and the sentence must say so rather than claim there
+    are several."""
+    controls = shell.BorderControls(
+        show_gutter=True, show_detail_toggle=True, scope=settings.SPLIT, show_frame1=True
+    )
+    qtbot.addWidget(controls)
+
+    assert _percent_sentence(controls) == "Width is a percent of the frame's short side."
+
+
+def test_the_percent_sentence_is_plural_and_follows_the_gap_on_compose(qtbot: QtBot) -> None:
+    """A composite's gap is a width slider like the border is, and it never
+    folds away -- so the sentence describing both must say "Widths" and sit
+    after both, not above the one it hadn't reached yet."""
+    controls = shell.BorderControls(show_gutter=True, show_detail_toggle=False)
+    qtbot.addWidget(controls)
+    assert controls.gutter_slider is not None
+    gutter_row = controls.gutter_slider.parentWidget()
+    assert gutter_row is not None
+
+    sentence = _percent_sentence(controls)
+    sentence_label = next(
+        label for label in controls.findChildren(QLabel) if label.text() == sentence
+    )
+
+    assert sentence == "Widths are a percent of the frame's short side."
+    assert _column_index(controls, gutter_row) < _column_index(controls, sentence_label)
+
+
 def test_the_sliders_cannot_leave_the_allowed_range(qtbot: QtBot) -> None:
     controls = shell.BorderControls(show_gutter=True, show_detail_toggle=False)
     qtbot.addWidget(controls)

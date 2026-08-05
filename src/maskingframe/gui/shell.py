@@ -870,11 +870,12 @@ class BorderControls(QWidget):
         )
         column.addWidget(border_row)
         column.addSpacing(theme.S)
-        # One line for the section, not one per control. Every width here is
-        # a percent of the short side, which is the one thing a label cannot
-        # say; what each slider *is* is now written on the slider.
-        column.addWidget(help_label("Widths are a percent of the frame's short side."))
 
+        # A composite's gap sits here, beside the border it belongs next to.
+        # A split's gap is frame 1's own setting -- it separates nothing but
+        # frame 1's rows -- so it moves into the FRAME 1 fold below instead,
+        # and never reaches this part of the column at all.
+        gutter_in_border = show_gutter and not show_frame1
         gutter_row: QWidget | None = None
         if show_gutter:
             self.gutter_slider, self.gutter_swatch, gutter_row = self._field(
@@ -883,15 +884,41 @@ class BorderControls(QWidget):
                 "Gap colour",
                 pipeline.DEFAULT_STYLE.gutter_colour,
             )
+        if gutter_in_border:
+            # `gutter_in_border` implies `show_gutter`, which is what built
+            # `gutter_row` above -- true by construction, not by luck, but
+            # spelled out because the two conditions live in separate `if`s.
+            assert gutter_row is not None
+            column.addWidget(gutter_row)
+            column.addSpacing(theme.S)
+
+        # Below every width control it describes, not above -- a sentence
+        # placed above a slider read as describing only the one before it.
+        # Plural only when the gap is one of the sliders it sits under:
+        # on Split the gap has just moved into FRAME 1, so with the fold
+        # closed Width is the only one left up here.
+        sentence = (
+            "Widths are a percent of the frame's short side."
+            if gutter_in_border
+            else "Width is a percent of the frame's short side."
+        )
+        column.addWidget(help_label(sentence))
+
+        if show_detail_toggle:
+            # Which frames carry the border, straight after what the percent
+            # means -- both are shared-border facts, so both sit above the
+            # fold that is frame 1's exception to them.
+            column.addSpacing(theme.M)
+            self.detail_check = QCheckBox("Border the detail frames too")
+            self.detail_check.setAccessibleName("Border the detail frames too")
+            self.detail_check.toggled.connect(self._emit)
+            self.detail_check.toggled.connect(self._settle)
+            column.addWidget(self.detail_check)
 
         if show_frame1:
             # Everything frame 1 alone decides, in one place that folds away.
             # It was scattered across two sections, each carrying a sentence
             # to re-explain the scope its heading now states once.
-            #
-            # The gap comes in here on this tab and stays in BORDER on the
-            # other, because on a split the gap separates nothing but frame
-            # 1's rows -- it is not a border setting at all.
             column.addSpacing(theme.L)
             self.frame1_section = Disclosure("Frame 1")
             body = self.frame1_section.body_layout
@@ -916,17 +943,6 @@ class BorderControls(QWidget):
                 help_label("A tall frame stays mostly border however far this goes down.")
             )
             column.addWidget(self.frame1_section)
-        elif gutter_row is not None:
-            column.addSpacing(theme.M)
-            column.addWidget(gutter_row)
-
-        if show_detail_toggle:
-            column.addSpacing(theme.M)
-            self.detail_check = QCheckBox("Border the detail frames too")
-            self.detail_check.setAccessibleName("Border the detail frames too")
-            self.detail_check.toggled.connect(self._emit)
-            self.detail_check.toggled.connect(self._settle)
-            column.addWidget(self.detail_check)
 
     def _on_frame1_toggled(self, checked: bool) -> None:
         """Reveal the slider, starting from the width already in force.

@@ -178,6 +178,17 @@ once. **On Split the gap is inside FRAME 1** because a split's gap separates
 nothing but frame 1's rows; on Compose it stays in BORDER, where it separates
 panels. One control and one stored field, two labels.
 
+Above that fold, BORDER reads as one thing: preset, width and colour, what the
+percent means, which frames carry it. The detail-frames checkbox used to sit
+just under the fold's heading, closer to it than the gap that separates every
+other break in the rail, so a control about every frame except frame 1 read as
+one of frame 1's own. It sits above the fold now, straight after the sentence
+it follows. That sentence's wording follows what is actually beside it:
+singular on Split, because with the fold closed the row gap has moved inside
+it and Width is the only percent slider left up here; plural on Compose, where
+the panel gap is a second one that never folds away, placed after both rather
+than above the one it hadn't reached yet.
+
 ### Remembering the border
 
 `gui/settings.py` is the only module that constructs a `QSettings`, so a reader and a writer can never end up on different files. It states its format and scope explicitly: the two-argument `QSettings(organisation, application)` constructor pins itself to the platform's native format and then ignores `setDefaultFormat` and `setPath`, which on macOS means a plist a test cannot redirect.
