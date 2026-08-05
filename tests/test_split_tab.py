@@ -281,12 +281,29 @@ def test_a_batch_never_claims_success_when_a_source_failed(tab: SplitTab) -> Non
     assert tab.error_label.text() == "b.jpg: portrait input"
 
 
-def test_an_empty_folder_says_so(tab: SplitTab) -> None:
+def test_an_empty_folder_says_so(tab: SplitTab, tmp_path: Path) -> None:
+    # A source is set so the button re-enabling is what this test is about,
+    # not the empty-source guard `test_cut_frames_is_unpressable_with_no_source`
+    # already covers.
+    tab.folder_radio.setChecked(True)
+    tab.source_row.setText(str(tmp_path))
+
     tab._finish_batch(pipeline.BatchResult(), pipeline.DEFAULT_RATIO.name)
 
     expected = "No JPGs in that folder. Masking Frame reads .jpg and .jpeg."
     assert tab.status_label.text() == expected
     assert tab.action_btn.isEnabled() is True
+
+
+def test_cut_frames_is_unpressable_with_no_source(tab: SplitTab) -> None:
+    """Preview already refuses this via `can_preview()`; the primary action
+    used to stay live regardless of the source field, so pressing it with
+    nothing chosen blamed a file the user never picked
+    (maskingframe-2rg.1)."""
+    assert tab.action_btn.isEnabled() is False
+
+    tab.folder_radio.setChecked(True)
+    assert tab.action_btn.isEnabled() is False
 
 
 def test_preview_titles_name_the_whole_panorama_first() -> None:

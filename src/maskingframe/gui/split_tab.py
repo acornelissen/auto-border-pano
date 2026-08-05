@@ -1247,12 +1247,19 @@ class SplitTab(QWidget):
     def _apply_button_states(self) -> None:
         """The single place that decides which buttons are pressable.
 
-        Derived from two facts only -- is something in flight, and is there a
-        panorama to preview -- so it cannot go out of date. Called from
-        construction, from every change to the selection, and from both ends
-        of a run.
+        Derived from facts only -- is something in flight, is there a source
+        chosen, and is there a panorama to preview -- so neither button can
+        go out of date. Called from construction, from every change to the
+        selection, and from both ends of a run.
+
+        The action needs less than preview: a folder is fine (that is what
+        batch mode cuts), so it only demands the source field be non-empty
+        rather than `can_preview()`'s single readable file. Without the
+        check it stayed pressable with nothing chosen at all, and blamed a
+        file the user never picked -- the one place in the tab a rule was
+        enforced by an error message instead of an unpressable control.
         """
-        self.action_btn.setEnabled(not self._running)
+        self.action_btn.setEnabled(not self._running and bool(self.source_row.text()))
         self.preview_btn.setEnabled(not self._running and self.can_preview())
 
     # --- Choosing -----------------------------------------------------------
