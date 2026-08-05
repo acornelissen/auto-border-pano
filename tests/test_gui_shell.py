@@ -1104,3 +1104,47 @@ def test_a_disabled_primary_button_does_not_look_pressable(
             f"{button_name} still renders solid chinagraph while disabled"
         )
         assert colour.name().upper() == theme.PANEL
+
+
+def test_a_disabled_primary_button_does_not_look_like_an_error(
+    qtbot: QtBot, themed_app: QApplication
+) -> None:
+    """Dropping the fill left the border in chinagraph, and on launch that
+    is a white box outlined in red with nothing loaded -- the first thing on
+    screen, saying something is wrong. In this theme chinagraph is the
+    marking-up layer and the error label uses it, so an unavailable control
+    wearing it reads as an invalid one. The palette already makes this
+    argument about focus: field focus is INK rather than red, because a
+    field turning red when you click into it reads as invalid.
+
+    Every edge of the button is sampled, not one: the fill was already
+    greyscale, so a corner probe passes on the broken sheet.
+    """
+    from maskingframe.gui.app import MainWindow
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.resize(1180, 820)
+    window.show()
+    qtbot.waitExposed(window)
+
+    for tab, button_name in ((window.split, "action_btn"), (window.compose, "save_btn")):
+        button = getattr(tab, button_name)
+        assert not button.isEnabled(), "the launch state this is about"
+        window.tabs.setCurrentWidget(tab)
+        themed_app.processEvents()
+        image = window.grab().toImage()
+        box = button.rect()
+        middles = (
+            box.topLeft() + QPoint(box.width() // 2, 0),
+            box.bottomLeft() + QPoint(box.width() // 2, -1),
+            box.topLeft() + QPoint(0, box.height() // 2),
+            box.topRight() + QPoint(-1, box.height() // 2),
+        )
+        for point in middles:
+            colour = image.pixelColor(button.mapTo(window, point))
+            red, green, blue = colour.red(), colour.green(), colour.blue()
+            assert red <= max(green, blue) + 4, (
+                f"{button_name} draws {colour.name()} while disabled, which is "
+                "chinagraph rather than a grey"
+            )

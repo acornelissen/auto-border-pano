@@ -214,7 +214,7 @@ def stylesheet() -> str:
        that rule for the colours and the measured contrast. */
     #Rail QPushButton#Primary:disabled {{
         background: {PANEL};
-        border-color: {CHINAGRAPH};
+        border-color: {INK_DIM};
         color: {INK_DIM};
     }}
     #Rail QPushButton#Secondary {{ background: transparent; }}
@@ -352,16 +352,29 @@ def stylesheet() -> str:
        it here would give a dead control the loudest colour on screen. It
        must not simply grey out to Secondary's own disabled look either, or
        the one large button on the rail becomes indistinguishable from the
-       small reversible one beside it. So the fill goes (to PANEL, the same
-       recessed grey every other disabled control here already uses) and
-       only the border keeps a whisper of chinagraph -- a hairline, which
-       the palette's own rule for this colour already allows, not a filled
-       area. No new palette value: PANEL, CHINAGRAPH and INK_DIM all exist
-       already. INK_DIM on PANEL measures 5.3:1, clearing AA's 4.5:1 floor
-       for the button's own 14px label with room to spare. */
+       small reversible one beside it.
+
+       So the fill goes to PANEL, the same recessed grey every other
+       disabled control here already uses, and the border does the
+       distinguishing. In INK_DIM, not chinagraph: an outlined red box was
+       the first thing on screen at launch with nothing loaded, and it said
+       something was wrong rather than that something was unavailable. This
+       colour is the marking-up layer and the error label wears it, which is
+       the same argument the palette already makes about focus -- field
+       focus is INK rather than red, because a field turning red when you
+       click into it reads as invalid. A control turning red when it is
+       merely not yet usable reads as invalid too.
+
+       INK_DIM against Secondary's EDGE is what keeps the two apart: two
+       greys a long way from each other in weight, on top of the size,
+       padding and font the primary already has. A filled EDGE slab would
+       have separated them more strongly, but INK_DIM on EDGE measures
+       4.3:1 and fails AA's 4.5:1 floor for the button's own 14px label,
+       and the only way through would be a new palette value between two
+       that already exist. INK_DIM on PANEL measures 5.3:1 and clears it. */
     QPushButton#Primary:disabled {{
         background: {PANEL};
-        border-color: {CHINAGRAPH};
+        border-color: {INK_DIM};
         color: {INK_DIM};
     }}
 
