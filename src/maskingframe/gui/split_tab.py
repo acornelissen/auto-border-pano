@@ -49,15 +49,25 @@ from maskingframe.gui.work import submit
 # pipeline.RATIOS every time.
 _RATIO_BY_DISPLAY: dict[str, str] = {r.display: r.name for r in pipeline.RATIOS.values()}
 
-NO_COUNT = "Load a source to see the frame count"
-"""Shown when there is no readable panorama loaded: no source chosen, or a
-file that could not be read. Folder mode gets `PER_FILE_COUNT` instead --
-a folder is a loaded source, it just does not have one count to report."""
+UNKNOWN_COUNT = "—"
+"""What the Count field reads with no readable panorama loaded: no source
+chosen, or a file that could not be read.
 
-PER_FILE_COUNT = "Each panorama gets its own count."
-"""The count line in folder mode. `NO_COUNT` would be false here: a source
-is loaded, a whole folder of them -- there just is not one number, because
-each panorama's own shape decides its own frame count (maskingframe-2rg.6)."""
+It used to be a sentence -- "Load a source to see the frame count" -- which
+was doing two jobs, because the count row had no label and that line was the
+only thing naming it. `Count` on the shared label column says which row this
+is, so the value only has to say what the value is, and a dash is the one
+character that says "not this yet" without being mistaken for a number.
+Folder mode gets `PER_FILE_COUNT` instead -- a folder is a loaded source, it
+just does not have one count to report."""
+
+PER_FILE_COUNT = "one each"
+"""The Count field in folder mode. `UNKNOWN_COUNT` would be false here: a
+source is loaded, a whole folder of them -- there just is not one number,
+because each panorama's own shape decides its own frame count
+(maskingframe-2rg.6). Three words rather than the sentence it used to be,
+because it now stands in a value slot beside three buttons rather than on a
+line of its own."""
 
 NO_POSITIONS = "Frames are spread evenly. Load one panorama to place them by hand."
 """What stands where the ribbon would be in folder mode. There is no one
@@ -307,15 +317,33 @@ class SplitTab(QWidget):
         self.ratio_box.setCurrentText(pipeline.DEFAULT_RATIO.display)
         rail.addWidget(shell.labelled("Ratio", self.ratio_box))
 
-        rail.addSpacing(theme.S)
-        self.count_label = shell.help_label(NO_COUNT)
-        rail.addWidget(self.count_label)
+        # FORMAT is the output frame's shape; how many frames there are, where
+        # they land and the way back are a different decision and now say so.
+        # The selection and undo sentences in particular used to float under a
+        # heading that described neither of them (maskingframe-2rg.5).
+        rail.addSpacing(theme.L)
+        rail.addWidget(shell.section("Frames"))
 
         rail.addSpacing(theme.S)
         counter = QWidget()
         counter_row = QHBoxLayout(counter)
         counter_row.setContentsMargins(0, 0, 0, 0)
         counter_row.setSpacing(theme.S)
+        # The number in the control position, on the same column every other
+        # value in the rail sits on. It reads as a bare numeral because the
+        # heading says FRAMES and the label says Count -- spelling it "4
+        # frames" here would state the count three times on one screen, since
+        # the button and the band both already count it.
+        self.count_label = shell.data_label(UNKNOWN_COUNT)
+        counter_row.addWidget(self.count_label)
+        # The stretch goes between the value and the buttons, not after them,
+        # so the three keep the right edge and stay where the hand left them.
+        # Packed left they would slide sideways every time the value changed
+        # width -- a dash, a numeral and "one each" are three different
+        # widths, and add and remove would move under the pointer as you used
+        # them. The sources list on Compose clusters its buttons at the right
+        # edge for the same reason.
+        counter_row.addStretch(1)
         # Secondary, not primary: chinagraph is for marking up, and two more
         # filled blocks of it beside the action would cost that action its
         # primacy. These are chrome.
@@ -347,8 +375,8 @@ class SplitTab(QWidget):
         counter_row.addWidget(self.remove_btn)
         counter_row.addWidget(self.add_btn)
         counter_row.addWidget(self.even_btn)
-        counter_row.addStretch(1)
-        rail.addWidget(counter)
+        self.count_row = shell.labelled("Count", counter)
+        rail.addWidget(self.count_row)
 
         rail.addSpacing(theme.S)
         # Under the controls whose presses it takes back, and carrying the
@@ -1069,7 +1097,7 @@ class SplitTab(QWidget):
             )
         )
         if placed:
-            self.count_label.setText(f"{placed + 1} frames")
+            self.count_label.setText(str(placed + 1))
             self.action_btn.setText(f"Cut {placed + 1} frames")
             self._set_band(self._subject, f"{self._ratio_name()} · {placed + 1} frames")
 
@@ -1201,7 +1229,7 @@ class SplitTab(QWidget):
             self._rerender()
             return
         self.facts_label.setText(f"{facts.width} × {facts.height} · {facts.native_ratio}")  # noqa: RUF001
-        self.count_label.setText(f"{facts.frame_count} frames")
+        self.count_label.setText(str(facts.frame_count))
         self.action_btn.setText(f"Cut {facts.frame_count} frames")
         self._set_band(subject, f"{ratio_name} · {facts.frame_count} frames" if ratio_name else "")
         self._source_size = (facts.width, facts.height)
@@ -1258,7 +1286,7 @@ class SplitTab(QWidget):
         # Folder mode has a source -- a whole folder of them -- it just does
         # not have one count; everywhere else this is reached, there is no
         # readable panorama at all.
-        self.count_label.setText(PER_FILE_COUNT if self.folder_radio.isChecked() else NO_COUNT)
+        self.count_label.setText(PER_FILE_COUNT if self.folder_radio.isChecked() else UNKNOWN_COUNT)
         self.action_btn.setText(UNCOUNTED_ACTION)
         self._set_band(subject, "")
         self._positions = ()

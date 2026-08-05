@@ -26,10 +26,10 @@ from pytestqt.qtbot import QtBot
 from maskingframe import pipeline
 from maskingframe.gui import settings, shell, split_tab
 from maskingframe.gui.split_tab import (
-    NO_COUNT,
     NO_SOURCE,
     PER_FILE_COUNT,
     UNCOUNTED_ACTION,
+    UNKNOWN_COUNT,
     SplitTab,
     preview_titles,
 )
@@ -70,7 +70,7 @@ def test_frame_count_readout_matches_what_the_pipeline_writes(
     tab.ratio_box.setCurrentText(ratio.display)
     tab.source_row.setText(str(source))
 
-    qtbot.waitUntil(lambda: tab.count_label.text() == f"{len(written)} frames")
+    qtbot.waitUntil(lambda: tab.count_label.text() == str(len(written)))
     assert tab.action_btn.text() == f"Cut {len(written)} frames"
     assert tab.facts_label.text() == "600 × 200 · 3.00:1"  # noqa: RUF001
     assert tab.detail == f"{ratio_name} · {len(written)} frames"
@@ -82,11 +82,11 @@ def test_the_readouts_reset_with_no_file_and_in_folder_mode(
 ) -> None:
     source = _panorama(tmp_path)
 
-    assert tab.count_label.text() == NO_COUNT
+    assert tab.count_label.text() == UNKNOWN_COUNT
     assert tab.facts_label.text() == ""
 
     tab.source_row.setText(str(source))
-    qtbot.waitUntil(lambda: tab.count_label.text() == "5 frames")
+    qtbot.waitUntil(lambda: tab.count_label.text() == "5")
     assert tab.facts_label.text() == "600 × 200 · 3.00:1"  # noqa: RUF001
 
     tab.folder_radio.setChecked(True)
@@ -95,21 +95,21 @@ def test_the_readouts_reset_with_no_file_and_in_folder_mode(
     assert tab.action_btn.text() == UNCOUNTED_ACTION
 
     tab.single_radio.setChecked(True)
-    qtbot.waitUntil(lambda: tab.count_label.text() == "5 frames")
+    qtbot.waitUntil(lambda: tab.count_label.text() == "5")
 
     tab.source_row.setText("")
-    assert tab.count_label.text() == NO_COUNT
+    assert tab.count_label.text() == UNKNOWN_COUNT
     assert tab.facts_label.text() == ""
 
 
 def test_the_unexposed_strip_states_no_count_before_a_source_loads(tab: SplitTab) -> None:
-    """The rail says `NO_COUNT` before anything is read. The strip used to
+    """The rail says the count is unknown before anything is read. The strip used to
     keep `strip.DEFAULT_FRAME_COUNT` (four) construction-time apertures,
     numbered in chinagraph as though that count were known -- two halves of
     one screen disagreeing about how many frames there are, which
     `_apply_facts` only ever fixed for the count *after* the first
     (maskingframe-2rg.9)."""
-    assert tab.count_label.text() == NO_COUNT
+    assert tab.count_label.text() == UNKNOWN_COUNT
     assert tab.strip.frame_count == 1
 
 
@@ -130,7 +130,7 @@ def test_an_unreadable_source_shows_no_count(qtbot: Any, tab: SplitTab, tmp_path
     broken.write_bytes(b"not a jpeg")
     tab.source_row.setText(str(broken))
     qtbot.waitUntil(lambda: tab.subject == "broken.jpg")
-    assert tab.count_label.text() == NO_COUNT
+    assert tab.count_label.text() == UNKNOWN_COUNT
     assert tab.action_btn.text() == UNCOUNTED_ACTION
     assert tab.ribbon_note.text() == NO_SOURCE
 
@@ -144,7 +144,7 @@ def test_a_stale_inspection_never_overwrites_a_newer_one(tab: SplitTab) -> None:
     tab._apply_facts(1, pipeline.SourceFacts(100, 100, "1.00:1", 2), "1:1", "old.jpg")
 
     assert tab.facts_label.text() == "4000 × 1000 · 4.00:1"  # noqa: RUF001
-    assert tab.count_label.text() == "5 frames"
+    assert tab.count_label.text() == "5"
     assert tab.action_btn.text() == "Cut 5 frames"
     assert tab.detail == "4:5 · 5 frames"
 
@@ -373,7 +373,7 @@ def test_cut_frames_is_unpressable_when_single_mode_names_a_folder(
 def test_each_of_the_four_source_states_says_something_true(
     qtbot: Any, tab: SplitTab, tmp_path: Path
 ) -> None:
-    """`NO_COUNT`/`NO_SOURCE` used to also stand for folder mode, where a
+    """The count line and `NO_SOURCE` used to also stand for folder mode, where a
     source *is* loaded -- there just isn't one count, or one panorama to
     place frames on. Each of the four states -- nothing loaded, a single
     readable file, a folder, and an unreadable file -- now gets a line that
@@ -383,13 +383,13 @@ def test_each_of_the_four_source_states_says_something_true(
     broken.write_bytes(b"not a jpeg")
 
     # Nothing loaded.
-    assert tab.count_label.text() == NO_COUNT
+    assert tab.count_label.text() == UNKNOWN_COUNT
     assert tab.ribbon_note.text() == NO_SOURCE
 
     # A single readable file: a real count, and the ribbon takes over from
     # the note.
     tab.source_row.setText(str(readable))
-    qtbot.waitUntil(lambda: tab.count_label.text() == "5 frames")
+    qtbot.waitUntil(lambda: tab.count_label.text() == "5")
     assert tab.ribbon.isVisibleTo(tab)
 
     # Whole folder: a source is loaded, it just does not have one count.
@@ -401,7 +401,7 @@ def test_each_of_the_four_source_states_says_something_true(
     tab.single_radio.setChecked(True)
     tab.source_row.setText(str(broken))
     qtbot.waitUntil(lambda: tab.subject == "broken.jpg")
-    assert tab.count_label.text() == NO_COUNT
+    assert tab.count_label.text() == UNKNOWN_COUNT
     assert tab.ribbon_note.text() == NO_SOURCE
 
 
@@ -565,13 +565,52 @@ def _widgets(rail: QLayout) -> list[QWidget]:
     return found
 
 
+def _section_texts(tab: SplitTab) -> list[str]:
+    return [
+        child.text()
+        for child in tab.columns.rail_shell.findChildren(QLabel)
+        if child.objectName() == "Section"
+    ]
+
+
+def test_the_rail_reads_source_then_format_then_frames(tab: SplitTab) -> None:
+    """FORMAT means the output frame's shape and nothing else. The count,
+    the placement and the way back were filed under it, which is why the
+    selection and undo sentences sat under a heading describing neither
+    (maskingframe-2rg.5)."""
+    assert _section_texts(tab) == ["SOURCE", "FORMAT", "FRAMES", "BORDER", "DESTINATION"]
+
+
+def test_the_count_row_carries_a_label_on_the_shared_column(tab: SplitTab) -> None:
+    """The one unlabelled control row in the application. Its name used to be
+    carried by the sentence above it, which is exactly the read-past-a-control
+    pattern this rail removed everywhere else."""
+    row = tab.count_row.layout()
+    assert isinstance(row, QLayout)
+    first = row.itemAt(0)
+    assert first is not None
+    label = first.widget()
+    assert isinstance(label, QLabel)
+    assert label.objectName() == "FieldLabel"
+    assert label.text() == "Count"
+
+
+def test_with_no_source_the_count_is_a_dash_and_nothing_is_pressable(tab: SplitTab) -> None:
+    """An em dash says the same thing the old sentence did, in one character,
+    beside a label that already names what is missing."""
+    assert tab.count_label.text() == UNKNOWN_COUNT
+    assert not tab.add_btn.isEnabled()
+    assert not tab.remove_btn.isEnabled()
+    assert not tab.even_btn.isEnabled()
+
+
 def test_border_controls_sit_between_the_format_and_the_destination(tab: SplitTab) -> None:
     """Two layouts rather than one since the destination moved to the foot
     (maskingframe-2rg.2): BORDER is last in the scrolling body, and the
     destination is first in the pinned foot, which reads the same way down
     the screen as it always did."""
     body = _widgets(tab.columns.rail_layout)
-    assert body.index(tab.count_label) < body.index(tab.border_controls)
+    assert body.index(tab.count_row) < body.index(tab.border_controls)
     assert body[-1] is tab.border_controls
 
     foot = _widgets(tab.columns.rail_foot_layout)
@@ -1114,7 +1153,7 @@ def test_changing_the_frame_count_restates_the_band(qtbot: Any, tmp_path: Path) 
 
     tab.add_frame()
     assert tab.detail == f"4:5 · {loaded + 1} frames"
-    assert tab.count_label.text() == f"{loaded + 1} frames"
+    assert tab.count_label.text() == str(loaded + 1)
 
     tab.remove_frame()
     assert tab.detail == f"4:5 · {loaded} frames"
@@ -1677,7 +1716,7 @@ def test_the_strip_takes_its_count_from_the_header_not_the_first_render(
 
     assert facts.frame_count == 9, "the fixture no longer exercises a count unlike the default"
     assert tab.strip.frame_count == facts.frame_count
-    assert tab.count_label.text() == f"{facts.frame_count} frames"
+    assert tab.count_label.text() == str(facts.frame_count)
 
 
 def test_a_header_read_never_blanks_a_strip_with_a_preview_on_it(

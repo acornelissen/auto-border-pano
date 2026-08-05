@@ -103,6 +103,25 @@ by a sentence printed underneath, so you read past a control to learn what it
 was. Help text is now only for what a label cannot say. Labels are short because
 the section heading carries the topic: BORDER's slider is `Width`.
 
+**FORMAT is the output frame's shape; FRAMES is everything about the frames
+themselves.** The count, the three count buttons, where the frames land and the
+way back all used to sit under FORMAT, which described none of them — the
+selection sentence and the undo sentence in particular floated under a heading
+about ratios. Split in two, FRAMES has an owner for all of it.
+
+The count row is `Count` on the shared label column with the number in the
+control position, which is what let `NO_COUNT` go. That constant was a sentence
+("Load a source to see the frame count") doing two jobs, because the row had no
+label and the sentence was the only thing naming it. Its docstring said the
+count must never be stale or guessed, and `split_tab.UNKNOWN_COUNT` — an em dash
+— is neither: it is the same claim in one character, next to a label that
+already says which row it belongs to. `PER_FILE_COUNT` stays, because folder
+mode is a different state from no source (a folder *is* loaded, it just has no
+one count), shortened to fit a value slot rather than a line of its own. The
+count buttons cluster at the right edge with the stretch between them and the
+value, so a dash becoming a numeral becoming "one each" never slides add and
+remove out from under the pointer.
+
 **`shell.Disclosure` folds a section away and states its value in the heading**
 (`+ FRAME 1   whole panorama`). Folding is only acceptable because the
 summary is there — otherwise the setting is buried rather than out of the way.
