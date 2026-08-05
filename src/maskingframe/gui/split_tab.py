@@ -177,6 +177,14 @@ class SplitTab(QWidget):
         # twice.
         self._running = False
         self._positions: tuple[float, ...] = ()
+        # Which source `_positions` was computed for, "" for none. A source
+        # change bumps the inspect token but deliberately leaves `_positions`
+        # on screen until the new header read lands (see `_rerender`), and
+        # `source_row.text()` has already moved on by then -- so `_remember`
+        # and `_record` compare against this rather than the box, or a
+        # settle firing in that window writes, or undoes into, a plan made
+        # for a photograph that is no longer the one loaded.
+        self._positions_source = ""
         self._source_size: tuple[int, int] | None = None
         self._window_fraction = 0.0
         # The positions as they were when a strip drag began. A strip drag
@@ -800,9 +808,20 @@ class SplitTab(QWidget):
         the hand stops, the way the frames are rendered once when the hand
         stops. Folder mode stores nothing -- there is no one panorama, and
         the frames are cut on the even default.
+
+        Also guarded on `_positions_source`: between choosing a new source
+        and its header read landing, `source_row` already names the new
+        file but `_positions` is still the old one's, left on screen on
+        purpose. Without this a settle in that window would write the old
+        plan under the new source's key.
         """
         source = self.source_row.text()
-        if not source or self.folder_radio.isChecked() or not self._positions:
+        if (
+            not source
+            or self.folder_radio.isChecked()
+            or not self._positions
+            or source != self._positions_source
+        ):
             return
         settings.save_plan(source, self._positions, self._rows)
 
@@ -821,8 +840,14 @@ class SplitTab(QWidget):
         two answer different questions -- and because undo and redo call
         `_remember` and must never call this. That is what stops them
         recording themselves.
+
+        Guarded on `_positions_source` for the same reason `_remember` is:
+        a settle firing between a new source being chosen and its header
+        read landing would otherwise seed the new source's -- just cleared
+        -- history with the old source's plan, and that plan would become
+        what the first undo walks back to.
         """
-        if not self._positions:
+        if not self._positions or self.source_row.text() != self._positions_source:
             return
         self._history.record(label, self._snapshot())
         self._state_undo()
@@ -1141,6 +1166,10 @@ class SplitTab(QWidget):
         self.action_btn.setText(f"Cut {facts.frame_count} frames")
         self._set_band(subject, f"{ratio_name} · {facts.frame_count} frames" if ratio_name else "")
         self._source_size = (facts.width, facts.height)
+        # The token check above already proves `source_row` has not moved on
+        # since this read was dispatched, so its text names the source the
+        # plan below is about to be computed for.
+        self._positions_source = self.source_row.text()
         self._window_fraction = facts.window_fraction
         # A remembered plan beats the even spread, and a source the store
         # has never seen -- or one edited since it was stored -- falls
@@ -1191,6 +1220,7 @@ class SplitTab(QWidget):
         self.action_btn.setText(UNCOUNTED_ACTION)
         self._set_band(subject, "")
         self._positions = ()
+        self._positions_source = ""
         self._source_size = None
         self._window_fraction = 0.0
         self._drag_anchor = ()

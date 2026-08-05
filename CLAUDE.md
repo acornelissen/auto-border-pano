@@ -409,6 +409,19 @@ themselves, and it is the one invariant a test holds. Applying a snapshot
 moves the rows combo under `_filling_rows`, so the move cannot be mistaken
 for a choice and cannot record a step of its own either.
 
+Both are also guarded on `_positions_source`, the source `_positions` was
+computed for, set in `_apply_facts` alongside `_source_size` and cleared in
+`_clear_facts`. `_positions` is deliberately left on screen from the
+outgoing source until the incoming one's header read lands — see
+`_rerender` — so between choosing a new source and that read arriving,
+`source_row` names the new file while `_positions` still holds the old
+one's plan. A settle firing in that window used to write the old plan
+under the new source's key and, separately, seed the new source's --
+just-cleared -- history with it, so the first undo walked back into a
+photograph that was not the one on screen. Comparing `_positions_source`
+against `source_row.text()` closes both at once, since they are one field
+naming the same fact.
+
 `record` ignores a snapshot equal to the one on screen. A settle fires
 whether or not anything moved — an arrow key held against the clamp, a drag
 that went nowhere — and recording those would give undo presses that

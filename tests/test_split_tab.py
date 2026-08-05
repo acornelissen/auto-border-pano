@@ -2084,6 +2084,53 @@ def test_a_new_source_clears_the_history(qtbot: Any, tab: SplitTab, tmp_path: Pa
     assert not tab._history.can_undo
 
 
+def test_a_settle_before_the_new_sources_facts_arrive_stores_nothing_under_it(
+    qtbot: Any, tab: SplitTab, tmp_path: Path
+) -> None:
+    """`_positions` is deliberately left on screen from the outgoing source
+    until the incoming one's header read lands -- `_rerender` documents why.
+    A settle landing in that window used to write the outgoing plan under
+    the incoming source's key (maskingframe-bv1)."""
+    _loaded(qtbot, tab, tmp_path, "a.jpg")
+    tab._move_position(0, 0.31)
+    tab._on_frame_settled(0)
+
+    source_b = _panorama(tmp_path, "b.jpg")
+    tab.source_row.setText(str(source_b))  # header read dispatched, not delivered
+
+    tab._remember()  # a settle firing inside that window
+
+    assert settings.load_plan(str(source_b)) is None
+
+
+def test_a_settle_before_the_new_sources_facts_arrive_does_not_seed_its_history(
+    qtbot: Any, tab: SplitTab, tmp_path: Path
+) -> None:
+    """The other half of the same race. `History.record` falls back to
+    `start` when the history is empty, and `_on_selection_changed` has just
+    cleared it for the incoming source -- so a stray record made the
+    outgoing plan the baseline the first undo would walk back to
+    (maskingframe-bv1)."""
+    _loaded(qtbot, tab, tmp_path, "a.jpg")
+    tab._move_position(0, 0.31)
+    tab._on_frame_settled(0)
+
+    source_b = _panorama(tmp_path, "b.jpg")
+    tab.source_row.setText(str(source_b))  # header read dispatched, not delivered
+
+    tab._record("move")  # a settle firing inside that window
+
+    facts_b = pipeline.inspect_source(source_b, pipeline.DEFAULT_RATIO)
+    tab._apply_facts(tab._inspect_token, facts_b, pipeline.DEFAULT_RATIO.display, "b.jpg")
+    baseline_b = tab.positions()
+
+    tab._move_position(0, 0.6)
+    tab._on_frame_settled(0)
+    tab.undo()
+
+    assert tab.positions() == baseline_b
+
+
 def test_folder_mode_clears_the_history(qtbot: Any, tab: SplitTab, tmp_path: Path) -> None:
     _loaded(qtbot, tab, tmp_path)
     tab._move_position(0, 0.42)
