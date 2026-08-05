@@ -397,19 +397,21 @@ class SplitTab(QWidget):
         self.border_controls.style_settled.connect(self._on_style_settled)
         rail.addWidget(self.border_controls)
 
-        rail.addSpacing(theme.L)
+        # From here down the rail stops scrolling. What commits to disk is
+        # pinned to the foot, and that is the destination as well as the
+        # button: a primary action below the fold on a laptop window is the
+        # one convention this rail cannot afford to break, and a path you
+        # cannot see is the same failure -- at 1100x700 DESTINATION scrolled
+        # away entirely and left a live Cut frames button above it. Pinning
+        # also stops both moving as the rail above them grows.
+        rail = self.columns.rail_foot_layout
         rail.addWidget(shell.section("Destination"))
         rail.addSpacing(theme.S)
         self.dest_row = shell.PathRow("Choose folder")
         self.dest_row.button.clicked.connect(self.browse_output)
         rail.addWidget(self.dest_row)
 
-        # From here down the rail stops scrolling. The action that writes to
-        # disk, and everything reporting on it, is pinned to the foot: a
-        # primary action below the fold on a laptop window is the one
-        # convention this rail cannot afford to break, and pinning it also
-        # stops it moving as the rail above it grows.
-        rail = self.columns.rail_foot_layout
+        rail.addSpacing(theme.M)
         self.action_btn = QPushButton(UNCOUNTED_ACTION)
         self.action_btn.setObjectName("Primary")
         self.action_btn.clicked.connect(self.process_images)

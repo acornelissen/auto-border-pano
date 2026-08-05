@@ -154,21 +154,37 @@ class TwoColumn(QWidget):
         self.rail_layout.setContentsMargins(theme.L, theme.L, theme.L, theme.S)
         self.rail_layout.setSpacing(0)
 
-        # The settings scroll; the thing that commits them does not. A
-        # primary action that goes below the fold on a laptop window is the
-        # one convention this rail cannot afford to break, and pinning it
-        # also means it stops moving as the rail grows -- muscle memory
-        # improves rather than suffers.
+        # The settings scroll; the commitment does not. A primary action
+        # that goes below the fold on a laptop window is the one convention
+        # this rail cannot afford to break, and pinning it also means it
+        # stops moving as the rail grows -- muscle memory improves rather
+        # than suffers.
+        #
+        # The commitment is the destination as well as the button. Writing
+        # files to a path you cannot see is the same failure as a button you
+        # cannot reach, so DESTINATION is pinned here too (maskingframe-2rg.2).
         self.rail_foot = QWidget()
         self.rail_foot.setObjectName("RailFoot")
         self.rail_foot_layout = QVBoxLayout(self.rail_foot)
-        self.rail_foot_layout.setContentsMargins(theme.L, theme.S, theme.L, theme.L)
+        # A little more air at the top than the foot used to carry: it opens
+        # on a section heading now rather than on a button, and a heading
+        # pressed against the hairline above it reads as a caption for the
+        # rule rather than as the start of a section.
+        self.rail_foot_layout.setContentsMargins(theme.L, theme.M, theme.L, theme.L)
         self.rail_foot_layout.setSpacing(0)
+
+        # Where the scrolling stops. In a short window the body is cut
+        # through the middle of whatever happens to be there, and without a
+        # line the cut runs straight into the foot and reads as a rendering
+        # fault. Owned here rather than by each tab, so both rails draw the
+        # boundary in the same place.
+        self.rail_edge = rule()
 
         rail_column = QVBoxLayout(self.rail_shell)
         rail_column.setContentsMargins(0, 0, 0, 0)
         rail_column.setSpacing(0)
         rail_column.addWidget(self.rail, 1)
+        rail_column.addWidget(self.rail_edge)
         rail_column.addWidget(self.rail_foot)
 
         self.table = QWidget(self)

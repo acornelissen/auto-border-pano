@@ -20,7 +20,7 @@ from typing import Any
 
 import pytest
 from PIL import Image
-from PySide6.QtWidgets import QLabel
+from PySide6.QtWidgets import QLabel, QLayout, QWidget
 from pytestqt.qtbot import QtBot
 
 from maskingframe import layout, pipeline
@@ -478,12 +478,26 @@ def test_the_band_says_nothing_when_nothing_is_loaded(tab: ComposeTab) -> None:
 # --- the rail matches the Split tab's -------------------------------------------
 
 
+def _widgets(layout: QLayout) -> list[QWidget]:
+    """The widgets a column holds, top to bottom, spacing skipped."""
+    found = []
+    for index in range(layout.count()):
+        item = layout.itemAt(index)
+        widget = None if item is None else item.widget()
+        if widget is not None:
+            found.append(widget)
+    return found
+
+
 def _rail_texts(built: ComposeTab) -> list[str]:
     from PySide6.QtWidgets import QLabel
 
+    # The whole rail column, scrolling body and pinned foot alike: DESTINATION
+    # lives in the foot now, and reading only the scroll area would say the
+    # rail had lost a section rather than moved one (maskingframe-2rg.2).
     return [
         child.text()
-        for child in built.columns.rail.findChildren(QLabel)
+        for child in built.columns.rail_shell.findChildren(QLabel)
         if child.objectName() == "Section"
     ]
 
@@ -602,14 +616,20 @@ def test_the_two_tabs_keep_separate_styles(qtbot: QtBot) -> None:
 
 def test_the_border_section_sits_between_format_and_destination(tab: ComposeTab) -> None:
     """Both rails carry the same sections in the same order; switching tabs
-    must not re-lay-out the window."""
-    rail = tab.columns.rail_layout
-    order = []
-    for index in range(rail.count()):
-        item = rail.itemAt(index)
-        order.append(None if item is None else item.widget())
-    assert order.index(tab.border_controls) > order.index(tab.ratio_combo.parentWidget())
-    assert order.index(tab.border_controls) < order.index(tab.output_row)
+    must not re-lay-out the window.
+
+    Two layouts rather than one since the destination moved to the foot:
+    BORDER is last in the body, and the destination is first in the foot,
+    which puts them in the same order on screen as before.
+    """
+    body = _widgets(tab.columns.rail_layout)
+    ratio_row = tab.ratio_combo.parentWidget()
+    assert ratio_row is not None
+    assert body.index(tab.border_controls) > body.index(ratio_row)
+    assert body[-1] is tab.border_controls
+
+    foot = _widgets(tab.columns.rail_foot_layout)
+    assert foot.index(tab.output_row) < foot.index(tab.save_btn)
 
 
 def test_a_style_change_re_solves_the_arrangement(qtbot: QtBot, tab: ComposeTab) -> None:

@@ -13,7 +13,14 @@ import pytest
 from PIL import Image
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAccessible, QKeySequence
-from PySide6.QtWidgets import QDialog, QLabel, QMessageBox, QRadioButton, QWidget
+from PySide6.QtWidgets import (
+    QDialog,
+    QLabel,
+    QLayout,
+    QMessageBox,
+    QRadioButton,
+    QWidget,
+)
 from pytestqt.qtbot import QtBot
 
 from maskingframe import pipeline
@@ -547,14 +554,28 @@ def test_split_offers_the_gap_because_it_separates_the_rows(tab: SplitTab) -> No
     assert tab.border_controls.gutter_swatch is not None
 
 
-def test_border_controls_sit_between_the_format_and_the_destination(tab: SplitTab) -> None:
-    rail = tab.columns.rail_layout
-    order = []
+def _widgets(rail: QLayout) -> list[QWidget]:
+    """The widgets a column holds, top to bottom, spacing skipped."""
+    found = []
     for index in range(rail.count()):
         item = rail.itemAt(index)
-        order.append(None if item is None else item.widget())
-    assert order.index(tab.count_label) < order.index(tab.border_controls)
-    assert order.index(tab.border_controls) < order.index(tab.dest_row)
+        widget = None if item is None else item.widget()
+        if widget is not None:
+            found.append(widget)
+    return found
+
+
+def test_border_controls_sit_between_the_format_and_the_destination(tab: SplitTab) -> None:
+    """Two layouts rather than one since the destination moved to the foot
+    (maskingframe-2rg.2): BORDER is last in the scrolling body, and the
+    destination is first in the pinned foot, which reads the same way down
+    the screen as it always did."""
+    body = _widgets(tab.columns.rail_layout)
+    assert body.index(tab.count_label) < body.index(tab.border_controls)
+    assert body[-1] is tab.border_controls
+
+    foot = _widgets(tab.columns.rail_foot_layout)
+    assert foot.index(tab.dest_row) < foot.index(tab.action_btn)
 
 
 def test_preview_honours_the_border_colour(qtbot: Any, tab: SplitTab, tmp_path: Path) -> None:

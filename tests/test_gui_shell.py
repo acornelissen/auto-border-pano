@@ -746,6 +746,58 @@ def test_the_primary_action_never_goes_below_the_fold(qtbot: QtBot) -> None:
         assert not tab.columns.rail.isAncestorOf(button), "the action scrolled away"
 
 
+def test_the_destination_never_goes_below_the_fold(qtbot: QtBot) -> None:
+    """The path the files land on is part of the commitment, not a setting.
+
+    At 1100x700 Split scrolled DESTINATION away entirely and left a live Cut
+    frames button pinned above it, so the one thing that could not be read
+    was where the writing was about to go. Compose did the same at 1100x760
+    (maskingframe-2rg.2). Both windows are the sizes the bug was filed at.
+    """
+    from maskingframe.gui.app import MainWindow
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.show()
+    qtbot.waitExposed(window)
+
+    pairs = (
+        (0, window.split, window.split.dest_row, (1100, 700)),
+        (1, window.compose, window.compose.output_row, (1100, 760)),
+    )
+    for index, tab, row, (width, height) in pairs:
+        # Each tab has to be the current one to have been laid out at all.
+        window.tabs.setCurrentIndex(index)
+        window.resize(width, height)
+        laid_out = tab.columns.rail_shell
+
+        def is_laid_out(widget: QWidget = laid_out) -> bool:
+            return widget.height() > 100
+
+        qtbot.waitUntil(is_laid_out, timeout=2000)
+        top = row.mapTo(laid_out, row.rect().topLeft()).y()
+        assert top >= 0, type(tab).__name__
+        assert top + row.height() <= laid_out.height(), type(tab).__name__
+        assert not tab.columns.rail.isAncestorOf(row), "the destination scrolled away"
+
+
+def test_a_rule_says_where_the_rail_stops_scrolling(qtbot: QtBot) -> None:
+    """At 700px the clipped scroll body ran straight into the pinned foot
+    with nothing marking the join, which reads as a rendering fault rather
+    than as a boundary. One hairline, owned by `TwoColumn` so both rails get
+    it from one place."""
+    columns = shell.TwoColumn()
+    qtbot.addWidget(columns)
+
+    rule = columns.rail_edge
+    assert rule.height() == 1
+    assert theme.EDGE in rule.styleSheet()
+    column = columns.rail_shell.layout()
+    assert isinstance(column, QLayout)
+    order = [column.itemAt(index).widget() for index in range(column.count())]  # type: ignore[union-attr]
+    assert order.index(rule) == order.index(columns.rail_foot) - 1
+
+
 def test_checkboxes_are_styled_like_the_radios(qtbot: QtBot) -> None:
     """An unstyled QCheckBox draws the stock macOS tick in system blue. The
     radios are styled for exactly that reason -- one saturated hue, and it

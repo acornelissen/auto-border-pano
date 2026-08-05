@@ -73,12 +73,26 @@ Both tabs expose `subject`, `detail` and a `band_changed` signal to the shell, a
 
 ### How the rail is laid out
 
-The rail is a `QScrollArea` with a pinned foot. The settings scroll; the action
-that writes to disk does not — a primary action below the fold is the one
-convention this rail cannot break, and pinning it also stops it moving as the
-rail grows. `TwoColumn` exposes `rail_layout` for the scrolling body and
-`rail_foot_layout` for the pinned part; both tabs put everything from the
-primary button down into the foot.
+The rail is a `QScrollArea` with a pinned foot. The settings scroll; the
+commitment does not — a primary action below the fold is the one convention this
+rail cannot break, and pinning it also stops it moving as the rail grows.
+`TwoColumn` exposes `rail_layout` for the scrolling body and `rail_foot_layout`
+for the pinned part.
+
+The line used to be drawn at the primary button, and that was one row too low.
+The reason for the foot is that what commits to disk must not go below the fold,
+and **the destination is part of that commitment rather than a setting**: at
+1100x700 the Split rail scrolled DESTINATION away entirely while leaving a live
+Cut frames button pinned above it, which is one click from writing files to a
+path you cannot see. So both tabs now put everything from the DESTINATION
+heading down into the foot. Everything above it is a setting, and settings
+scroll.
+
+`TwoColumn` also draws `rail_edge`, a 1px `EDGE` hairline between the two. In a
+short window the scroll body is cut through the middle of whatever happens to be
+there, and without a line the cut runs straight into the pinned foot and reads as
+a rendering fault. It is owned by the shell rather than by each tab, so the two
+rails cannot draw the boundary in different places.
 
 **Controls are named, not explained.** Every slider and combo carries a visible
 label on one shared column (`theme.FIELD_LABEL_WIDTH`, and `shell.labelled()`
