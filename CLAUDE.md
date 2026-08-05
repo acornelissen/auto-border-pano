@@ -358,7 +358,7 @@ knowledge neither has ever had, which is the whole reason the tab converts for
 them, and the strip's old "Frame 3 of 5" said the same words after every arrow
 press.
 
-Setting that property raises no event, so `_announce` also raises a
+Setting that property raises no event, so `_show_selection` also raises a
 `QAccessibleAnnouncementEvent`. Without it a screen reader read the sentence
 when focus arrived and never learned it had changed: holding an arrow key moved
 the frame, counted up the rail on screen, and said nothing.
@@ -371,10 +371,24 @@ reports `Role.Slider` and a value interface. The announcement event is the tool
 for this and does not depend on the role: it says "speak this now", politely, so
 it queues behind whatever the user is already being told.
 
-Raised once, on the tab, rather than once per view — the message travels with
-the event — and only when the sentence has actually changed. One keystroke
-reaches `_announce` twice, and a reader that said the position twice per arrow
-press would be worse than one that never said it.
+**Writing a sentence and speaking one are two things, and `_show_selection` and
+`_say` are the two methods.** `_show_selection` is the only thing that writes
+the selection label or either view's accessible description; `_say` raises the
+announcement and writes nothing. They were one method, so `_apply_snapshot`
+announcing `Undo remove frame` overwrote the selection sentence on screen and in
+both views and left it there — a frame marked in chinagraph with nothing naming
+it, which is the failure the words exist to prevent, and both views telling a
+screen reader about an undo instead of about the selection.
+
+The two also deduplicate differently, on purpose. The selection path drops an
+unchanged sentence: one keystroke reaches it twice, and a reader that said the
+position twice per arrow press would be worse than one that never said it.
+`_say` drops nothing, because every call is a press the user has just made —
+two `move` steps walked back are two actions with the same name, and a second
+undo that said nothing would read as the key having stopped working.
+
+Both are raised once, on the tab, rather than once per view: the message travels
+with the event.
 
 The strip takes its frame count from the header read, in `_apply_facts`,
 not from the first render — the rail, the band and the button all state it

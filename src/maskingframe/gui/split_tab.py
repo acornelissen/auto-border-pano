@@ -850,33 +850,36 @@ class SplitTab(QWidget):
         had changed.
         """
         if self._selected is None or not 0 <= self._selected < len(self._positions):
-            self._announce("")
+            self._show_selection("")
             return
         along = math.floor(self._positions[self._selected] * 100 + 0.5)
-        self._announce(f"Frame {self._selected + 2} · {along}% along")
+        self._show_selection(f"Frame {self._selected + 2} · {along}% along")
 
-    def _announce(self, sentence: str) -> None:
-        """Say the sentence three times over: on screen, and to each view.
+    def _show_selection(self, sentence: str) -> None:
+        """Put the selection sentence on screen, and into both views.
+
+        This is the only thing that writes either. What is displayed and what
+        the views carry as their accessible description is the selection and
+        nothing else, so the screen and a screen reader cannot come to be
+        describing different things -- and a frame marked in chinagraph is
+        always named in words somewhere, which is the floor this project
+        holds.
+
+        An earlier version was also the announcement channel, and that is
+        exactly how it broke: `_apply_snapshot` announced `Undo remove frame`
+        through here, which overwrote the sentence on screen and both views'
+        descriptions and left them there. Speaking is `_say`.
 
         The description is what a screen reader reads when focus arrives, so
         both views carry it. But setting it raises nothing, and an earlier
-        version of this raised `DescriptionChanged` instead -- which was
-        very likely never spoken: both views report `Role.Client` with no
-        value interface, a generic container, and a description change on
-        one of those is not something assistive technology is obliged to
-        announce. A `QSlider`, which is announced, reports `Role.Slider`
-        and a value interface.
-
-        `QAccessibleAnnouncementEvent` is the tool for this and does not
-        depend on the role: it says "speak this now". Politely, so it queues
-        behind whatever the user is already being told rather than cutting
-        across it.
-
-        Raised once, on the tab, rather than once per view: the message
-        travels with the event, so raising it on both would say the same
-        sentence twice.
+        version raised `DescriptionChanged` instead -- which was very likely
+        never spoken: both views report `Role.Client` with no value
+        interface, a generic container, and a description change on one of
+        those is not something assistive technology is obliged to announce.
+        A `QSlider`, which is announced, reports `Role.Slider` and a value
+        interface.
         """
-        said = sentence != self.selection_label.text()
+        changed = sentence != self.selection_label.text()
         self.selection_label.setText(sentence)
         self._state_plan_line()
         for view in (self.ribbon, self.strip):
@@ -884,9 +887,29 @@ class SplitTab(QWidget):
         # Only when it has actually changed. One keystroke reaches here
         # twice -- `_set_positions` states the selection, and then the tab
         # re-marks it -- and a reader that said the position twice per arrow
-        # press would be worse than one that never said it at all.
-        if sentence and said:
-            QAccessible.updateAccessibility(QAccessibleAnnouncementEvent(self, sentence))
+        # press would be worse than one that never said it at all. An empty
+        # sentence is not an announcement, it is the absence of one.
+        if sentence and changed:
+            self._say(sentence)
+
+    def _say(self, sentence: str) -> None:
+        """Speak once, now, and write nothing down.
+
+        `QAccessibleAnnouncementEvent` is the tool for this and does not
+        depend on the role: it says "speak this now". Politely, so it queues
+        behind whatever the user is already being told rather than cutting
+        across it. Raised once, on the tab, rather than once per view: the
+        message travels with the event, so raising it on both would say the
+        same sentence twice.
+
+        Nothing is deduplicated here, and that is the difference from the
+        selection path. There the same sentence arriving twice is one
+        keystroke reaching the method twice, so a repeat is noise. Here every
+        call is a press the user has just made: two `move` steps walked back
+        are two actions with the same name, and a second undo that said
+        nothing would read as the key having stopped working.
+        """
+        QAccessible.updateAccessibility(QAccessibleAnnouncementEvent(self, sentence))
 
     def _nudge(self, index: int, steps: int) -> None:
         """Move one detail frame by `steps` of `KEY_STEP`. GUI thread only.
@@ -1038,16 +1061,21 @@ class SplitTab(QWidget):
         self._remember()
         self._state_undo()
         self._rerender()
-        # `_set_positions`, above, already announced the selection -- and an
-        # undone `Even` moves every frame while an undone `rows` moves none
-        # but changes frame 1's layout, so no one frame's position describes
-        # either. The action's name is the only sentence that fits both, and
-        # it overrides whatever `_set_positions` just said. `_announce` is
-        # the same machinery the selection uses, not a second one: setting
-        # `undo_line`'s text raises no event on its own, exactly as setting
-        # the selection's accessible description does not, and that gap is
-        # what left this silent to a screen reader.
-        self._announce(announcement)
+        # Spoken, and only spoken. An undone `Even` moves every frame while
+        # an undone `rows` moves none but changes frame 1's layout, so no one
+        # frame's position describes either -- the action's name is the only
+        # sentence that fits both, and it is what a screen reader needs to
+        # hear, because setting `undo_line`'s text raises no event on its
+        # own.
+        #
+        # It must not be written anywhere, though. Routed through the
+        # selection's own method it overwrote the selection sentence on
+        # screen and in both views' descriptions and stayed there, so a
+        # frame marked in chinagraph had nothing naming it and both views
+        # described an undo instead of what was selected. `_set_positions`,
+        # above, has already put the right sentence back; this only speaks
+        # over the top of it.
+        self._say(announcement)
 
     def undo(self) -> None:
         """Step back one plan. Does nothing when there is nowhere to go."""

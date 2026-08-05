@@ -2638,7 +2638,8 @@ def test_undo_announces_the_action_for_a_screen_reader(
     qtbot: Any, tab: SplitTab, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Setting a property raises no event on its own -- that is the whole
-    argument `_announce` already makes for the selection sentence, and it
+    argument `_show_selection` already makes for the selection sentence,
+    and it
     applies just as much here. An undone `Even` moves every frame, so with
     no frame selected the rail's line was the only place the change showed,
     and a screen reader never visits a label unless something tells it to."""
@@ -2662,6 +2663,65 @@ def test_undo_announces_the_action_for_a_screen_reader(
     tab.undo()
 
     assert spoken == ["Undo Even"]
+
+
+def test_an_undo_leaves_the_selection_sentence_where_it_was(
+    qtbot: Any, tab: SplitTab, tmp_path: Path
+) -> None:
+    """An undo is spoken, not written. It used to be written too: the
+    announcement went through the same call that fills the selection label,
+    so undoing with a frame selected replaced `Frame 3 · 42% along` with
+    `Undo remove frame` and left it there. The frame stayed marked in
+    chinagraph in both views with nothing on screen naming it, which is the
+    one failure this project's floor does not allow -- and both views then
+    told a screen reader about an undo rather than about the selection.
+    """
+    _loaded(qtbot, tab, tmp_path)
+    tab._move_position(0, 0.42)
+    tab._on_frame_settled(0)
+    tab.remove_frame()
+    tab._set_selected(1)
+    selected = tab.selection_label.text()
+    assert selected.startswith("Frame 3 · ")
+
+    tab.undo()
+
+    assert tab.selection_label.text() == selected
+    assert tab.ribbon.accessibleDescription() == selected
+    assert tab.strip.accessibleDescription() == selected
+
+
+def test_the_same_undo_twice_is_spoken_twice(
+    qtbot: Any, tab: SplitTab, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The selection path drops a repeat because one keystroke reaches it
+    twice. A press is not a repeat: two `move` steps walked back are two
+    actions, and a second undo that said nothing would read as the key
+    having stopped working."""
+    _loaded(qtbot, tab, tmp_path)
+    # Two frames, not one frame twice: a second move of the same frame into
+    # the same clamped position is the same plan, and `History.record` drops
+    # a snapshot equal to the one at the cursor.
+    for index, along in ((0, 0.05), (1, 0.30)):
+        tab._move_position(index, along)
+        tab._on_frame_settled(index)
+    assert tab._history.undo_label == "move"
+
+    spoken: list[str] = []
+    monkeypatch.setattr(
+        QAccessible,
+        "updateAccessibility",
+        lambda event: (
+            spoken.append(event.message())
+            if event.type() == QAccessible.Event.Announcement
+            else None
+        ),
+    )
+
+    tab.undo()
+    tab.undo()
+
+    assert spoken == ["Undo move", "Undo move"]
 
 
 def test_redo_announces_the_action_for_a_screen_reader(
