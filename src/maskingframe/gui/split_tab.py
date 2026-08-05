@@ -61,13 +61,19 @@ character that says "not this yet" without being mistaken for a number.
 Folder mode gets `PER_FILE_COUNT` instead -- a folder is a loaded source, it
 just does not have one count to report."""
 
-PER_FILE_COUNT = "one each"
-"""The Count field in folder mode. `UNKNOWN_COUNT` would be false here: a
-source is loaded, a whole folder of them -- there just is not one number,
-because each panorama's own shape decides its own frame count
-(maskingframe-2rg.6). Three words rather than the sentence it used to be,
-because it now stands in a value slot beside three buttons rather than on a
-line of its own."""
+PER_FILE_COUNT = "Each panorama gets its own count."
+"""Said under the Count row in folder mode, where the value is `UNKNOWN_COUNT`
+like anywhere else the count is not one number.
+
+A folder is a loaded source, a whole folder of them -- there just is not one
+number, because each panorama's own shape decides its own frame count
+(maskingframe-2rg.6). What tells that state apart from no source at all is
+this sentence, not the value: the value slot sits between a fixed label
+column and three buttons, and anything that actually answers "how many?"
+overflows the rail -- "one per file" brings the row to 309px against 284.
+Three words that fit ("one each") are cryptic rather than short. So the
+value stays a dash and the fact is said in words, where there is room to say
+it properly."""
 
 NO_POSITIONS = "Frames are spread evenly. Load one panorama to place them by hand."
 """What stands where the ribbon would be in folder mode. There is no one
@@ -408,6 +414,15 @@ class SplitTab(QWidget):
         counter_row.addWidget(self.even_btn)
         self.count_row = shell.labelled("Count", counter)
         rail.addWidget(self.count_row)
+
+        rail.addSpacing(theme.S)
+        # Only folder mode has anything to put here, and only because the
+        # value slot cannot hold it: a dash says the count is not one
+        # number, and this says why. Hidden while empty, like every other
+        # sentence in this rail that has not arrived.
+        self.count_note = shell.help_label()
+        self.count_note.setVisible(False)
+        rail.addWidget(self.count_note)
 
         rail.addSpacing(theme.S)
         # Two sentences about the current plan, on one row. They were two
@@ -1024,6 +1039,15 @@ class SplitTab(QWidget):
             self.undo_line.setText("")
         self._state_plan_line()
 
+    def _state_count_note(self, sentence: str) -> None:
+        """Say why the count is a dash, when there is a reason worth saying.
+
+        Only folder mode has one. Hidden while empty rather than reserved,
+        the same rule the plan row and the foot labels follow.
+        """
+        self.count_note.setText(sentence)
+        self.count_note.setVisible(bool(sentence))
+
     def _state_plan_line(self) -> None:
         """Show the row once either sentence has something to say.
 
@@ -1339,6 +1363,8 @@ class SplitTab(QWidget):
             return
         self.facts_label.setText(f"{facts.width} × {facts.height} · {facts.native_ratio}")  # noqa: RUF001
         self.count_label.setText(str(facts.frame_count))
+        # There is a number now, so nothing needs explaining.
+        self._state_count_note("")
         self.action_btn.setText(f"Cut {facts.frame_count} frames")
         self._set_band(subject, f"{ratio_name} · {facts.frame_count} frames" if ratio_name else "")
         self._source_size = (facts.width, facts.height)
@@ -1392,10 +1418,12 @@ class SplitTab(QWidget):
     def _clear_facts(self, subject: str = "") -> None:
         self._nudge_timer.stop()
         self.facts_label.setText("")
-        # Folder mode has a source -- a whole folder of them -- it just does
-        # not have one count; everywhere else this is reached, there is no
-        # readable panorama at all.
-        self.count_label.setText(PER_FILE_COUNT if self.folder_radio.isChecked() else UNKNOWN_COUNT)
+        # The value is a dash either way -- there is no one number in either
+        # state. What tells them apart is the sentence: folder mode has a
+        # source, a whole folder of them, and everywhere else this is reached
+        # there is no readable panorama at all.
+        self.count_label.setText(UNKNOWN_COUNT)
+        self._state_count_note(PER_FILE_COUNT if self.folder_radio.isChecked() else "")
         self.action_btn.setText(UNCOUNTED_ACTION)
         self._set_band(subject, "")
         self._positions = ()

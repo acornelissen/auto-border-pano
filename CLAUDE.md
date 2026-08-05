@@ -115,12 +115,21 @@ control position, which is what let `NO_COUNT` go. That constant was a sentence
 label and the sentence was the only thing naming it. Its docstring said the
 count must never be stale or guessed, and `split_tab.UNKNOWN_COUNT` — an em dash
 — is neither: it is the same claim in one character, next to a label that
-already says which row it belongs to. `PER_FILE_COUNT` stays, because folder
-mode is a different state from no source (a folder *is* loaded, it just has no
-one count), shortened to fit a value slot rather than a line of its own. The
-count buttons cluster at the right edge with the stretch between them and the
-value, so a dash becoming a numeral becoming "one each" never slides add and
-remove out from under the pointer.
+already says which row it belongs to. The count buttons cluster at the right
+edge with the stretch between them and the value, so a dash becoming a numeral
+never slides add and remove out from under the pointer.
+
+Folder mode reads the same dash, and `PER_FILE_COUNT` is said underneath it
+instead (`count_note`, hidden while empty like everything else here). Folder
+mode is still a different state from no source — a folder *is* loaded, it just
+has no one number — but the value slot cannot carry that difference: between the
+label column and the three buttons, anything that actually answers "how many?"
+overflows the rail, with "one per file" bringing the row to 309px against 284.
+Three words that do fit ("one each") are cryptic rather than short. So the value
+says there is no one number and the sentence says why.
+`test_the_count_row_fits_the_rail_at_every_value_it_can_hold` holds that room,
+which `test_no_rail_control_is_clipped_horizontally` cannot: it measures the
+rail as constructed, where the value is one character wide.
 
 **Nothing reserves a line for a sentence that has not arrived.** Under FRAMES,
 the selection sentence and the undo offer share one row — selection left, offer

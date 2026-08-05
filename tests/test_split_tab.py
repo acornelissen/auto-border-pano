@@ -114,7 +114,8 @@ def test_the_readouts_reset_with_no_file_and_in_folder_mode(
     assert tab.facts_label.text() == "600 × 200 · 3.00:1"  # noqa: RUF001
 
     tab.folder_radio.setChecked(True)
-    assert tab.count_label.text() == PER_FILE_COUNT
+    assert tab.count_label.text() == UNKNOWN_COUNT
+    assert tab.count_note.text() == PER_FILE_COUNT
     assert tab.facts_label.text() == ""
     assert tab.action_btn.text() == UNCOUNTED_ACTION
 
@@ -418,7 +419,8 @@ def test_each_of_the_four_source_states_says_something_true(
 
     # Whole folder: a source is loaded, it just does not have one count.
     tab.folder_radio.setChecked(True)
-    assert tab.count_label.text() == PER_FILE_COUNT
+    assert tab.count_label.text() == UNKNOWN_COUNT
+    assert tab.count_note.text() == PER_FILE_COUNT
     assert tab.ribbon_note.text() == NO_POSITIONS
 
     # An unreadable file: back to single mode, no count is knowable.
@@ -617,6 +619,58 @@ def test_the_count_row_carries_a_label_on_the_shared_column(tab: SplitTab) -> No
     assert isinstance(label, QLabel)
     assert label.objectName() == "FieldLabel"
     assert label.text() == "Count"
+
+
+def test_folder_mode_says_the_per_file_fact_in_words_not_in_the_value_slot(
+    qtbot: QtBot, tab: SplitTab, tmp_path: Path
+) -> None:
+    """A folder is a loaded source, it just has no one count -- so the value
+    is the same dash as anywhere else the count is unknown, and what makes
+    the two states different is a sentence rather than a cryptic value
+    (maskingframe-2rg.6).
+
+    The slot cannot hold the fact anyway. Between the label column and the
+    three buttons, "one each" brings the row to 282px against a 284px rail --
+    two pixels of clearance -- and "one per file", which actually answers
+    "how many?", comes to 309 and overflows. See the width check below.
+    """
+    assert tab.count_label.text() == UNKNOWN_COUNT
+    assert tab.count_note.text() == ""
+    assert not tab.count_note.isVisibleTo(tab)
+
+    tab.folder_radio.setChecked(True)
+
+    assert tab.count_label.text() == UNKNOWN_COUNT
+    assert tab.count_note.text() == PER_FILE_COUNT
+    assert tab.count_note.isVisibleTo(tab)
+
+    tab.single_radio.setChecked(True)
+    tab.source_row.setText(str(_panorama(tmp_path)))
+    qtbot.waitUntil(lambda: tab.count_label.text() == "5")
+    assert tab.count_note.text() == ""
+
+
+def test_the_count_row_fits_the_rail_at_every_value_it_can_hold(
+    qtbot: QtBot, themed_app: Any, tab: SplitTab
+) -> None:
+    """The value sits between a fixed label column and three buttons, so the
+    room it has is small and easy to spend without noticing.
+    `test_no_rail_control_is_clipped_horizontally` never sees that: it
+    measures the rail as constructed, where the value is one character wide.
+    A sentence here overflows -- "one per file" brings the row to 309px."""
+    columns = tab.columns
+    columns.rail.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+    tab.resize(1280, 900)
+    tab.show()
+    qtbot.waitExposed(tab)
+    margins = columns.rail_layout.contentsMargins()
+    budget = columns.rail.viewport().width() - margins.left() - margins.right()
+
+    for value in (UNKNOWN_COUNT, "2", "12", "128"):
+        tab.count_label.setText(value)
+        qtbot.wait(1)
+        needed = tab.count_row.minimumSizeHint().width()
+        assert needed <= budget, f"{value!r} needs {needed}px against {budget}px"
 
 
 def test_with_no_source_the_count_is_a_dash_and_nothing_is_pressable(tab: SplitTab) -> None:
@@ -1732,6 +1786,13 @@ def test_no_wording_of_the_undo_line_fits_badly_in_the_rail(
     own font, not against a guess: 13px in a constructor default and 13px
     from the cascade are different numbers of pixels, and two rail labels
     have shipped clipped for exactly that reason (maskingframe-9dq).
+
+    The keys come from `redo_keys()`, so this measures whatever the platform
+    the suite runs on calls them -- and the headless platform does not agree
+    with the desktop one. `QT_QPA_PLATFORM=offscreen` reports Redo as `⌘Y`
+    where cocoa reports `⇧⌘Z`, about 12px wider. The margin here is over
+    70px either way, so the difference cannot flip the result; a tighter
+    budget would have to be measured under the real platform.
     """
     labels = _recorded_labels()
     assert labels, "no _record labels found -- the reader is broken"
