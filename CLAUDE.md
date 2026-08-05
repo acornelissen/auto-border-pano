@@ -537,7 +537,29 @@ stop `"" in text` passing vacuously.
 
 `split_tab.undo_line` sits under the count controls and reads
 `Undo Even   ⌘Z`, falling back to `Redo <label>` once undo has nothing
-left and empty when there is neither. It shares one row with the selection
+left and empty when there is neither. When both directions are available it
+reads `Undo Even   ⌘Z   ·   Redo  ⇧⌘Z`: one action named, both keys shown.
+Redo used to appear only once undo was exhausted, which meant someone one
+step into a three-step history never saw the redo shortcut at all — and the
+argument for printing a key here is that there is no menu bar, so by that
+argument redo was half-advertised. Naming both actions does not fit:
+`Undo remove frame   ⌘Z    Redo remove frame   ⇧⌘Z` measures 315px against
+the rail's 284px. The label is the expensive part to read and the key is
+not, so redo contributes only its key, and the widest reachable wording
+comes to 201px. `undo_wording()` and `redo_wording()` own the strings so a
+test can measure every one of them; the labels it measures are read out of
+the `_record` call sites rather than listed, so a seventh settle with a
+longer label cannot slip past.
+
+The spaces around each key, and between the separator and `Redo`, are
+`split_tab.NB` — no-break spaces. Sharing a row means a long offer wraps,
+and left to break wherever it liked Qt put the redo key alone on the second
+line. Bound, the line breaks before the separator: undo on one line, redo on
+the next, with nothing dangling off the end of either. The action's own name
+stays breakable, which is a sentence wrapping rather than a key stranded,
+and it is what keeps the row's minimum width small enough to share.
+
+It shares one row with the selection
 sentence — see "How the rail is laid out" — taking the row's slack rather
 than sitting against a stretch, so a long offer beside a long selection
 wraps onto a second line instead of being cut off. It carries the key because the
@@ -574,7 +596,7 @@ A composite has a border colour and a gutter colour, and they cover different th
 - Arrangement names changed from slugs to notation: `row-one-then-two` is now `R(1,C(2,3))`, images numbered from one. The three-panel arrangements are the same six pictures under new names, and the rail's English for them is unchanged — `present_layout()` parses the notation instead of the slug and reaches the same words.
 - The composite arrangement can be forced rather than only accepted: an Arrange combo in the Compose tab's FORMAT section, beside Ratio rather than under a heading of its own, and `--arrangement` on the CLI. Labelled "Arrange" rather than "Arrangement" -- the full word overflows the rail's shared 68px label column, and FORMAT already carries the topic. The Compose tab holds the choice as a *name*, never a row index — the ranking moves with the ratio and the border, so an index would quietly come to mean a different arrangement. The choice survives a ratio, border, gutter or reorder change and is dropped only when the number of sources changes, where the shape it names stops existing. It is not remembered between launches: a border is a house style, which is why presets exist for it, but an arrangement belongs to one particular set of photographs. At rest, with fewer than two sources loaded, the combo shows the single entry `Automatic` and is disabled — an empty enabled combo is indistinguishable from a broken one, so it always carries at least that one honest entry.
 - Frame 1 can carry a different border from everything else (`--frame1-border`, or the checkbox in the Split rail). Unset by default, which is exactly the old behaviour, so no stored style, stored preset, scripted run or golden hash moved.
-- Frame 1 can be laid out as two, three or four stacked rows (`--frame1-rows`, or the list in FORMAT). Off by default, so nothing anyone has made changes.
+- Frame 1 can be laid out as two, three or four stacked rows (`--frame1-rows`, or the list in FRAME 1). Off by default, so nothing anyone has made changes.
 - The Split tab remembers where a source's detail frames were placed and puts them back when it is reopened. The CLI has no position flags and gains none: a position is chosen by looking at a photograph.
 - The default border at `1.91:1` changed from 100px to 51px. That is the point of measuring in percent: the old fixed 100px took a third of a 566px-tall frame, while the same constant was a thin edge at `4:5`. Output at `4:5` and `1:1` moved too, from 100px to 97px.
 - The Split tab's frame placement can be undone and redone (⌘Z and ⇧⌘Z, or the platform equivalent). Fifty steps, cleared when the source changes, and the undone plan is written to the store like any other change. Nothing on the CLI changes: a position is chosen by looking at a photograph, so there was never a flag to undo.

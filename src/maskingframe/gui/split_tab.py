@@ -177,6 +177,37 @@ def redo_keys() -> str:
     return _key_name(QKeySequence.StandardKey.Redo)
 
 
+NB = "\N{NO-BREAK SPACE}"
+"""A space the line is never broken at.
+
+The offer shares its row with the selection sentence, so a long one wraps
+rather than being cut off -- and left to break wherever it liked, Qt orphaned
+the redo key onto a line of its own. Binding a key to the words it belongs
+to, and the separator to the half that follows it, leaves exactly one place
+the line can break: before the separator, which puts undo on one line and
+redo on the next with nothing dangling off the end of either.
+"""
+
+
+def undo_wording(label: str, *, redo: bool) -> str:
+    """The line when there is something to undo, and its key.
+
+    When redo is also available the key for it is appended without its own
+    action name. Naming both does not fit: at the rail's 284px,
+    `Undo remove frame   ⌘Z    Redo remove frame   ⇧⌘Z` measures 315px and
+    is cut off. The label is the expensive part to read; the key is not, and
+    the key is the part that was undiscoverable.
+    """
+    line = f"Undo {label}{NB * 3}{undo_keys()}"
+    return f"{line} ·{NB}Redo{NB * 2}{redo_keys()}" if redo else line
+
+
+def redo_wording(label: str) -> str:
+    """The line when undo has nothing left. Unchanged: with one direction
+    left there is room to name it, and it is the only thing on offer."""
+    return f"Redo {label}{NB * 3}{redo_keys()}"
+
+
 def preview_titles(count: int) -> list[str]:
     """Labels for the strip: the whole panorama, then each detail frame."""
     return ["FRAME 1 · WHOLE PANORAMA"] + [f"FRAME {n + 1} · DETAIL" for n in range(1, count + 1)]
@@ -952,14 +983,20 @@ class SplitTab(QWidget):
     def _state_undo(self) -> None:
         """Say what would come back, and which keys would bring it.
 
-        Redo is offered only once undo has nothing left, rather than beside
-        it: two directions on one line reads as a choice to make, and the
-        one people want is almost always the way back.
+        One direction is named -- the way back, which is the one people want
+        -- and when redo is also available its key rides along without a
+        label of its own. Redo used to appear only once undo had nothing
+        left, which meant someone one step into a three-step history never
+        saw the shortcut at all. There is no menu bar, so this line is the
+        only place a key can be advertised, and by that argument redo was
+        half-advertised (maskingframe-9dq).
         """
         if self._history.can_undo:
-            self.undo_line.setText(f"Undo {self._history.undo_label}   {undo_keys()}")
+            self.undo_line.setText(
+                undo_wording(self._history.undo_label, redo=self._history.can_redo)
+            )
         elif self._history.can_redo:
-            self.undo_line.setText(f"Redo {self._history.redo_label}   {redo_keys()}")
+            self.undo_line.setText(redo_wording(self._history.redo_label))
         else:
             self.undo_line.setText("")
         self._state_plan_line()

@@ -674,13 +674,20 @@ def test_the_plan_row_never_clips_however_long_both_sentences_are(
     """The two halves can both be long at once -- ten frames placed and a
     step to walk back -- and the rail is 284px wide. The offer wraps rather
     than being cut off, which is why it takes the row's slack instead of
-    sitting against a stretch."""
+    sitting against a stretch. Every wording the line can reach, against the
+    widest selection sentence anyone gets to."""
     tab.resize(1280, 900)
     tab.show()
     qtbot.waitExposed(tab)
 
+    offers = [""]
+    for label in _recorded_labels():
+        offers.append(split_tab.undo_wording(label, redo=False))
+        offers.append(split_tab.undo_wording(label, redo=True))
+        offers.append(split_tab.redo_wording(label))
+
     tab.selection_label.setText("Frame 10 · 100% along")
-    for offer in ("", "Undo Even   ⌘Z", "Undo remove frame   ⌘Z", "Redo remove frame   ⇧⌘Z"):
+    for offer in offers:
         tab.undo_line.setText(offer)
         for _ in range(3):
             qtbot.wait(1)
@@ -1663,11 +1670,18 @@ def test_the_undo_line_offers_the_redo_once_there_is_nothing_left_to_undo(
     assert split_tab.redo_keys() != ""
 
 
-def test_the_undo_line_prioritises_undo_when_both_undo_and_redo_are_available(
+def test_the_undo_line_names_the_undo_and_still_shows_the_redo_key(
     qtbot: Any, tab: SplitTab, tmp_path: Path
 ) -> None:
-    """When in the middle of a history (both directions available), show undo
-    to guide the user back — two directions on one line reads as a choice."""
+    """One direction is named, both are reachable.
+
+    The line used to fall back to redo only once undo was exhausted, so
+    someone one step into a three-step history never saw the redo shortcut
+    at all -- and the application has no menu bar, which is the whole
+    argument for printing a key here. Naming both actions does not fit the
+    rail, so only the undo action is named and redo contributes its key
+    (maskingframe-9dq).
+    """
     _loaded(qtbot, tab, tmp_path)
     tab._move_position(0, 0.42)
     tab._on_frame_settled(0)
@@ -1676,10 +1690,101 @@ def test_the_undo_line_prioritises_undo_when_both_undo_and_redo_are_available(
     tab.undo()
 
     # After undo, we're at "Even" and can undo further or redo "add frame".
-    # Both are available, so we show undo (the way back).
-    assert tab.undo_line.text().startswith("Undo Even")
+    line = tab.undo_line.text()
+    assert line.startswith("Undo Even")
     assert split_tab.undo_keys() != ""
-    assert split_tab.undo_keys() in tab.undo_line.text()
+    assert split_tab.undo_keys() in line
+    assert split_tab.redo_keys() in line
+    # The redo action is not named: the label is the expensive part to read
+    # and the rail has no room for a second one.
+    assert "add frame" not in line.split("Redo", 1)[1]
+
+
+def _recorded_labels() -> set[str]:
+    """Every label `_record` is ever called with, read out of the source.
+
+    Read rather than listed, so a seventh settle with a longer label cannot
+    be added without the width check below seeing it. A list here would go
+    stale silently, which is the failure the check exists to catch.
+    """
+    import ast
+    import inspect
+
+    tree = ast.parse(inspect.getsource(split_tab))
+    labels = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "_record"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+        ):
+            labels.add(str(node.args[0].value))
+    return labels
+
+
+def test_no_wording_of_the_undo_line_fits_badly_in_the_rail(
+    qtbot: QtBot, themed_app: Any, tab: SplitTab
+) -> None:
+    """Naming both actions does not fit, which is why redo contributes only
+    its key. Measured against the rail's real width with the stylesheet's
+    own font, not against a guess: 13px in a constructor default and 13px
+    from the cascade are different numbers of pixels, and two rail labels
+    have shipped clipped for exactly that reason (maskingframe-9dq).
+    """
+    labels = _recorded_labels()
+    assert labels, "no _record labels found -- the reader is broken"
+
+    columns = tab.columns
+    columns.rail.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+    tab.resize(1280, 900)
+    tab.show()
+    qtbot.waitExposed(tab)
+    margins = columns.rail_layout.contentsMargins()
+    budget = columns.rail.viewport().width() - margins.left() - margins.right()
+
+    metrics = tab.undo_line.fontMetrics()
+    widest = max(
+        (
+            (metrics.horizontalAdvance(wording), wording)
+            for label in labels
+            for wording in (
+                split_tab.undo_wording(label, redo=False),
+                split_tab.undo_wording(label, redo=True),
+                split_tab.redo_wording(label),
+            )
+        ),
+    )
+    assert widest[0] <= budget, f"{widest[1]!r} needs {widest[0]}px against {budget}px"
+
+
+def test_the_offer_can_only_break_between_its_two_halves(qtbot: QtBot) -> None:
+    """It shares a row, so a long offer wraps -- and left to break wherever
+    it liked, Qt put the redo key alone on the second line. Every space
+    inside a half is a no-break space, so the one place it can wrap is
+    before the separator: undo on one line, redo on the next.
+
+    `qtbot` for the `QApplication` alone: the wordings ask Qt what this
+    platform calls the keys, and a `QKeySequence` built before an
+    application exists is a hard segfault.
+    """
+    for label in _recorded_labels():
+        head, separator, tail = split_tab.undo_wording(label, redo=True).partition(" ·")
+        assert separator, "nothing to break before"
+        # The redo half is one piece: the separator, the word and the key
+        # arrive together or not at all.
+        assert " " not in tail
+        # Each key stays with the words it belongs to. The action's own name
+        # may still break, which is a sentence wrapping rather than a key
+        # left stranded, and keeping it breakable is what keeps the row's
+        # minimum width small enough to share with the selection sentence.
+        for wording, key in (
+            (head, split_tab.undo_keys()),
+            (split_tab.undo_wording(label, redo=False), split_tab.undo_keys()),
+            (split_tab.redo_wording(label), split_tab.redo_keys()),
+        ):
+            assert wording.endswith(f"{split_tab.NB * 3}{key}"), repr(wording)
 
 
 def test_the_undo_line_empties_when_the_history_does(
