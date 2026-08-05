@@ -411,7 +411,7 @@ class ComposeTab(QWidget):
         self.ratio_combo.addItems([r.display for r in pipeline.RATIOS.values()])
         self.ratio_combo.setCurrentText(pipeline.DEFAULT_RATIO.display)
         self.ratio_combo.currentIndexChanged.connect(self._on_ratio_change)
-        rail.addWidget(self.ratio_combo)
+        rail.addWidget(shell.labelled("Ratio", self.ratio_combo))
 
         # The consequence of the ratio, stated before the user commits to it.
         rail.addSpacing(theme.S)
@@ -422,9 +422,8 @@ class ComposeTab(QWidget):
         rail.addWidget(shell.section("Arrangement"))
         rail.addSpacing(theme.S)
         self.arrangement_combo = shell.Combo()
-        self.arrangement_combo.setAccessibleName("Arrangement")
         self.arrangement_combo.currentIndexChanged.connect(self._on_arrangement_change)
-        rail.addWidget(self.arrangement_combo)
+        rail.addWidget(shell.labelled("Arrangement", self.arrangement_combo))
 
         # Between FORMAT and DESTINATION, the same slot the Split tab gives
         # it: the two rails are one product and must not drift apart.

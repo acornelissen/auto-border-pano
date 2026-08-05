@@ -608,7 +608,7 @@ def test_the_border_section_sits_between_format_and_destination(tab: ComposeTab)
     for index in range(rail.count()):
         item = rail.itemAt(index)
         order.append(None if item is None else item.widget())
-    assert order.index(tab.border_controls) > order.index(tab.ratio_combo)
+    assert order.index(tab.border_controls) > order.index(tab.ratio_combo.parentWidget())
     assert order.index(tab.border_controls) < order.index(tab.output_row)
 
 

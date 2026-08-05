@@ -15,7 +15,7 @@ opens the colour dialog for real -- a modal would hang the suite -- so
 import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QCheckBox, QColorDialog, QLabel, QLayout, QWidget
+from PySide6.QtWidgets import QCheckBox, QColorDialog, QComboBox, QLabel, QLayout, QWidget
 from pytestqt.qtbot import QtBot
 
 from maskingframe import pipeline
@@ -795,3 +795,38 @@ def test_a_rail_dropdown_has_a_background(qtbot: QtBot) -> None:
     popup = sheet.split("#Rail QComboBox QAbstractItemView {")[1].split("}")[0]
     assert theme.WELL in popup
     assert "transparent" not in popup
+
+
+def _assert_on_the_label_column(combo: QComboBox) -> None:
+    """The combo sits beside a `FieldLabel` on the rail's one label column,
+    put there by `shell.labelled` -- never bare in the rail layout."""
+    holder = combo.parentWidget()
+    assert holder is not None, f"{combo.accessibleName()!r} has no labelled() holder"
+    layout = holder.layout()
+    assert isinstance(layout, QLayout)
+    assert layout.count() == 2
+    first, second = layout.itemAt(0), layout.itemAt(1)
+    assert first is not None and second is not None
+    label = first.widget()
+    assert isinstance(label, QLabel), f"{combo.accessibleName()!r} has no label beside it"
+    assert label.objectName() == "FieldLabel"
+    assert label.minimumWidth() == theme.FIELD_LABEL_WIDTH
+    assert second.widget() is combo
+
+
+def test_every_field_combo_sits_on_the_shared_label_column(qtbot: QtBot) -> None:
+    """Split's ratio combo has always lined up on the shared column; this
+    pins Compose's to the same rule so the two rails cannot drift apart
+    again (maskingframe-2rg.4)."""
+    from maskingframe.gui.app import MainWindow
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    for combo in (
+        window.split.ratio_box,
+        window.split.rows_combo,
+        window.compose.ratio_combo,
+        window.compose.arrangement_combo,
+    ):
+        _assert_on_the_label_column(combo)
