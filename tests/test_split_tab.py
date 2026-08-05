@@ -17,7 +17,7 @@ from PySide6.QtWidgets import QDialog, QLabel, QMessageBox, QRadioButton, QWidge
 from pytestqt.qtbot import QtBot
 
 from maskingframe import pipeline
-from maskingframe.gui import settings, shell, split_tab, strip
+from maskingframe.gui import settings, shell, split_tab
 from maskingframe.gui.split_tab import NO_COUNT, UNCOUNTED_ACTION, SplitTab, preview_titles
 from tests import conftest
 from tests.conftest import synthetic_panorama
@@ -86,6 +86,17 @@ def test_the_readouts_reset_with_no_file_and_in_folder_mode(
     tab.source_row.setText("")
     assert tab.count_label.text() == NO_COUNT
     assert tab.facts_label.text() == ""
+
+
+def test_the_unexposed_strip_states_no_count_before_a_source_loads(tab: SplitTab) -> None:
+    """The rail says `NO_COUNT` before anything is read. The strip used to
+    keep `strip.DEFAULT_FRAME_COUNT` (four) construction-time apertures,
+    numbered in chinagraph as though that count were known -- two halves of
+    one screen disagreeing about how many frames there are, which
+    `_apply_facts` only ever fixed for the count *after* the first
+    (maskingframe-2rg.9)."""
+    assert tab.count_label.text() == NO_COUNT
+    assert tab.strip.frame_count == 1
 
 
 def test_the_mode_radios_actually_switch_mode(tab: SplitTab) -> None:
@@ -536,11 +547,17 @@ def test_the_ratio_decides_the_shape_the_border_is_drawn_around(qtbot: Any, tab:
 
 
 def test_the_detail_frames_toggle_changes_which_frames_show_a_border(
-    qtbot: Any, tab: SplitTab
+    qtbot: Any, tmp_path: Path
 ) -> None:
     """A split borders frame 1 always and the details only on request. A
     preview that showed them all would be promising a frame the run will
-    not write."""
+    not write.
+
+    A loaded source, not the bare `tab` fixture: a detail frame's aperture
+    is not there to put a border on until the header read says how many
+    there are -- checking one against the unloaded strip would only be
+    checking the count-inventing bug this file elsewhere guards against."""
+    tab = loaded_tab(qtbot, tmp_path)
     tab.strip.resize(900, 400)
     tab.border_controls.border_slider.setValue(10.0)
     check = tab.border_controls.detail_check
@@ -1538,19 +1555,19 @@ def test_the_strip_takes_its_count_from_the_header_not_the_first_render(
     qtbot: Any, tmp_path: Path
 ) -> None:
     """The rail's count comes from the header read, which lands long before
-    the first preview. The strip used to keep its four construction-time
+    the first preview. The strip used to keep its construction-time
     apertures until a render arrived, so two parts of the same screen
     disagreed about how many frames there were.
 
     A 6.25:1 panorama is chosen deliberately: it plans nine frames, so a
-    strip still showing the default four is unmistakable rather than a
-    coincidence.
+    strip still showing its single construction-time aperture is
+    unmistakable rather than a coincidence.
     """
     source = tmp_path / "wide.jpg"
     conftest.synthetic_panorama(5000, 800).save(source, "JPEG", quality=95)
     tab = SplitTab()
     qtbot.addWidget(tab)
-    assert tab.strip.frame_count == strip.DEFAULT_FRAME_COUNT
+    assert tab.strip.frame_count == 1
 
     facts = pipeline.inspect_source(source, pipeline.DEFAULT_RATIO)
     tab._apply_facts(tab._inspect_token, facts, pipeline.DEFAULT_RATIO.display, str(source))

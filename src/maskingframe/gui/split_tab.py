@@ -439,8 +439,13 @@ class SplitTab(QWidget):
 
         self.columns.table_layout.addSpacing(theme.M)
 
-        # An object lying on the light table, not a panel filling it.
-        self.strip = ContactStrip(self.columns.table)
+        # An object lying on the light table, not a panel filling it. One
+        # aperture rather than `ContactStrip`'s own default: before a source
+        # is read the count is unknown, and four numbered apertures stated a
+        # count the rail was, at the same moment, calling unknown. Compose
+        # constructs its own strip the same way, for the same reason -- it
+        # never has a frame 1 to count either.
+        self.strip = ContactStrip(self.columns.table, frames=1)
         self.strip.frame_dragged.connect(self._on_frame_dragged)
         self.strip.frame_drag_settled.connect(self._on_frame_drag_settled)
         # No top alignment and no stretch under it: the strip fills the

@@ -318,6 +318,15 @@ relabelling with a preview up would take the picture down and stop its
 replacement ever starting. With a preview up the old picture stays up and the
 render that replaces it does the relabelling.
 
+That fix only ever covered the count changing after construction. Split
+builds its strip with one aperture (`ContactStrip(..., frames=1)`), not
+`ContactStrip`'s own `DEFAULT_FRAME_COUNT` of four: before a source is read
+the rail already says the count is unknown, and four numbered apertures
+stated a count nobody had confirmed, right for the panorama the samples
+happen to use and wrong on principle. Compose builds its own strip the same
+way — it never has a frame 1 to count either, which is what to check before
+touching `ContactStrip`'s own default rather than a caller's.
+
 ### Remembering where the frames were
 
 `gui/settings.py` stores a plan per source, keyed on the source's **path,
