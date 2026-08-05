@@ -12,10 +12,20 @@ opens the colour dialog for real -- a modal would hang the suite -- so
 `QColorDialog.getColor` is patched where the picker is exercised.
 """
 
+from collections.abc import Iterator
+
 import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QCheckBox, QColorDialog, QComboBox, QLabel, QLayout, QWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QColorDialog,
+    QComboBox,
+    QLabel,
+    QLayout,
+    QWidget,
+)
 from pytestqt.qtbot import QtBot
 
 from maskingframe import pipeline
@@ -830,3 +840,47 @@ def test_every_field_combo_sits_on_the_shared_label_column(qtbot: QtBot) -> None
         window.compose.arrangement_combo,
     ):
         _assert_on_the_label_column(combo)
+
+
+@pytest.fixture
+def themed_app() -> Iterator[QApplication]:
+    """`theme.stylesheet()` applied to the real `QApplication`, exactly as
+    `run()` applies it, and restored after.
+
+    A widget's font and a widget's `:disabled` rendering both come from the
+    cascade the stylesheet builds, not from a constructor default -- a
+    clipped label and a specificity fight that only bites inside `#Rail`
+    are both invisible without it, which is how each one shipped.
+    """
+    app = QApplication.instance()
+    assert isinstance(app, QApplication)
+    previous = app.styleSheet()
+    app.setStyleSheet(theme.stylesheet())
+    try:
+        yield app
+    finally:
+        app.setStyleSheet(previous)
+
+
+def test_no_field_label_clips_in_its_own_column(qtbot: QtBot, themed_app: QApplication) -> None:
+    """Measures every `FieldLabel` in both rails against `FIELD_LABEL_WIDTH`
+    with the real, stylesheet-driven font -- not a constructor default.
+
+    "Arrangement" cleared review at 68px by eye and clipped to "Arrangeme" in
+    the running app: a plain `QFont(family, 13)` measures point sizes, but
+    the stylesheet sets `font-size: 13px`, and the two are not the same
+    number of pixels. This is the second rail label to overflow its column
+    silently, which is why the check is now measured rather than eyeballed.
+    """
+    from maskingframe.gui.app import MainWindow
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    labels = [label for label in window.findChildren(QLabel) if label.objectName() == "FieldLabel"]
+    assert labels, "no FieldLabel found -- the selector or the fixture is broken"
+    overflowing = [
+        (label.text(), label.fontMetrics().horizontalAdvance(label.text()))
+        for label in labels
+        if label.fontMetrics().horizontalAdvance(label.text()) > theme.FIELD_LABEL_WIDTH
+    ]
+    assert overflowing == []

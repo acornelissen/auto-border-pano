@@ -429,7 +429,16 @@ class ComposeTab(QWidget):
         # Disabled by _apply_button_states below, the single place that
         # decides which controls a composable set unlocks.
         self._fill_arrangements(_Solve(token=0, name="", count=0, sizes={}))
-        rail.addWidget(shell.labelled("Arrangement", self.arrangement_combo))
+        # "Arrange", not "Arrangement": at `theme.FIELD_LABEL_WIDTH` (68px)
+        # the full word measures 79px in the rail's own font and clipped to
+        # "Arrangeme", a regression the label-column fix above introduced.
+        # Widening the shared column moves every field edge on both tabs
+        # for one label; shortening to "Layout" collides with Split's own
+        # Layout label inside FRAME 1, which means a different thing (how
+        # many rows frame 1 stacks into). FORMAT already carries the topic,
+        # so the shorter word reads fine without it -- and it measures 48px,
+        # comfortably inside the column.
+        rail.addWidget(shell.labelled("Arrange", self.arrangement_combo))
 
         # Between FORMAT and DESTINATION, the same slot the Split tab gives
         # it: the two rails are one product and must not drift apart.
