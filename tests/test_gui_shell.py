@@ -13,6 +13,7 @@ opens the colour dialog for real -- a modal would hang the suite -- so
 """
 
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from PySide6.QtCore import QPoint, Qt
@@ -760,10 +761,63 @@ def test_checkboxes_are_styled_like_the_radios(qtbot: QtBot) -> None:
     assert "border-radius" not in checkbox
 
 
-def test_no_rail_control_is_clipped_horizontally(qtbot: QtBot) -> None:
+def _widest_offender(widget: QWidget, budget: int) -> QWidget:
+    """Walk down from an over-budget widget to the child that names it.
+
+    A `QVBoxLayout` reports its own minimum width as its widest child's, so
+    every ancestor of an overflowing control reads as "too wide" once the
+    control itself does -- `RailContent`, `BorderControls` and `Disclosure`
+    all measured over budget the day this was one `QPushButton`. Descending
+    to the child that has no over-budget child of its own left stops at the
+    control, not the column it happens to sit in.
+    """
+    layout = widget.layout()
+    if layout is not None:
+        for index in range(layout.count()):
+            item = layout.itemAt(index)
+            child = item.widget() if item is not None else None
+            if child is not None and child.minimumSizeHint().width() > budget:
+                return _widest_offender(child, budget)
+    return widget
+
+
+def _describe(widget: QWidget) -> str:
+    """Enough to find a widget by eye: its class, its object name if it has
+    one, and its text if it has that too."""
+    described = widget.__class__.__name__
+    name = widget.objectName()
+    if name:
+        described += f"#{name}"
+    text = getattr(widget, "text", lambda: "")()
+    if text:
+        described += f" {text!r}"
+    return described
+
+
+def test_no_rail_control_is_clipped_horizontally(
+    qtbot: QtBot, themed_app: QApplication, isolated_settings: Path
+) -> None:
     """The rail scrolls vertically and must never need to scroll sideways.
     Adding a label column and a scrollbar pushed the ratio combo and the
-    Choose button 35px past the edge, where they were simply cut off."""
+    Choose button 35px past the edge, where they were simply cut off.
+
+    Needs `themed_app`, not whatever the session `QApplication` happens to
+    be carrying: the rail's vertical scrollbar is styled to a fixed 8px in
+    `theme.stylesheet()`, and without that sheet macOS's own scrollbar
+    claims a different width, which is what let a real 7px overflow in the
+    FRAME 1 heading pass here while failing in isolation
+    (maskingframe-2rg.11). The policy is set again explicitly rather than
+    trusted to whatever `TwoColumn` currently ships with, for the same
+    reason -- a viewport's width depends on whether that 8px is reserved at
+    all, and this test owns that fact rather than inheriting it.
+
+    Needs `isolated_settings` too: `MainWindow()` restores whatever border
+    was last stored, so without it this reads the developer's real,
+    unpredictable preferences instead of the state a test can reason about.
+
+    Both tabs are checked: FRAME 1 lives only on Split, but a future
+    overflow on Compose would be just as real and this used to only look.
+    """
     from maskingframe.gui.app import MainWindow
 
     window = MainWindow()
@@ -772,10 +826,83 @@ def test_no_rail_control_is_clipped_horizontally(qtbot: QtBot) -> None:
     window.show()
     qtbot.waitExposed(window)
 
+    for tab in (window.split, window.compose):
+        columns = tab.columns
+        columns.rail.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        qtbot.wait(0)
+        margins = columns.rail_layout.contentsMargins()
+        budget = columns.rail.viewport().width() - margins.left() - margins.right()
+        needed = columns.rail_content.minimumSizeHint().width()
+        offender = _widest_offender(columns.rail_content, budget)
+        assert needed <= budget, (
+            f"{type(tab).__name__} rail needs {needed}px against a {budget}px "
+            f"viewport ({needed - budget}px over) -- {_describe(offender)} is "
+            "the widest control"
+        )
+
+
+def test_no_frame1_summary_overflows_its_disclosure_header(
+    qtbot: QtBot, themed_app: QApplication, isolated_settings: Path
+) -> None:
+    """Pins maskingframe-2rg.11 at the level the bug actually lived at: not
+    one rendered state, but every state the FRAME 1 heading can show.
+
+    `test_no_rail_control_is_clipped_horizontally` only ever sees whatever
+    rows and border a fresh `SplitTab` opens on, which is why it missed
+    this -- the default state fit, and the state that overflowed needed a
+    row count and a stored border to both be set at once. This drives the
+    rows combo and the "Its own border" checkbox through every reachable
+    combination and measures the real header with real font metrics each
+    time, rather than trusting that the one combination someone thought to
+    render is the widest one.
+
+    Needs `isolated_settings`: driving the checkbox settles the border,
+    which writes it -- without this the loop would leave its last
+    combination sitting in the developer's real preferences file rather
+    than a throwaway one.
+
+    The shared slider is pushed to one tenth below `MAX_PERCENT` before the
+    loop starts. Left at its own default (9%) this would not have failed
+    before the fix either -- "9% border" is short -- and the bug as filed
+    came from a slider sitting on a longer reading (3.3%, 12.5%).
+    `f"{own:g}%"` has no fixed width, and a round number formats shorter
+    than one that isn't (`MAX_PERCENT` itself prints as "40", two
+    characters), so 39.9 rather than 40.0 is what exercises the widest
+    string the old scheme could ever print.
+    """
+    from maskingframe.gui.app import MainWindow
+    from maskingframe.gui.split_tab import ROW_WORDS
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.resize(1280, 900)
+    window.show()
+    qtbot.waitExposed(window)
+
     columns = window.split.columns
-    needed = columns.rail_content.minimumSizeHint().width()
-    assert needed <= columns.rail.viewport().width(), (
-        f"{needed - columns.rail.viewport().width()}px over"
+    columns.rail.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+    qtbot.wait(0)
+    margins = columns.rail_layout.contentsMargins()
+    budget = columns.rail.viewport().width() - margins.left() - margins.right()
+
+    window.split.border_controls.border_slider.setValue(pipeline.MAX_PERCENT - 0.1)
+    section = window.split.border_controls.frame1_section
+    frame1_check = window.split.border_controls.frame1_check
+    assert section is not None
+    assert frame1_check is not None
+    worst_width, worst_text = 0, ""
+    for rows in (1, *ROW_WORDS):
+        window.split.rows_combo.setCurrentIndex(rows - 1)
+        for own_border in (False, True):
+            frame1_check.setChecked(own_border)
+            qtbot.wait(0)
+            width = section.header.minimumSizeHint().width()
+            if width > worst_width:
+                worst_width, worst_text = width, section.header.text()
+
+    assert worst_width <= budget, (
+        f"{worst_width}px against a {budget}px budget -- {worst_text!r} is "
+        "the widest reachable heading"
     )
 
 
