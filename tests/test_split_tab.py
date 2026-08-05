@@ -344,6 +344,25 @@ def test_cut_frames_is_unpressable_when_folder_mode_names_a_file(
     assert tab.action_btn.isEnabled() is True
 
 
+def test_cut_frames_is_unpressable_when_single_mode_names_a_folder(
+    tab: SplitTab, tmp_path: Path
+) -> None:
+    """The reverse of `test_cut_frames_is_unpressable_when_folder_mode_names_
+    a_file`: One frame checked with a directory in the field is the same
+    defect, not a different one -- `process_image` would be the thing that
+    discovered it, mid-run, and failed on whatever PIL makes of a directory
+    (maskingframe-2rg.6)."""
+    tab.folder_radio.setChecked(True)
+    tab.source_row.setText(str(tmp_path))
+    assert tab.action_btn.isEnabled() is True
+
+    tab.single_radio.setChecked(True)
+    assert tab.action_btn.isEnabled() is False
+
+    tab.folder_radio.setChecked(True)
+    assert tab.action_btn.isEnabled() is True
+
+
 def test_each_of_the_four_source_states_says_something_true(
     qtbot: Any, tab: SplitTab, tmp_path: Path
 ) -> None:

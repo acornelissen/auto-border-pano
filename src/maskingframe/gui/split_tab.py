@@ -1268,18 +1268,24 @@ class SplitTab(QWidget):
         return bool(source) and not self.folder_radio.isChecked() and Path(source).is_file()
 
     def _mode_contradicts_source(self) -> bool:
-        """True when Whole folder is checked but the field names a file.
+        """True when the mode radio disagrees with what the field names.
 
-        The radio and the field can disagree -- checking Whole folder does
-        not clear a file already typed or browsed to -- and until now
-        nothing said so: `process_folder` was the thing that discovered it,
-        after the run had already started, and failed. A directory that does
-        not exist yet is not a contradiction the same way; it is left to the
-        run to report, exactly as an empty folder already is
-        (maskingframe-2rg.6).
+        The two can disagree either way -- switching mode does not clear a
+        path already typed or browsed to under the other one -- and until
+        now nothing said so: `process_folder` handed a file, or
+        `process_image` a directory, to PIL and let it fail, after the run
+        had already started. A path that does not exist yet is a
+        contradiction in neither direction -- `is_file()` and `is_dir()` are
+        both false for it -- and is left to the run to report, exactly as an
+        empty folder already is (maskingframe-2rg.6).
         """
         source = self.source_row.text()
-        return self.folder_radio.isChecked() and bool(source) and Path(source).is_file()
+        if not source:
+            return False
+        path = Path(source)
+        if self.folder_radio.isChecked():
+            return path.is_file()
+        return path.is_dir()
 
     def _apply_button_states(self) -> None:
         """The single place that decides which buttons are pressable.
@@ -1296,9 +1302,10 @@ class SplitTab(QWidget):
         single readable file. Without the non-empty check it stayed
         pressable with nothing chosen at all, and blamed a file the user
         never picked; without the contradiction check it stayed pressable
-        with Whole folder checked and a file in the field, and blamed
-        whatever `process_folder` made of that file -- both were rules
-        enforced by an error message instead of an unpressable control.
+        whichever way the mode and the field disagreed, and blamed whatever
+        `process_folder` or `process_image` made of the wrong kind of path --
+        all three were rules enforced by an error message instead of an
+        unpressable control.
         """
         self.action_btn.setEnabled(
             not self._running
