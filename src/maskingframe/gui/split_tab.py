@@ -127,25 +127,47 @@ comfortably longer than any repeat interval, so a held key renders once when
 it stops, and short enough that a single press still feels immediate. Only
 the render waits; the positions themselves move on the keystroke."""
 
-ROWS_OFF = "Off — the whole panorama"
-"""The first entry of the rows list. Named rather than blank, because a row
-that reads as empty looks like a missing value instead of the shape the
-thing has by default."""
+FRAME1_OFF_SUMMARY = "whole panorama"
+"""What frame 1's off state is called, in the heading and in the list.
+
+It lost its article twice, for the same reason at two different widths.
+First the folded FRAME 1 heading, which has a 284px budget to share with
+everything else in it, and where "whole panorama · own border" is the
+widest thing this section can ever show
+(`test_no_frame1_summary_overflows_its_disclosure_header` pins it). Then
+the rows list, which was thought to have room for "the whole panorama" and
+did not: against the 164px that combo really leaves, "Off — the whole
+panorama · 100%" needs 198px and "Off — whole panorama · 100%" still needs
+176 (`test_no_rows_entry_is_cut_off_in_the_layout_combo`).
+
+That 164px is the smaller of two bounds, and finding it took both.
+Measuring the way Qt measures a combobox said the entry fit by a pixel,
+because Qt does not know `shell.Combo` paints a chevron over the top; the
+rendered window said otherwise. But the chevron is not always the tighter
+of the two either -- which one binds moves with the rail's width -- so the
+test takes whichever is smaller rather than picking one."""
+
+ROWS_OFF = FRAME1_OFF_SUMMARY.capitalize()
+"""The first entry of the rows list. Named rather than blank, because an
+entry that reads as empty looks like a missing value instead of the shape
+the thing has by default.
+
+It said "Off — the whole panorama", then "Off — whole panorama", and both
+were cut off before the percentage (maskingframe-2rg.14). Dropping the
+"Off — " as well is not only what fits: it makes the four entries one
+parallel list of what the layout *is* -- whole panorama, two rows, three
+rows, four rows -- rather than one negation followed by three counts. The
+row's own label already says "Layout", so nothing has to carry the word
+"off" to say which setting is being read.
+
+Built from `FRAME1_OFF_SUMMARY` rather than repeating its words: both name
+the same state and both are held short by a measured test, and two copies
+of a phrase that has to stay short is a phrase that stops being short in
+one of them."""
 
 ROW_WORDS = {2: "Two rows", 3: "Three rows", 4: "Four rows"}
 """What each count is called. Only counts above one appear here; one row is
 `ROWS_OFF`, since one row is not really rows."""
-
-FRAME1_OFF_SUMMARY = "whole panorama"
-"""What the folded FRAME 1 heading calls the off state.
-
-Shorter than `ROWS_OFF`'s own sentence on purpose: a dropdown row can afford
-"the whole panorama", but the heading has a 284px budget to share with
-everything else in it, and "whole panorama · own border" is the widest
-heading this section can ever show
-(`test_no_frame1_summary_overflows_its_disclosure_header` pins that).
-Dropping "the" is the whole fix -- the words still say what frame 1 holds,
-just without the article a dropdown had room for."""
 
 UNCOUNTED_ACTION = "Cut frames"
 """The button's label while the count is unknown. Once it is known the

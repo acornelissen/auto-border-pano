@@ -24,6 +24,8 @@ from PySide6.QtWidgets import (
     QComboBox,
     QLabel,
     QLayout,
+    QStyle,
+    QStyleOptionComboBox,
     QWidget,
 )
 from pytestqt.qtbot import QtBot
@@ -1113,6 +1115,81 @@ def test_no_frame1_summary_overflows_its_disclosure_header(
     assert worst_width <= budget, (
         f"{worst_width}px against a {budget}px budget -- {worst_text!r} is "
         "the widest reachable heading"
+    )
+
+
+_COMBO_TEXT_INSET = 10
+"""Where a combo's text starts: the 1px border plus the 9px left padding
+that `theme.stylesheet()` gives `QComboBox`. Written down here rather than
+parsed out of the sheet, so a change to either has to be made in both places
+deliberately."""
+
+
+def test_no_rows_entry_is_cut_off_in_the_layout_combo(
+    qtbot: QtBot, themed_app: QApplication
+) -> None:
+    """Pins maskingframe-2rg.14. The Layout combo drew "Off — the whole
+    panorama ·" with the fill percentage missing, leaving a dangling
+    separator that reads as a typo -- and it was the *default* entry, so it
+    was what you saw before choosing anything.
+
+    Measured against the chevron rather than against the field's edge.
+    `shell.Combo` paints its own mark over the top of whatever Qt has
+    already drawn, so the field's own width is not what the text can have:
+    the mark starts `theme.M + Combo.ARROW` in from the right and the text
+    has to stop before it. Measuring the way Qt does said this fit by one
+    pixel, which is how it survived every other measured test in this file.
+
+    The percentages come from `padded_rows_fill`, so the widest reading is
+    a panorama whose row fills all of the frame -- three digits rather than
+    two. That is what `100%` stands in for here; no real panorama has to
+    reach it for the entry to be one character from being cut.
+    """
+    from maskingframe.gui.app import MainWindow
+    from maskingframe.gui.split_tab import ROW_WORDS, ROWS_OFF
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.resize(1280, 900)
+    window.show()
+    qtbot.waitExposed(window)
+
+    section = window.split.border_controls.frame1_section
+    assert section is not None
+    section.set_open(True)
+    qtbot.wait(0)
+
+    combo = window.split.rows_combo
+    metrics = combo.fontMetrics()
+    # Two bounds, and the text has to clear both. Qt elides against its own
+    # edit-field rect, which knows about the padding and the drop-down but
+    # not about the chevron; the chevron is painted over the top and starts
+    # `theme.M + ARROW` in from the right. Whichever is tighter is the one
+    # that cuts the value, and which of them that is moves with the rail's
+    # width -- so take the smaller rather than picking one.
+    option = QStyleOptionComboBox()
+    combo.initStyleOption(option)
+    qt_room = (
+        combo.style()
+        .subControlRect(
+            QStyle.ComplexControl.CC_ComboBox, option, QStyle.SubControl.SC_ComboBoxEditField, combo
+        )
+        .width()
+    )
+    chevron_room = combo.width() - theme.M - shell.Combo.ARROW - _COMBO_TEXT_INSET
+    room = min(qt_room, chevron_room)
+
+    worst_width, worst_text = 0, ""
+    for words in (ROWS_OFF, *ROW_WORDS.values()):
+        # The widest percentage the fill can ever print, not the one this
+        # panorama happens to give.
+        text = f"{words} · 100%"
+        width = metrics.horizontalAdvance(text)
+        if width > worst_width:
+            worst_width, worst_text = width, text
+
+    assert worst_width <= room, (
+        f"{worst_text!r} needs {worst_width}px and the combo leaves {room}px before the chevron"
     )
 
 
